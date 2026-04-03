@@ -1,0 +1,580 @@
+@import "tailwindcss";
+
+/* ============================================================
+   @cypherx/chat-ui Design Tokens
+
+   Premium warm-neutral palette for CypherX chat interfaces.
+   Content-first, warm, readable, with generous whitespace.
+   ============================================================ */
+
+@layer base {
+  :root {
+    /* --- Surface Colors (Warm Light) --- */
+    --cxc-bg: #FAFAF8;
+    --cxc-bg-subtle: #F5F4F0;
+    --cxc-bg-muted: #EEECE8;
+    --cxc-bg-overlay: rgba(0, 0, 0, 0.4);
+
+    /* --- Border Colors --- */
+    --cxc-border: #E5E2DC;
+    --cxc-border-subtle: #EDEAE4;
+    --cxc-border-focus: #A1A1A1;
+
+    /* --- Text Colors --- */
+    --cxc-text: #2D2B28;
+    --cxc-text-secondary: #6B665E;
+    --cxc-text-muted: #9C968C;
+    --cxc-text-inverse: #FAFAF8;
+
+    /* --- Accent Colors (Clean Neutral) --- */
+    --cxc-accent: #1C1C1C;
+    --cxc-accent-hover: #000000;
+    --cxc-accent-light: #F0F0F0;
+
+    /* --- Semantic Colors --- */
+    --cxc-success: #3D8C5C;
+    --cxc-success-light: #F0F8F3;
+    --cxc-warning: #C68A2E;
+    --cxc-warning-light: #FDF8ED;
+    --cxc-error: #C44D4D;
+    --cxc-error-light: #FDF0F0;
+
+    /* --- User Message Bubble (Dark pill) --- */
+    --cxc-user-bg: #2D2B28;
+    --cxc-user-text: #F5F4F0;
+
+    /* --- Assistant Message (No bubble, flows naturally) --- */
+    --cxc-assistant-bg: transparent;
+    --cxc-assistant-text: #2D2B28;
+
+    /* --- Code Blocks --- */
+    --cxc-code-bg: #1C1B19;
+    --cxc-code-text: #D6D2CB;
+    --cxc-code-header-bg: #262420;
+    --cxc-code-header-text: #8A857D;
+
+    /* --- Input --- */
+    --cxc-input-bg: #FFFFFF;
+    --cxc-input-border: #E5E2DC;
+    --cxc-input-focus: #C4784A;
+
+    /* --- Sidebar --- */
+    --cxc-sidebar-bg: #F5F4F0;
+    --cxc-sidebar-hover: #EEECE8;
+    --cxc-sidebar-active: #FDF4EE;
+
+    /* --- Typography (Inter, 2 weights only: 400 regular, 500 medium) --- */
+    --cxc-font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --cxc-font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', ui-monospace, monospace;
+    --cxc-letter-spacing: -0.15px;
+
+    /* --- Radius (8-12px only) --- */
+    --cxc-radius-sm: 8px;
+    --cxc-radius-md: 10px;
+    --cxc-radius-lg: 12px;
+    --cxc-radius-xl: 12px;
+    --cxc-radius-full: 9999px;
+
+    /* --- Shadows (warm tint) --- */
+    --cxc-shadow-sm: 0 1px 2px rgba(45, 43, 40, 0.04);
+    --cxc-shadow-md: 0 4px 12px rgba(45, 43, 40, 0.06);
+    --cxc-shadow-lg: 0 12px 32px rgba(45, 43, 40, 0.08);
+    --cxc-shadow-input: 0 2px 8px rgba(45, 43, 40, 0.05), 0 0 0 1px rgba(229, 226, 220, 0.6);
+
+    /* --- Spacing --- */
+    --cxc-sidebar-width: 280px;
+    --cxc-content-max-width: 720px;
+
+    /* --- Thinking / Action Indicator --- */
+    --cxc-thinking-color: #6B6B6B;
+    --cxc-action-line: #E5E2DC;
+
+    /* --- Shimmer (for TextShimmer gradient sweep on text) --- */
+    --cxc-shimmer-from: #9C968C;
+    --cxc-shimmer-via: #2D2B28;
+    --cxc-shimmer-to: #9C968C;
+
+    /* --- Easing --- */
+    --cxc-ease-accordion: cubic-bezier(0.165, 0.85, 0.45, 1);
+  }
+
+  /* --- Dark Mode (Warm Dark) --- */
+  .dark,
+  [data-theme="dark"] {
+    --cxc-bg: #1C1C1C;
+    --cxc-bg-subtle: #242424;
+    --cxc-bg-muted: #2C2C2C;
+    --cxc-bg-overlay: rgba(0, 0, 0, 0.6);
+
+    --cxc-border: #333333;
+    --cxc-border-subtle: #2A2A2A;
+    --cxc-border-focus: #A1A1A1;
+
+    --cxc-text: #E5E5E5;
+    --cxc-text-secondary: #A1A1A1;
+    --cxc-text-muted: #6B6B6B;
+    --cxc-text-inverse: #1C1C1C;
+
+    --cxc-accent: #E5E5E5;
+    --cxc-accent-hover: #FFFFFF;
+    --cxc-accent-light: rgba(229, 229, 229, 0.1);
+
+    --cxc-success: #5AAF7A;
+    --cxc-success-light: rgba(90, 175, 122, 0.12);
+    --cxc-warning: #D4A03E;
+    --cxc-warning-light: rgba(212, 160, 62, 0.12);
+    --cxc-error: #D46A6A;
+    --cxc-error-light: rgba(212, 106, 106, 0.12);
+
+    --cxc-user-bg: #2E2B25;
+    --cxc-user-text: #E8E5E0;
+    --cxc-assistant-bg: transparent;
+    --cxc-assistant-text: #E8E5E0;
+
+    --cxc-code-bg: #111010;
+    --cxc-code-text: #D0CCC5;
+    --cxc-code-header-bg: #1A1918;
+    --cxc-code-header-text: #605C55;
+
+    --cxc-input-bg: #242424;
+    --cxc-input-border: #333333;
+    --cxc-input-focus: #E5E5E5;
+
+    --cxc-sidebar-bg: #151412;
+    --cxc-sidebar-hover: #1F1D1A;
+    --cxc-sidebar-active: rgba(229, 229, 229, 0.08);
+
+    --cxc-shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.2);
+    --cxc-shadow-md: 0 4px 12px rgba(0, 0, 0, 0.3);
+    --cxc-shadow-lg: 0 12px 32px rgba(0, 0, 0, 0.4);
+    --cxc-shadow-input: 0 2px 8px rgba(0, 0, 0, 0.2), 0 0 0 1px rgba(53, 50, 41, 0.6);
+
+    --cxc-thinking-color: #A1A1A1;
+    --cxc-action-line: #333333;
+
+    --cxc-shimmer-from: #6B6B6B;
+    --cxc-shimmer-via: #E5E5E5;
+    --cxc-shimmer-to: #6B6B6B;
+  }
+}
+
+/* ============================================================
+   Tailwind v4 Theme Mapping
+   ============================================================ */
+
+@theme {
+  --color-cxc-bg: var(--cxc-bg);
+  --color-cxc-bg-subtle: var(--cxc-bg-subtle);
+  --color-cxc-bg-muted: var(--cxc-bg-muted);
+  --color-cxc-bg-overlay: var(--cxc-bg-overlay);
+
+  --color-cxc-border: var(--cxc-border);
+  --color-cxc-border-subtle: var(--cxc-border-subtle);
+  --color-cxc-border-focus: var(--cxc-border-focus);
+
+  --color-cxc-text: var(--cxc-text);
+  --color-cxc-text-secondary: var(--cxc-text-secondary);
+  --color-cxc-text-muted: var(--cxc-text-muted);
+  --color-cxc-text-inverse: var(--cxc-text-inverse);
+
+  --color-cxc-accent: var(--cxc-accent);
+  --color-cxc-accent-hover: var(--cxc-accent-hover);
+  --color-cxc-accent-light: var(--cxc-accent-light);
+
+  --color-cxc-success: var(--cxc-success);
+  --color-cxc-success-light: var(--cxc-success-light);
+  --color-cxc-warning: var(--cxc-warning);
+  --color-cxc-warning-light: var(--cxc-warning-light);
+  --color-cxc-error: var(--cxc-error);
+  --color-cxc-error-light: var(--cxc-error-light);
+
+  --color-cxc-user-bg: var(--cxc-user-bg);
+  --color-cxc-user-text: var(--cxc-user-text);
+  --color-cxc-assistant-bg: var(--cxc-assistant-bg);
+  --color-cxc-assistant-text: var(--cxc-assistant-text);
+
+  --color-cxc-code-bg: var(--cxc-code-bg);
+  --color-cxc-code-text: var(--cxc-code-text);
+  --color-cxc-code-header-bg: var(--cxc-code-header-bg);
+  --color-cxc-code-header-text: var(--cxc-code-header-text);
+
+  --color-cxc-input-bg: var(--cxc-input-bg);
+  --color-cxc-input-border: var(--cxc-input-border);
+  --color-cxc-input-focus: var(--cxc-input-focus);
+
+  --color-cxc-sidebar-bg: var(--cxc-sidebar-bg);
+  --color-cxc-sidebar-hover: var(--cxc-sidebar-hover);
+  --color-cxc-sidebar-active: var(--cxc-sidebar-active);
+
+  --color-cxc-thinking: var(--cxc-thinking-color);
+  --color-cxc-shimmer-from: var(--cxc-shimmer-from);
+  --color-cxc-shimmer-via: var(--cxc-shimmer-via);
+
+  --font-family-cxc-sans: var(--cxc-font-sans);
+  --font-family-cxc-serif: var(--cxc-font-serif);
+  --font-family-cxc-mono: var(--cxc-font-mono);
+
+  --radius-cxc-sm: var(--cxc-radius-sm);
+  --radius-cxc-md: var(--cxc-radius-md);
+  --radius-cxc-lg: var(--cxc-radius-lg);
+  --radius-cxc-xl: var(--cxc-radius-xl);
+  --radius-cxc-full: var(--cxc-radius-full);
+
+  --shadow-cxc-sm: var(--cxc-shadow-sm);
+  --shadow-cxc-md: var(--cxc-shadow-md);
+  --shadow-cxc-lg: var(--cxc-shadow-lg);
+  --shadow-cxc-input: var(--cxc-shadow-input);
+}
+
+/* ============================================================
+   Base Root Styles
+   ============================================================ */
+
+.cxc-root {
+  font-family: var(--cxc-font-sans);
+  color: var(--cxc-text);
+  background: var(--cxc-bg);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  font-feature-settings: 'liga' 1, 'kern' 1;
+  letter-spacing: var(--cxc-letter-spacing);
+  line-height: 1.6;
+  font-weight: 400;
+}
+
+/* Only 2 font weights: 400 (regular) for body, 500 (medium) for headings/emphasis */
+.cxc-root h1, .cxc-root h2, .cxc-root h3, .cxc-root h4, .cxc-root h5, .cxc-root h6,
+.cxc-root strong, .cxc-root b {
+  font-weight: 500;
+}
+
+/* ============================================================
+   Custom Scrollbar (near-invisible, barely-there)
+   ============================================================ */
+
+.cxc-scrollbar::-webkit-scrollbar {
+  width: 5px;
+}
+.cxc-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+.cxc-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--cxc-border);
+  border-radius: var(--cxc-radius-full);
+}
+.cxc-scrollbar::-webkit-scrollbar-thumb:hover {
+  background: var(--cxc-text-muted);
+}
+
+/* Firefox scrollbar */
+.cxc-scrollbar {
+  scrollbar-width: thin;
+  scrollbar-color: var(--cxc-border) transparent;
+}
+
+/* ============================================================
+   Thinking Shimmer Animation
+
+   A subtle horizontal shimmer bar that pulses gently.
+   Replaces the old bouncing dots with a more refined indicator.
+   ============================================================ */
+
+@keyframes cxc-shimmer {
+  0% {
+    background-position: -200% 0;
+  }
+  100% {
+    background-position: 200% 0;
+  }
+}
+
+.cxc-thinking-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--cxc-border) 0%,
+    var(--cxc-thinking-color) 50%,
+    var(--cxc-border) 100%
+  );
+  background-size: 200% 100%;
+  animation: cxc-shimmer 2s ease-in-out infinite;
+}
+
+@keyframes cxc-pulse-soft {
+  0%, 100% { opacity: 0.5; }
+  50% { opacity: 1; }
+}
+
+.cxc-thinking-pulse {
+  animation: cxc-pulse-soft 2s ease-in-out infinite;
+}
+
+/* ============================================================
+   Action Timeline Indicator
+
+   Vertical line + dot styling for the CypherX-style
+   collapsible action/thinking section.
+   ============================================================ */
+
+@keyframes cxc-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+.cxc-spin {
+  animation: cxc-spin 1s linear infinite;
+}
+
+/* ============================================================
+   Text Shimmer Animation
+
+   Gradient sweep across text via bg-clip-text.
+   background-position slides a 200%-wide gradient
+   from right to left, creating the shimmering text effect.
+   ============================================================ */
+
+@keyframes cxc-text-shimmer {
+  0% {
+    background-position: 100% 50%;
+  }
+  100% {
+    background-position: 0% 50%;
+  }
+}
+
+.cxc-text-shimmer {
+  background: linear-gradient(
+    90deg,
+    var(--cxc-shimmer-from) 0%,
+    var(--cxc-shimmer-from) 40%,
+    var(--cxc-shimmer-via) 50%,
+    var(--cxc-shimmer-from) 60%,
+    var(--cxc-shimmer-from) 100%
+  );
+  background-size: 200% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+  animation: cxc-text-shimmer var(--cxc-shimmer-duration, 2s) linear infinite;
+}
+
+/* ============================================================
+   Streaming Cursor
+   ============================================================ */
+
+@keyframes cxc-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+.cxc-cursor {
+  animation: cxc-cursor-blink 1.1s step-end infinite;
+}
+
+/* ============================================================
+   Markdown Content Styles
+
+   Warm, readable typography with generous spacing.
+   Body text uses the serif font for that warm, editorial feel.
+   ============================================================ */
+
+.cxc-markdown {
+  line-height: 1.7;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+  letter-spacing: -0.003em;
+  overflow-x: hidden;
+}
+
+.cxc-markdown p {
+  margin-bottom: 0.85em;
+}
+.cxc-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.cxc-markdown strong {
+  font-weight: 600;
+  color: var(--cxc-text);
+}
+
+.cxc-markdown em {
+  font-style: italic;
+}
+
+.cxc-markdown del {
+  text-decoration: line-through;
+  opacity: 0.6;
+}
+
+.cxc-markdown a {
+  color: var(--cxc-accent);
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  transition: color 0.15s ease;
+}
+.cxc-markdown a:hover {
+  color: var(--cxc-accent-hover);
+}
+
+.cxc-markdown code:not(pre code) {
+  background: var(--cxc-bg-muted);
+  padding: 0.15em 0.4em;
+  border-radius: var(--cxc-radius-sm);
+  font-family: var(--cxc-font-mono);
+  font-size: 0.85em;
+  color: var(--cxc-text);
+  border: 1px solid var(--cxc-border-subtle);
+}
+
+.cxc-markdown h3,
+.cxc-markdown h4,
+.cxc-markdown h5,
+.cxc-markdown h6 {
+  font-weight: 600;
+  margin-top: 1.5em;
+  margin-bottom: 0.6em;
+  line-height: 1.35;
+  color: var(--cxc-text);
+  letter-spacing: -0.01em;
+}
+.cxc-markdown h3 { font-size: 1.15em; }
+.cxc-markdown h4 { font-size: 1.05em; }
+.cxc-markdown h5 { font-size: 0.95em; }
+.cxc-markdown h6 { font-size: 0.875em; }
+
+.cxc-markdown ul,
+.cxc-markdown ol {
+  margin-bottom: 0.85em;
+  padding-left: 1.6em;
+}
+
+.cxc-markdown ul {
+  list-style-type: disc;
+}
+
+.cxc-markdown ol {
+  list-style-type: decimal;
+}
+
+.cxc-markdown li {
+  margin-bottom: 0.35em;
+  line-height: 1.65;
+}
+
+.cxc-markdown li > ul,
+.cxc-markdown li > ol {
+  margin-top: 0.35em;
+  margin-bottom: 0;
+}
+
+.cxc-markdown blockquote {
+  border-left: 3px solid var(--cxc-accent);
+  padding-left: 1.2em;
+  margin-left: 0;
+  margin-bottom: 0.85em;
+  color: var(--cxc-text-secondary);
+  font-style: italic;
+}
+
+.cxc-markdown hr {
+  border: none;
+  border-top: 1px solid var(--cxc-border);
+  margin: 2em 0;
+}
+
+/* Table styles */
+.cxc-table-scroll {
+  overflow-x: auto;
+  margin-bottom: 0.85em;
+  border-radius: var(--cxc-radius-md);
+  border: 1px solid var(--cxc-border);
+}
+
+.cxc-markdown table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.875em;
+}
+
+.cxc-markdown th,
+.cxc-markdown td {
+  padding: 0.6em 0.85em;
+  border: 1px solid var(--cxc-border);
+  text-align: left;
+}
+
+.cxc-markdown th {
+  background: var(--cxc-bg-subtle);
+  font-weight: 600;
+  color: var(--cxc-text);
+}
+
+.cxc-markdown tr:nth-child(even) td {
+  background: var(--cxc-bg-subtle);
+}
+
+/* ============================================================
+   Widget Overlay
+   ============================================================ */
+
+@keyframes cxc-fade-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes cxc-fade-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+/* ============================================================
+   Compact Mode (for ChatWidget / embedded contexts)
+
+   Tightens padding and spacing so content fills the panel
+   instead of floating in whitespace.
+   ============================================================ */
+
+.cxc-compact .cxc-scrollbar > div {
+  padding: 12px 16px;
+}
+
+.cxc-compact [role="article"] {
+  padding-top: 6px;
+  padding-bottom: 6px;
+}
+
+.cxc-compact .cxc-markdown {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.cxc-compact .cxc-prompt-input-wrap {
+  padding: 8px 12px 12px;
+}
+
+/* ============================================================
+   Reduced Motion Support
+   ============================================================ */
+
+@media (prefers-reduced-motion: reduce) {
+  .cxc-thinking-shimmer {
+    animation: none;
+    opacity: 0.6;
+  }
+  .cxc-thinking-pulse {
+    animation: none;
+    opacity: 0.8;
+  }
+  .cxc-text-shimmer {
+    animation: none;
+    -webkit-text-fill-color: var(--cxc-text-muted);
+  }
+  .cxc-cursor {
+    animation: none;
+    opacity: 1;
+  }
+  .cxc-spin {
+    animation: none;
+  }
+}
