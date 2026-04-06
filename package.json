@@ -29,7 +29,7 @@
   "scripts": {
     "build": "tsup",
     "postbuild": "npx @tailwindcss/cli -i src/styles/globals.css -o dist/styles.css",
-    "prepare": "npm run build",
+    "prepublishOnly": "npm run build",
     "dev": "tsup --watch",
     "demo": "vite",
     "lint": "tsc --noEmit",

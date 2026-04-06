@@ -59,7 +59,7 @@ function Step({
 }) {
   return (
     <div style={{ paddingLeft: depth > 0 ? `${depth * 16}px` : undefined }}>
-      <div className="flex items-start gap-2.5 py-1.5 relative">
+      <div className="flex items-center gap-2.5 py-1.5 relative">
         {/* Vertical connector line */}
         {!isLast && (
           <div
@@ -71,7 +71,7 @@ function Step({
 
         {/* Status icon with bg mask */}
         <div
-          className="mt-0.5 shrink-0 relative z-10 flex items-center justify-center"
+          className="shrink-0 relative z-10 flex items-center justify-center"
           style={{ backgroundColor: 'var(--cxc-bg)' }}
         >
           <StepIcon status={action.status} />

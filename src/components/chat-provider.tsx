@@ -214,6 +214,10 @@ export function ChatProvider({
     dispatch({ type: 'RESET' })
   }, [])
 
+  const setMessages = useCallback((messages: ChatMessage[]) => {
+    dispatch({ type: 'SET_MESSAGES', messages })
+  }, [])
+
   const loadSession = useCallback(
     async (sessionId: string) => {
       if (!sessionAdapter?.get) return
@@ -259,11 +263,12 @@ export function ChatProvider({
       retry,
       setInput,
       clearMessages,
+      setMessages,
       loadSession,
       deleteSession,
       newConversation,
     }),
-    [state, config, send, stop, retry, setInput, clearMessages, loadSession, deleteSession, newConversation]
+    [state, config, send, stop, retry, setInput, clearMessages, setMessages, loadSession, deleteSession, newConversation]
   )
 
   return (

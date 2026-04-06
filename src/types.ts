@@ -428,6 +428,7 @@ export interface ChatContextValue {
   retry: (messageId: string) => void
   setInput: (value: string) => void
   clearMessages: () => void
+  setMessages: (messages: ChatMessage[]) => void
   loadSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   newConversation: () => void

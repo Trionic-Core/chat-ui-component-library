@@ -82,7 +82,7 @@ function ActionItem({
 }) {
   return (
     <div style={{ paddingLeft: depth > 0 ? `${depth * 16}px` : undefined }}>
-      <div className="flex items-start gap-2.5 py-2 relative">
+      <div className="flex items-center gap-2.5 py-2 relative">
         {/* Timeline vertical line segment */}
         {!isLast && (
           <div
@@ -94,7 +94,7 @@ function ActionItem({
 
         {/* Status icon (positioned over the timeline line) */}
         <div
-          className="mt-0.5 shrink-0 relative z-10 flex items-center justify-center"
+          className="shrink-0 relative z-10 flex items-center justify-center"
           style={{
             /* Small bg circle behind icon to mask the line */
             backgroundColor: 'var(--cxc-bg)',

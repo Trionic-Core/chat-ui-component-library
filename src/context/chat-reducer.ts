@@ -105,6 +105,12 @@ export function chatReducer(state: ChatState, action: ChatReducerAction): ChatSt
         messages: updateMessage(state.messages, action.messageId, (msg) => ({
           ...msg,
           isStreaming: false,
+          // Auto-complete any running/pending actions when the message finalizes
+          actions: msg.actions?.map((a) =>
+            a.status === 'running' || a.status === 'pending'
+              ? { ...a, status: 'completed' as const }
+              : a
+          ),
         })),
         activeSessionId: action.sessionId ?? state.activeSessionId,
       }
