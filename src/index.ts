@@ -35,6 +35,8 @@ export type {
   ChainOfThoughtProps,
   FileAttachment,
   PromptInputProps,
+  ModeSwitchOption,
+  ModeSwitchProps,
 } from './types'
 
 // Export the ChatMessage interface under an alias to avoid collision
@@ -61,6 +63,7 @@ export { TextShimmer } from './components/text-shimmer'
 export { MessageActionBar } from './components/message-action-bar'
 export { ChainOfThought } from './components/chain-of-thought'
 export { PromptInput } from './components/prompt-input'
+export { ModeSwitch } from './components/mode-switch'
 
 // Context
 export { useChatContext } from './context/chat-context'

@@ -392,6 +392,34 @@ export type ChatReducerAction =
 // Context Types
 // ============================================================================
 
+// ============================================================================
+// Mode Switch Types
+// ============================================================================
+
+export interface ModeSwitchOption {
+  /** Unique value for this option */
+  value: string
+  /** Display label */
+  label: string
+  /** Optional icon (React node) */
+  icon?: React.ReactNode
+}
+
+export interface ModeSwitchProps {
+  /** The available options (2-4 items) */
+  options: ModeSwitchOption[]
+  /** Currently active value */
+  value: string
+  /** Called when the user selects a different option */
+  onChange: (value: string) => void
+  /** Additional CSS class */
+  className?: string
+}
+
+// ============================================================================
+// Context Types
+// ============================================================================
+
 export interface ChatContextValue {
   state: ChatState
   config: ChatConfig
