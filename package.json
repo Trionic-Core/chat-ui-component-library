@@ -1,6 +1,6 @@
 {
   "name": "@cypherx/chat-ui",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Production-ready chat UI components for streaming AI interfaces. SSE support, session management, action indicators, and more.",
   "type": "module",
   "main": "./dist/index.cjs",

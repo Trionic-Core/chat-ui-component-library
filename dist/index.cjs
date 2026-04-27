@@ -91,12 +91,39 @@ function chatReducer(state, action) {
           actions: msg.actions ? updateActionInTree(msg.actions, action.actionId, action.status, action.detail) : []
         }))
       };
+    case "SET_FOLLOWUPS":
+      return {
+        ...state,
+        messages: updateMessage(state.messages, action.messageId, (msg) => ({
+          ...msg,
+          followups: action.followups
+        }))
+      };
+    case "LOCK_FOLLOWUPS":
+      return {
+        ...state,
+        messages: updateMessage(state.messages, action.messageId, (msg) => ({
+          ...msg,
+          followupsSelection: action.selection
+        }))
+      };
+    case "SET_FEEDBACK":
+      return {
+        ...state,
+        messages: updateMessage(state.messages, action.messageId, (msg) => ({
+          ...msg,
+          feedback: action.feedback
+        }))
+      };
     case "FINALIZE_MESSAGE":
       return {
         ...state,
         messages: updateMessage(state.messages, action.messageId, (msg) => ({
           ...msg,
           isStreaming: false,
+          // Capture the backend's persisted message id so feedback / regen
+          // can target this turn after streaming completes.
+          backendMessageId: action.backendMessageId ?? msg.backendMessageId,
           // Auto-complete any running/pending actions when the message finalizes
           actions: msg.actions?.map(
             (a) => a.status === "running" || a.status === "pending" ? { ...a, status: "completed" } : a
@@ -104,6 +131,21 @@ function chatReducer(state, action) {
         })),
         activeSessionId: action.sessionId ?? state.activeSessionId
       };
+    case "TRIM_LAST_PAIR": {
+      const msgs = state.messages;
+      const last = msgs[msgs.length - 1];
+      if (!last) return state;
+      let dropCount = 1;
+      if (last.role === "assistant" && msgs.length >= 2 && msgs[msgs.length - 2].role === "user") {
+        dropCount = 2;
+      } else if (last.role === "user" && msgs.length >= 2 && msgs[msgs.length - 2].role === "assistant") {
+        dropCount = 1;
+      }
+      return {
+        ...state,
+        messages: msgs.slice(0, msgs.length - dropCount)
+      };
+    }
     case "SET_ERROR":
       return {
         ...state,
@@ -182,7 +224,9 @@ function ChatProvider({
   maxInputLength = 1e4,
   placeholder,
   autoFocus = true,
-  actionLabels
+  actionLabels,
+  feedback,
+  enableRegenerate = false
 }) {
   const [state, dispatch] = react.useReducer(chatReducer, {
     ...initialChatState,
@@ -200,9 +244,11 @@ function ChatProvider({
       maxInputLength,
       placeholder,
       autoFocus,
-      actionLabels
+      actionLabels,
+      feedback,
+      enableRegenerate
     }),
-    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels]
+    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, enableRegenerate]
   );
   const send = react.useCallback(
     (message, metadata) => {
@@ -268,11 +314,19 @@ function ChatProvider({
                   detail: event.detail
                 });
                 break;
+              case "followups":
+                dispatch({
+                  type: "SET_FOLLOWUPS",
+                  messageId: assistantMessage.id,
+                  followups: event.followups
+                });
+                break;
               case "done":
                 dispatch({
                   type: "FINALIZE_MESSAGE",
                   messageId: assistantMessage.id,
-                  sessionId: event.sessionId
+                  sessionId: event.sessionId,
+                  backendMessageId: event.messageId
                 });
                 break;
               case "error":
@@ -360,6 +414,64 @@ function ChatProvider({
     }
     dispatch({ type: "RESET" });
   }, [stop]);
+  const selectFollowup = react.useCallback(
+    (messageId, options) => {
+      if (options.length === 0) return;
+      dispatch({ type: "LOCK_FOLLOWUPS", messageId, selection: options });
+      const text = options.join(", ");
+      send(text);
+    },
+    [send]
+  );
+  const submitFeedback = react.useCallback(
+    async (messageId, fb) => {
+      if (!feedback) return;
+      const msg = state.messages.find((m) => m.id === messageId);
+      const backendId = msg?.backendMessageId;
+      if (!backendId) return;
+      const previous = msg?.feedback ?? null;
+      dispatch({ type: "SET_FEEDBACK", messageId, feedback: fb });
+      try {
+        await feedback.submit(backendId, fb);
+      } catch (err) {
+        dispatch({ type: "SET_FEEDBACK", messageId, feedback: previous });
+        throw err;
+      }
+    },
+    [feedback, state.messages]
+  );
+  const removeFeedback = react.useCallback(
+    async (messageId) => {
+      if (!feedback) return;
+      const msg = state.messages.find((m) => m.id === messageId);
+      const backendId = msg?.backendMessageId;
+      if (!backendId) return;
+      const previous = msg?.feedback ?? null;
+      dispatch({ type: "SET_FEEDBACK", messageId, feedback: null });
+      try {
+        await feedback.remove(backendId);
+      } catch (err) {
+        dispatch({ type: "SET_FEEDBACK", messageId, feedback: previous });
+        throw err;
+      }
+    },
+    [feedback, state.messages]
+  );
+  const editAndRegenerate = react.useCallback(
+    (newContent) => {
+      const trimmed = newContent.trim();
+      if (!trimmed) return;
+      dispatch({ type: "TRIM_LAST_PAIR" });
+      send(trimmed, { regenerate: true });
+    },
+    [send]
+  );
+  const regenerateLast = react.useCallback(() => {
+    const lastUser = [...state.messages].reverse().find((m) => m.role === "user");
+    if (!lastUser) return;
+    dispatch({ type: "TRIM_LAST_PAIR" });
+    send(lastUser.content, { regenerate: true });
+  }, [state.messages, send]);
   const contextValue = react.useMemo(
     () => ({
       state,
@@ -372,9 +484,31 @@ function ChatProvider({
       setMessages,
       loadSession,
       deleteSession,
-      newConversation
+      newConversation,
+      selectFollowup,
+      submitFeedback,
+      removeFeedback,
+      editAndRegenerate,
+      regenerateLast
     }),
-    [state, config, send, stop, retry, setInput, clearMessages, setMessages, loadSession, deleteSession, newConversation]
+    [
+      state,
+      config,
+      send,
+      stop,
+      retry,
+      setInput,
+      clearMessages,
+      setMessages,
+      loadSession,
+      deleteSession,
+      newConversation,
+      selectFollowup,
+      submitFeedback,
+      removeFeedback,
+      editAndRegenerate,
+      regenerateLast
+    ]
   );
   return /* @__PURE__ */ jsxRuntime.jsx(ChatContext.Provider, { value: contextValue, children });
 }
@@ -982,6 +1116,8 @@ function MessageActionBar({
   onCopy,
   onRetry,
   onEdit,
+  feedback,
+  onFeedback,
   className
 }) {
   const [copied, setCopied] = react.useState(false);
@@ -1032,8 +1168,18 @@ function MessageActionBar({
     });
   }
   const allActions = [...defaultActions, ...actions ?? []];
-  if (allActions.length === 0) return null;
-  return /* @__PURE__ */ jsxRuntime.jsx(
+  const showFeedback = Boolean(onFeedback);
+  const currentRating = feedback?.rating ?? null;
+  const handleUp = react.useCallback(() => {
+    if (!onFeedback) return;
+    onFeedback("up");
+  }, [onFeedback]);
+  const handleDown = react.useCallback(() => {
+    if (!onFeedback) return;
+    onFeedback("down");
+  }, [onFeedback]);
+  if (allActions.length === 0 && !showFeedback) return null;
+  return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "relative", children: /* @__PURE__ */ jsxRuntime.jsxs(
     "div",
     {
       className: cn(
@@ -1045,45 +1191,523 @@ function MessageActionBar({
       ),
       role: "toolbar",
       "aria-label": "Message actions",
-      children: allActions.map((action) => /* @__PURE__ */ jsxRuntime.jsx(
-        "button",
-        {
-          type: "button",
-          onClick: action.onClick,
-          className: cn(
-            "flex h-7 w-7 items-center justify-center",
-            "rounded-[var(--cxc-radius-sm)]",
-            "transition-colors duration-100",
-            "focus-visible:outline-none focus-visible:ring-2",
-            "focus-visible:ring-[var(--cxc-border-focus)]"
+      children: [
+        allActions.map((action) => /* @__PURE__ */ jsxRuntime.jsx(
+          "button",
+          {
+            type: "button",
+            onClick: action.onClick,
+            className: cn(
+              "flex h-7 w-7 items-center justify-center",
+              "rounded-[var(--cxc-radius-sm)]",
+              "transition-colors duration-100",
+              "focus-visible:outline-none focus-visible:ring-2",
+              "focus-visible:ring-[var(--cxc-border-focus)]"
+            ),
+            style: { color: "var(--cxc-text-muted)" },
+            onMouseOver: (e) => {
+              e.currentTarget.style.backgroundColor = "var(--cxc-bg-muted)";
+              e.currentTarget.style.color = "var(--cxc-text-secondary)";
+            },
+            onMouseOut: (e) => {
+              e.currentTarget.style.backgroundColor = "transparent";
+              e.currentTarget.style.color = "var(--cxc-text-muted)";
+            },
+            "aria-label": action.label,
+            title: action.label,
+            children: action.icon
+          },
+          action.id
+        )),
+        showFeedback && /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              type: "button",
+              onClick: handleUp,
+              className: cn(
+                "flex h-7 w-7 items-center justify-center",
+                "rounded-[var(--cxc-radius-sm)]",
+                "transition-colors duration-100",
+                "focus-visible:outline-none focus-visible:ring-2",
+                "focus-visible:ring-[var(--cxc-border-focus)]"
+              ),
+              style: {
+                color: currentRating === "up" ? "var(--cxc-text)" : "var(--cxc-text-muted)"
+              },
+              onMouseOver: (e) => {
+                if (currentRating !== "up") {
+                  e.currentTarget.style.backgroundColor = "var(--cxc-bg-muted)";
+                  e.currentTarget.style.color = "var(--cxc-text-secondary)";
+                }
+              },
+              onMouseOut: (e) => {
+                if (currentRating !== "up") {
+                  e.currentTarget.style.backgroundColor = "transparent";
+                  e.currentTarget.style.color = "var(--cxc-text-muted)";
+                }
+              },
+              "aria-label": currentRating === "up" ? "Liked" : "Like",
+              "aria-pressed": currentRating === "up",
+              title: currentRating === "up" ? "Liked" : "Like",
+              children: /* @__PURE__ */ jsxRuntime.jsx(lucideReact.ThumbsUp, { size: 14, fill: currentRating === "up" ? "currentColor" : "none" })
+            }
           ),
-          style: { color: "var(--cxc-text-muted)" },
-          onMouseOver: (e) => {
-            e.currentTarget.style.backgroundColor = "var(--cxc-bg-muted)";
-            e.currentTarget.style.color = "var(--cxc-text-secondary)";
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              type: "button",
+              onClick: handleDown,
+              className: cn(
+                "flex h-7 w-7 items-center justify-center",
+                "rounded-[var(--cxc-radius-sm)]",
+                "transition-colors duration-100",
+                "focus-visible:outline-none focus-visible:ring-2",
+                "focus-visible:ring-[var(--cxc-border-focus)]"
+              ),
+              style: {
+                color: currentRating === "down" ? "var(--cxc-text)" : "var(--cxc-text-muted)"
+              },
+              onMouseOver: (e) => {
+                if (currentRating !== "down") {
+                  e.currentTarget.style.backgroundColor = "var(--cxc-bg-muted)";
+                  e.currentTarget.style.color = "var(--cxc-text-secondary)";
+                }
+              },
+              onMouseOut: (e) => {
+                if (currentRating !== "down") {
+                  e.currentTarget.style.backgroundColor = "transparent";
+                  e.currentTarget.style.color = "var(--cxc-text-muted)";
+                }
+              },
+              "aria-label": currentRating === "down" ? "Disliked" : "Dislike",
+              "aria-pressed": currentRating === "down",
+              title: currentRating === "down" ? "Disliked" : "Dislike",
+              children: /* @__PURE__ */ jsxRuntime.jsx(lucideReact.ThumbsDown, { size: 14, fill: currentRating === "down" ? "currentColor" : "none" })
+            }
+          )
+        ] })
+      ]
+    }
+  ) });
+}
+var OTHER_LABEL = "Other (specify)";
+function FollowupsCard({
+  followups,
+  lockedSelection,
+  onSelect,
+  className
+}) {
+  const isLocked = Array.isArray(lockedSelection);
+  const [checked, setChecked] = react.useState(/* @__PURE__ */ new Set());
+  const [otherActive, setOtherActive] = react.useState(false);
+  const [otherText, setOtherText] = react.useState("");
+  const otherInputRef = react.useRef(null);
+  react.useEffect(() => {
+    if (otherActive && otherInputRef.current) {
+      otherInputRef.current.focus();
+    }
+  }, [otherActive]);
+  const lockedSet = react.useMemo(
+    () => new Set(lockedSelection ?? []),
+    [lockedSelection]
+  );
+  const submitSingle = react.useCallback(
+    (option) => {
+      if (isLocked) return;
+      if (option === OTHER_LABEL) {
+        setOtherActive(true);
+        return;
+      }
+      onSelect([option]);
+    },
+    [isLocked, onSelect]
+  );
+  const toggleMulti = react.useCallback(
+    (option) => {
+      if (isLocked) return;
+      if (option === OTHER_LABEL) {
+        setOtherActive((prev) => !prev);
+        return;
+      }
+      setChecked((prev) => {
+        const next = new Set(prev);
+        if (next.has(option)) next.delete(option);
+        else next.add(option);
+        return next;
+      });
+    },
+    [isLocked]
+  );
+  const submitMulti = react.useCallback(() => {
+    if (isLocked) return;
+    const picks = [];
+    for (const opt of followups.options) {
+      if (opt === OTHER_LABEL) continue;
+      if (checked.has(opt)) picks.push(opt);
+    }
+    if (otherActive && otherText.trim()) {
+      picks.push(otherText.trim());
+    }
+    if (picks.length === 0) return;
+    onSelect(picks);
+  }, [isLocked, followups.options, checked, otherActive, otherText, onSelect]);
+  const submitOther = react.useCallback(() => {
+    if (isLocked) return;
+    const t = otherText.trim();
+    if (!t) return;
+    onSelect([t]);
+  }, [isLocked, otherText, onSelect]);
+  const hasMultiSelection = checked.size > 0 || otherActive && otherText.trim().length > 0;
+  return /* @__PURE__ */ jsxRuntime.jsxs(
+    react$1.motion.div,
+    {
+      role: "group",
+      "aria-label": followups.label,
+      initial: { opacity: 0, y: 4 },
+      animate: { opacity: 1, y: 0 },
+      transition: { duration: 0.18, ease: [0.25, 0.1, 0.25, 1] },
+      className: cn(
+        "mt-3 rounded-[var(--cxc-radius-lg)] px-3.5 py-3",
+        className
+      ),
+      style: {
+        backgroundColor: "var(--cxc-bg-subtle)",
+        border: "1px solid var(--cxc-border-subtle)"
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "mb-2.5 flex items-center justify-between gap-2", children: [
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "p",
+            {
+              className: "text-[12px] font-medium tracking-wide uppercase",
+              style: { color: "var(--cxc-text-muted)" },
+              children: followups.label
+            }
+          ),
+          isLocked && /* @__PURE__ */ jsxRuntime.jsxs(
+            "span",
+            {
+              className: "inline-flex items-center gap-1 text-[11px] font-medium leading-none",
+              style: { color: "var(--cxc-text-muted)" },
+              children: [
+                /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Lock, { size: 11, strokeWidth: 2.2, className: "shrink-0 -mt-px" }),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { className: "leading-none", children: lockedSelection && lockedSelection.length > 0 ? "Selected" : "Closed" })
+              ]
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "flex flex-wrap gap-1.5", children: followups.options.map((opt) => {
+          const isOther = opt === OTHER_LABEL;
+          const isChecked = followups.multi && checked.has(opt);
+          const isLockedPick = lockedSet.has(opt);
+          isLocked && !lockedSet.has(opt) && isOther === false && // If the locked selection has an item that isn't in options, that
+          // was an Other-typed value — we render the OTHER_LABEL pill as
+          // un-picked and surface the typed value as a separate locked pill below.
+          false;
+          return /* @__PURE__ */ jsxRuntime.jsxs(
+            "button",
+            {
+              type: "button",
+              disabled: isLocked,
+              onClick: () => followups.multi ? toggleMulti(opt) : submitSingle(opt),
+              className: cn(
+                "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-[13px]",
+                "transition-colors duration-100 outline-none",
+                "focus-visible:ring-2 focus-visible:ring-[var(--cxc-border-focus)]",
+                isLocked && "cursor-default"
+              ),
+              style: {
+                backgroundColor: isLockedPick ? "var(--cxc-accent-subtle, var(--cxc-bg-muted))" : isChecked ? "var(--cxc-bg-muted)" : "var(--cxc-bg)",
+                color: isLockedPick ? "var(--cxc-text)" : "var(--cxc-text-secondary)",
+                border: `1px solid ${isLockedPick ? "var(--cxc-border)" : isChecked ? "var(--cxc-border)" : "var(--cxc-border-subtle)"}`,
+                opacity: isLocked && !isLockedPick && true ? 0.5 : 1
+              },
+              onMouseOver: (e) => {
+                if (isLocked) return;
+                e.currentTarget.style.backgroundColor = "var(--cxc-bg-muted)";
+                e.currentTarget.style.color = "var(--cxc-text)";
+              },
+              onMouseOut: (e) => {
+                if (isLocked) return;
+                e.currentTarget.style.backgroundColor = isChecked ? "var(--cxc-bg-muted)" : "var(--cxc-bg)";
+                e.currentTarget.style.color = "var(--cxc-text-secondary)";
+              },
+              children: [
+                followups.multi && !isOther && /* @__PURE__ */ jsxRuntime.jsx(
+                  "span",
+                  {
+                    "aria-hidden": true,
+                    className: "inline-flex h-3.5 w-3.5 items-center justify-center rounded-[3px]",
+                    style: {
+                      border: `1px solid ${isChecked ? "var(--cxc-text)" : "var(--cxc-border)"}`,
+                      backgroundColor: isChecked ? "var(--cxc-text)" : "transparent"
+                    },
+                    children: isChecked && /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Check, { size: 9, strokeWidth: 3, style: { color: "var(--cxc-bg)" } })
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntime.jsx("span", { children: opt })
+              ]
+            },
+            opt
+          );
+        }) }),
+        isLocked && lockedSelection && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mt-2 flex flex-wrap gap-1.5", children: lockedSelection.filter((s) => !followups.options.includes(s)).map((s) => /* @__PURE__ */ jsxRuntime.jsx(
+          "span",
+          {
+            className: "inline-flex items-center rounded-full px-3 py-1.5 text-[13px]",
+            style: {
+              backgroundColor: "var(--cxc-bg-muted)",
+              color: "var(--cxc-text)",
+              border: "1px solid var(--cxc-border)"
+            },
+            children: s
           },
-          onMouseOut: (e) => {
-            e.currentTarget.style.backgroundColor = "transparent";
-            e.currentTarget.style.color = "var(--cxc-text-muted)";
-          },
-          "aria-label": action.label,
-          title: action.label,
-          children: action.icon
-        },
-        action.id
-      ))
+          s
+        )) }),
+        !isLocked && otherActive && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "mt-2.5 flex items-center gap-2", children: [
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "input",
+            {
+              ref: otherInputRef,
+              type: "text",
+              value: otherText,
+              onChange: (e) => setOtherText(e.target.value),
+              onKeyDown: (e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  if (followups.multi) submitMulti();
+                  else submitOther();
+                }
+                if (e.key === "Escape") {
+                  setOtherActive(false);
+                  setOtherText("");
+                }
+              },
+              placeholder: "Type your own\u2026",
+              className: cn(
+                "flex-1 rounded-[var(--cxc-radius-md)] px-3 py-1.5 text-[13px]",
+                "outline-none focus-visible:ring-2 focus-visible:ring-[var(--cxc-border-focus)]"
+              ),
+              style: {
+                backgroundColor: "var(--cxc-bg)",
+                color: "var(--cxc-text)",
+                border: "1px solid var(--cxc-border)"
+              }
+            }
+          ),
+          !followups.multi && /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              type: "button",
+              onClick: submitOther,
+              disabled: !otherText.trim(),
+              className: cn(
+                "rounded-full px-3 py-1.5 text-[13px] font-medium",
+                "transition-opacity duration-100",
+                otherText.trim() ? "opacity-100" : "opacity-40 cursor-not-allowed"
+              ),
+              style: {
+                backgroundColor: "var(--cxc-text)",
+                color: "var(--cxc-bg)"
+              },
+              children: "Send"
+            }
+          )
+        ] }),
+        !isLocked && followups.multi && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mt-3 flex justify-end", children: /* @__PURE__ */ jsxRuntime.jsx(
+          "button",
+          {
+            type: "button",
+            onClick: submitMulti,
+            disabled: !hasMultiSelection,
+            className: cn(
+              "rounded-full px-3.5 py-1.5 text-[13px] font-medium",
+              "transition-opacity duration-100",
+              hasMultiSelection ? "opacity-100" : "opacity-40 cursor-not-allowed"
+            ),
+            style: {
+              backgroundColor: "var(--cxc-text)",
+              color: "var(--cxc-bg)"
+            },
+            children: "Continue"
+          }
+        ) })
+      ]
+    }
+  );
+}
+var DOWN_REASONS = [
+  { value: "incorrect", label: "Incorrect" },
+  { value: "hallucinated", label: "Made up" },
+  { value: "unhelpful", label: "Not helpful" },
+  { value: "too_verbose", label: "Too long" },
+  { value: "too_brief", label: "Too short" },
+  { value: "unsafe", label: "Unsafe" },
+  { value: "off_topic", label: "Off-topic" },
+  { value: "other", label: "Other" }
+];
+function FeedbackPopover({
+  rating: _rating,
+  onSubmit,
+  onDismiss,
+  className
+}) {
+  const [category, setCategory] = react.useState(void 0);
+  const [text, setText] = react.useState("");
+  const textareaRef = react.useRef(null);
+  const containerRef = react.useRef(null);
+  react.useEffect(() => {
+    textareaRef.current?.focus();
+  }, []);
+  react.useEffect(() => {
+    const handler = (e) => {
+      if (containerRef.current && !containerRef.current.contains(e.target)) {
+        onDismiss();
+      }
+    };
+    const t = setTimeout(() => {
+      document.addEventListener("mousedown", handler);
+    }, 0);
+    return () => {
+      clearTimeout(t);
+      document.removeEventListener("mousedown", handler);
+    };
+  }, [onDismiss]);
+  const handleSubmit = () => {
+    onSubmit({
+      category,
+      text: text.trim() || void 0
+    });
+  };
+  return /* @__PURE__ */ jsxRuntime.jsxs(
+    react$1.motion.div,
+    {
+      ref: containerRef,
+      role: "dialog",
+      "aria-label": "Provide feedback",
+      initial: { opacity: 0, y: 4, scale: 0.98 },
+      animate: { opacity: 1, y: 0, scale: 1 },
+      transition: { duration: 0.14, ease: [0.25, 0.1, 0.25, 1] },
+      className: cn(
+        "absolute z-50 w-[300px] rounded-[var(--cxc-radius-lg)] p-3.5 shadow-lg",
+        className
+      ),
+      style: {
+        backgroundColor: "var(--cxc-bg)",
+        border: "1px solid var(--cxc-border)"
+      },
+      onKeyDown: (e) => {
+        if (e.key === "Escape") onDismiss();
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "mb-2 flex items-center justify-between", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-[13px] font-medium", style: { color: "var(--cxc-text)" }, children: "What was wrong?" }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              type: "button",
+              onClick: onDismiss,
+              className: "flex h-6 w-6 items-center justify-center rounded-[var(--cxc-radius-sm)]",
+              style: { color: "var(--cxc-text-muted)" },
+              onMouseOver: (e) => {
+                e.currentTarget.style.backgroundColor = "var(--cxc-bg-muted)";
+              },
+              onMouseOut: (e) => {
+                e.currentTarget.style.backgroundColor = "transparent";
+              },
+              "aria-label": "Dismiss",
+              children: /* @__PURE__ */ jsxRuntime.jsx(lucideReact.X, { size: 14 })
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mb-2.5 flex flex-wrap gap-1", children: DOWN_REASONS.map((r) => {
+          const active = category === r.value;
+          return /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              type: "button",
+              onClick: () => setCategory(active ? void 0 : r.value),
+              className: cn(
+                "rounded-full px-2.5 py-1 text-[12px] transition-colors duration-100",
+                "outline-none focus-visible:ring-2 focus-visible:ring-[var(--cxc-border-focus)]"
+              ),
+              style: {
+                backgroundColor: active ? "var(--cxc-text)" : "var(--cxc-bg)",
+                color: active ? "var(--cxc-bg)" : "var(--cxc-text-secondary)",
+                border: `1px solid ${active ? "var(--cxc-text)" : "var(--cxc-border-subtle)"}`
+              },
+              children: r.label
+            },
+            r.value
+          );
+        }) }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "textarea",
+          {
+            ref: textareaRef,
+            value: text,
+            onChange: (e) => setText(e.target.value),
+            maxLength: 2e3,
+            placeholder: "Anything you'd like to add? (optional)",
+            rows: 2,
+            className: cn(
+              "w-full resize-none rounded-[var(--cxc-radius-md)] px-2.5 py-2 text-[13px]",
+              "outline-none focus-visible:ring-2 focus-visible:ring-[var(--cxc-border-focus)]"
+            ),
+            style: {
+              backgroundColor: "var(--cxc-bg-subtle)",
+              color: "var(--cxc-text)",
+              border: "1px solid var(--cxc-border-subtle)"
+            }
+          }
+        ),
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "mt-2.5 flex justify-end gap-1.5", children: [
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              type: "button",
+              onClick: onDismiss,
+              className: "rounded-full px-3 py-1 text-[12px]",
+              style: {
+                color: "var(--cxc-text-secondary)"
+              },
+              children: "Cancel"
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              type: "button",
+              onClick: handleSubmit,
+              className: "rounded-full px-3 py-1 text-[12px] font-medium",
+              style: {
+                backgroundColor: "var(--cxc-text)",
+                color: "var(--cxc-bg)"
+              },
+              children: "Submit"
+            }
+          )
+        ] })
+      ]
     }
   );
 }
 function ChatMessage({
   message,
   isStreaming = false,
+  isLast = false,
   onRetry,
   className
 }) {
+  const { config, selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast } = useChatContext();
   const [reasoningOpen, setReasoningOpen] = react.useState(isStreaming);
   const reasoningRef = react.useRef(null);
   const [reasoningHeight, setReasoningHeight] = react.useState(0);
+  const [editing, setEditing] = react.useState(false);
+  const [editText, setEditText] = react.useState(message.content);
+  const editTextareaRef = react.useRef(null);
+  const [feedbackOpen, setFeedbackOpen] = react.useState(false);
   const toggleReasoning = react.useCallback(() => {
     setReasoningOpen((prev) => !prev);
   }, []);
@@ -1096,6 +1720,13 @@ function ChatMessage({
     observer.observe(el);
     return () => observer.disconnect();
   }, []);
+  react.useEffect(() => {
+    if (editing && editTextareaRef.current) {
+      editTextareaRef.current.focus();
+      const len = editTextareaRef.current.value.length;
+      editTextareaRef.current.setSelectionRange(len, len);
+    }
+  }, [editing]);
   const renderedContent = react.useMemo(() => {
     if (message.role === "user" || !message.content) return null;
     return renderMarkdown(message.content);
@@ -1105,7 +1736,36 @@ function ChatMessage({
   const hasContent = message.content.length > 0;
   const hasActions = (message.actions?.length ?? 0) > 0;
   const hasReasoning = Boolean(message.reasoning);
+  const hasFollowups = Boolean(message.followups);
   const showThinking = isStreaming && !hasContent && !hasActions;
+  const enableEdit = isUser && isLast && config.enableRegenerate === true;
+  const enableRegenButton = isAssistant && isLast && config.enableRegenerate === true && !isStreaming;
+  const feedbackEnabled = isAssistant && Boolean(config.feedback) && Boolean(message.backendMessageId) && !isStreaming;
+  const handleEditSubmit = react.useCallback(() => {
+    const trimmed = editText.trim();
+    if (!trimmed) return;
+    setEditing(false);
+    editAndRegenerate(trimmed);
+  }, [editText, editAndRegenerate]);
+  const handleEditCancel = react.useCallback(() => {
+    setEditing(false);
+    setEditText(message.content);
+  }, [message.content]);
+  const handleFeedbackClick = react.useCallback(
+    (rating) => {
+      if (message.feedback?.rating === rating) {
+        void removeFeedback(message.id);
+        setFeedbackOpen(false);
+        return;
+      }
+      if (rating === "up") {
+        void submitFeedback(message.id, { rating: "up" });
+      } else {
+        setFeedbackOpen(true);
+      }
+    },
+    [message.feedback?.rating, message.id, submitFeedback, removeFeedback]
+  );
   return /* @__PURE__ */ jsxRuntime.jsx(
     react$1.motion.div,
     {
@@ -1116,10 +1776,70 @@ function ChatMessage({
       transition: { duration: 0.15, ease: [0.25, 0.1, 0.25, 1] },
       className: cn(
         "group/message py-3",
-        isUser && "flex justify-end",
+        isUser && !editing && "flex justify-end",
         className
       ),
-      children: isUser ? (
+      children: isUser ? editing ? (
+        /* === User Message: Inline Edit Mode === */
+        /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-col gap-2 w-full", children: [
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "textarea",
+            {
+              ref: editTextareaRef,
+              value: editText,
+              onChange: (e) => setEditText(e.target.value),
+              onKeyDown: (e) => {
+                if (e.key === "Enter" && (e.metaKey || e.ctrlKey)) {
+                  e.preventDefault();
+                  handleEditSubmit();
+                }
+                if (e.key === "Escape") handleEditCancel();
+              },
+              rows: Math.min(8, Math.max(2, editText.split("\n").length)),
+              className: cn(
+                "w-full resize-none rounded-[var(--cxc-radius-md)] px-3.5 py-2.5 text-[15px]",
+                "outline-none focus-visible:ring-2 focus-visible:ring-[var(--cxc-border-focus)]"
+              ),
+              style: {
+                backgroundColor: "var(--cxc-bg-subtle)",
+                color: "var(--cxc-text)",
+                border: "1px solid var(--cxc-border)",
+                lineHeight: "1.55"
+              }
+            }
+          ),
+          /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex justify-end gap-1.5", children: [
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                type: "button",
+                onClick: handleEditCancel,
+                className: "rounded-full px-3 py-1.5 text-[13px]",
+                style: { color: "var(--cxc-text-secondary)" },
+                children: "Cancel"
+              }
+            ),
+            /* @__PURE__ */ jsxRuntime.jsx(
+              "button",
+              {
+                type: "button",
+                onClick: handleEditSubmit,
+                disabled: !editText.trim(),
+                className: cn(
+                  "rounded-full px-3.5 py-1.5 text-[13px] font-medium",
+                  "transition-opacity duration-100",
+                  editText.trim() ? "opacity-100" : "opacity-40 cursor-not-allowed"
+                ),
+                style: {
+                  backgroundColor: "var(--cxc-text)",
+                  color: "var(--cxc-bg)"
+                },
+                children: "Send"
+              }
+            )
+          ] })
+        ] })
+      ) : (
         /* === User Message: Right-aligned dark pill === */
         /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex flex-col items-end gap-1 max-w-[80%]", children: [
           /* @__PURE__ */ jsxRuntime.jsx(
@@ -1134,7 +1854,13 @@ function ChatMessage({
               children: /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-[15px] whitespace-pre-wrap break-words leading-[1.55]", children: message.content })
             }
           ),
-          /* @__PURE__ */ jsxRuntime.jsx(MessageActionBar, { content: message.content })
+          /* @__PURE__ */ jsxRuntime.jsx(
+            MessageActionBar,
+            {
+              content: message.content,
+              onEdit: enableEdit ? () => setEditing(true) : void 0
+            }
+          )
         ] })
       ) : isAssistant ? (
         /* === Assistant Message: Left-aligned, no bubble === */
@@ -1220,6 +1946,14 @@ function ChatMessage({
               dangerouslySetInnerHTML: { __html: renderedContent }
             }
           ),
+          hasFollowups && message.followups && !isStreaming && /* @__PURE__ */ jsxRuntime.jsx(
+            FollowupsCard,
+            {
+              followups: message.followups,
+              lockedSelection: message.followupsSelection ?? (isLast ? void 0 : []),
+              onSelect: (opts) => selectFollowup(message.id, opts)
+            }
+          ),
           message.error && /* @__PURE__ */ jsxRuntime.jsx(
             "div",
             {
@@ -1228,13 +1962,33 @@ function ChatMessage({
               children: /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--cxc-error)" }, children: message.content || "An error occurred" })
             }
           ),
-          hasContent && !isStreaming && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "mt-1.5", children: /* @__PURE__ */ jsxRuntime.jsx(
-            MessageActionBar,
-            {
-              content: message.content,
-              onRetry: message.error ? onRetry : void 0
-            }
-          ) })
+          hasContent && !isStreaming && /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "relative mt-1.5", children: [
+            /* @__PURE__ */ jsxRuntime.jsx(
+              MessageActionBar,
+              {
+                content: message.content,
+                onRetry: message.error ? onRetry : enableRegenButton ? regenerateLast : void 0,
+                feedback: feedbackEnabled ? message.feedback : null,
+                onFeedback: feedbackEnabled ? handleFeedbackClick : void 0
+              }
+            ),
+            feedbackOpen && feedbackEnabled && /* @__PURE__ */ jsxRuntime.jsx(
+              FeedbackPopover,
+              {
+                rating: "down",
+                onSubmit: (reason) => {
+                  void submitFeedback(message.id, {
+                    rating: "down",
+                    reasonCategory: reason.category,
+                    reasonText: reason.text
+                  });
+                  setFeedbackOpen(false);
+                },
+                onDismiss: () => setFeedbackOpen(false),
+                className: "bottom-full left-0 mb-2"
+              }
+            )
+          ] })
         ] })
       ) : null
     }
@@ -1407,7 +2161,8 @@ var MessageList = react.forwardRef(
                         ChatMessage,
                         {
                           message,
-                          isStreaming: message.isStreaming
+                          isStreaming: message.isStreaming,
+                          isLast: index === messages.length - 1
                         },
                         message.id
                       );
@@ -3493,6 +4248,17 @@ function defaultParseEvent(eventType, data) {
           status: parsed.status ?? "completed",
           detail: parsed.detail != null ? String(parsed.detail) : void 0
         };
+      case "followups": {
+        const opts = Array.isArray(parsed.options) ? parsed.options : [];
+        return {
+          type: "followups",
+          followups: {
+            label: String(parsed.label ?? ""),
+            options: opts.map((o) => String(o)),
+            multi: Boolean(parsed.multi ?? false)
+          }
+        };
+      }
       case "done":
         return {
           type: "done",
@@ -3558,7 +4324,7 @@ function useSSEStream(config) {
         };
         if (method === "POST") {
           const body = buildBody(message, sessionId);
-          const bodyWithMeta = metadata && typeof body === "object" && body !== null ? { ...body, metadata } : body;
+          const bodyWithMeta = metadata && typeof body === "object" && body !== null ? { ...body, ...metadata } : body;
           fetchOptions.body = JSON.stringify(bodyWithMeta);
         }
         const response = await fetch(url, fetchOptions);
@@ -3708,6 +4474,8 @@ exports.ChatProvider = ChatProvider;
 exports.ChatWidget = ChatWidget;
 exports.CodeBlock = CodeBlock;
 exports.EmptyState = EmptyState;
+exports.FeedbackPopover = FeedbackPopover;
+exports.FollowupsCard = FollowupsCard;
 exports.MessageActionBar = MessageActionBar;
 exports.MessageList = MessageList;
 exports.ModeSwitch = ModeSwitch;

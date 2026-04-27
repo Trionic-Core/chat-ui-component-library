@@ -114,6 +114,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
                     key={message.id}
                     message={message}
                     isStreaming={message.isStreaming}
+                    isLast={index === messages.length - 1}
                   />
                 )
               })}

@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useReducer, useRef } from 'react'
 import { ChatContext } from '../context/chat-context'
 import { chatReducer, initialChatState } from '../context/chat-reducer'
-import type { ChatConfig, ChatContextValue, ChatEvent, ChatMessage } from '../types'
+import type { ChatConfig, ChatContextValue, ChatEvent, ChatMessage, FeedbackData } from '../types'
 
 interface ChatProviderProps extends ChatConfig {
   children: React.ReactNode
@@ -30,6 +30,8 @@ export function ChatProvider({
   placeholder,
   autoFocus = true,
   actionLabels,
+  feedback,
+  enableRegenerate = false,
 }: ChatProviderProps) {
   const [state, dispatch] = useReducer(chatReducer, {
     ...initialChatState,
@@ -50,8 +52,10 @@ export function ChatProvider({
       placeholder,
       autoFocus,
       actionLabels,
+      feedback,
+      enableRegenerate,
     }),
-    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels]
+    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, enableRegenerate]
   )
 
   const send = useCallback(
@@ -135,11 +139,20 @@ export function ChatProvider({
                 })
                 break
 
+              case 'followups':
+                dispatch({
+                  type: 'SET_FOLLOWUPS',
+                  messageId: assistantMessage.id,
+                  followups: event.followups,
+                })
+                break
+
               case 'done':
                 dispatch({
                   type: 'FINALIZE_MESSAGE',
                   messageId: assistantMessage.id,
                   sessionId: event.sessionId,
+                  backendMessageId: event.messageId,
                 })
                 break
 
@@ -254,6 +267,77 @@ export function ChatProvider({
     dispatch({ type: 'RESET' })
   }, [stop])
 
+  const selectFollowup = useCallback(
+    (messageId: string, options: string[]) => {
+      if (options.length === 0) return
+      // Lock the card so it renders read-only with the chosen options.
+      dispatch({ type: 'LOCK_FOLLOWUPS', messageId, selection: options })
+      // Send the joined text as the next user message. Multi-select is comma-joined,
+      // single-select is just the option text. Mirrors the backend's expected
+      // user-message format on the next turn.
+      const text = options.join(', ')
+      send(text)
+    },
+    [send]
+  )
+
+  const submitFeedback = useCallback(
+    async (messageId: string, fb: FeedbackData) => {
+      if (!feedback) return
+      const msg = state.messages.find((m) => m.id === messageId)
+      const backendId = msg?.backendMessageId
+      if (!backendId) return
+      // Optimistic update — flip the icon immediately, roll back on error.
+      const previous = msg?.feedback ?? null
+      dispatch({ type: 'SET_FEEDBACK', messageId, feedback: fb })
+      try {
+        await feedback.submit(backendId, fb)
+      } catch (err) {
+        dispatch({ type: 'SET_FEEDBACK', messageId, feedback: previous })
+        throw err
+      }
+    },
+    [feedback, state.messages]
+  )
+
+  const removeFeedback = useCallback(
+    async (messageId: string) => {
+      if (!feedback) return
+      const msg = state.messages.find((m) => m.id === messageId)
+      const backendId = msg?.backendMessageId
+      if (!backendId) return
+      const previous = msg?.feedback ?? null
+      dispatch({ type: 'SET_FEEDBACK', messageId, feedback: null })
+      try {
+        await feedback.remove(backendId)
+      } catch (err) {
+        dispatch({ type: 'SET_FEEDBACK', messageId, feedback: previous })
+        throw err
+      }
+    },
+    [feedback, state.messages]
+  )
+
+  const editAndRegenerate = useCallback(
+    (newContent: string) => {
+      const trimmed = newContent.trim()
+      if (!trimmed) return
+      // Drop the last user+assistant pair locally to mirror the backend trim
+      // that fires when regenerate=true is sent. Then re-issue the send.
+      dispatch({ type: 'TRIM_LAST_PAIR' })
+      send(trimmed, { regenerate: true })
+    },
+    [send]
+  )
+
+  const regenerateLast = useCallback(() => {
+    // Find the last user message — we resend its exact text with regenerate=true.
+    const lastUser = [...state.messages].reverse().find((m) => m.role === 'user')
+    if (!lastUser) return
+    dispatch({ type: 'TRIM_LAST_PAIR' })
+    send(lastUser.content, { regenerate: true })
+  }, [state.messages, send])
+
   const contextValue = useMemo<ChatContextValue>(
     () => ({
       state,
@@ -267,8 +351,17 @@ export function ChatProvider({
       loadSession,
       deleteSession,
       newConversation,
+      selectFollowup,
+      submitFeedback,
+      removeFeedback,
+      editAndRegenerate,
+      regenerateLast,
     }),
-    [state, config, send, stop, retry, setInput, clearMessages, setMessages, loadSession, deleteSession, newConversation]
+    [
+      state, config, send, stop, retry, setInput, clearMessages, setMessages,
+      loadSession, deleteSession, newConversation,
+      selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast,
+    ]
   )
 
   return (
