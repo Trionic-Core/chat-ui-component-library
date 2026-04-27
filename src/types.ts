@@ -13,7 +13,62 @@ export interface ChatMessage {
   actions?: ChatAction[]
   reasoning?: string
   error?: boolean
+  /** Structured follow-up suggestions emitted by the agent (assistant only). */
+  followups?: FollowupsData
+  /** Locked-in selection from a followups card. Once set, the card renders read-only. */
+  followupsSelection?: string[]
+  /** The user's like/dislike rating on this message (assistant only). */
+  feedback?: FeedbackData | null
+  /** Backend-issued message id (set on the assistant turn after `done` lands). */
+  backendMessageId?: string
   metadata?: Record<string, unknown>
+}
+
+// ============================================================================
+// Followup Suggestions (emitted by backend `suggest_followups` agent tool)
+// ============================================================================
+
+export interface FollowupsData {
+  /** Agent-written intro line, e.g. "Want to dig deeper?". */
+  label: string
+  /** 2-5 options. The last is always "Other (specify)" appended by backend. */
+  options: string[]
+  /** Single-select if false (default), multi-select if true. */
+  multi: boolean
+}
+
+// ============================================================================
+// Feedback (Like / Dislike)
+// ============================================================================
+
+export type FeedbackRating = 'up' | 'down'
+
+export type FeedbackReasonCategory =
+  | 'incorrect'
+  | 'hallucinated'
+  | 'unhelpful'
+  | 'too_verbose'
+  | 'too_brief'
+  | 'unsafe'
+  | 'off_topic'
+  | 'other'
+
+export interface FeedbackData {
+  rating: FeedbackRating
+  reasonCategory?: FeedbackReasonCategory
+  reasonText?: string
+}
+
+/**
+ * Optional handler the consumer wires to a backend feedback endpoint.
+ * Provide via ChatConfig.feedback to enable thumbs-up / thumbs-down on
+ * assistant messages.
+ */
+export interface FeedbackHandler {
+  /** Submit (or update) the user's feedback for an assistant message. */
+  submit: (backendMessageId: string, feedback: FeedbackData) => Promise<void>
+  /** Remove the user's feedback for a message. */
+  remove: (backendMessageId: string) => Promise<void>
 }
 
 export interface ChatAction {
@@ -50,6 +105,7 @@ export type ChatEvent =
   | { type: 'reasoning'; text: string }
   | { type: 'action'; action: ChatAction }
   | { type: 'action_update'; actionId: string; status: ChatAction['status']; detail?: string }
+  | { type: 'followups'; followups: FollowupsData }
   | { type: 'done'; sessionId?: string; messageId?: string }
   | { type: 'error'; message: string; code?: string }
 
@@ -125,6 +181,20 @@ export interface ChatConfig {
 
   /** Custom action label resolver. Maps action.type to human-readable labels. */
   actionLabels?: Record<string, { active: string; completed: string }>
+
+  /**
+   * Optional feedback handler. When provided, thumbs-up / thumbs-down buttons
+   * appear in the action bar of assistant messages, and submitting calls
+   * `feedback.submit(backendMessageId, ...)` against the consumer's endpoint.
+   */
+  feedback?: FeedbackHandler
+
+  /**
+   * When true, the LAST user message renders an Edit affordance and the LAST
+   * assistant message renders a Regenerate affordance. Both submit via
+   * `send(text, { regenerate: true })` so the backend trims the tail. Default: false.
+   */
+  enableRegenerate?: boolean
 }
 
 // ============================================================================
@@ -157,6 +227,8 @@ export interface ChatMessageProps {
   message: ChatMessage
   /** Whether this message is currently streaming. */
   isStreaming?: boolean
+  /** Whether this is the LAST message in the list. Drives edit/regenerate affordances. */
+  isLast?: boolean
   /** Called when user clicks retry on an errored message. */
   onRetry?: () => void
   /** Additional class names. */
@@ -219,6 +291,34 @@ export interface MessageActionBarProps {
   onRetry?: () => void
   /** Called when edit is clicked. Omit to hide edit button. */
   onEdit?: () => void
+  /** Current feedback rating. When defined the like/dislike buttons render. */
+  feedback?: FeedbackData | null
+  /** Submit handler for like/dislike. Omit to hide feedback buttons. */
+  onFeedback?: (rating: FeedbackRating) => void
+  /** Optional handler invoked when the user opens the dislike reason popover. */
+  onFeedbackDetail?: () => void
+  /** Additional class names. */
+  className?: string
+}
+
+export interface FollowupsCardProps {
+  /** The data emitted by the agent's `suggest_followups` tool. */
+  followups: FollowupsData
+  /** Locked-in selection (renders read-only). When set, the card no longer accepts input. */
+  lockedSelection?: string[]
+  /** Called when the user submits one or more options. The joined text is what gets sent as the next user message. */
+  onSelect: (options: string[]) => void
+  /** Additional class names. */
+  className?: string
+}
+
+export interface FeedbackPopoverProps {
+  /** The current rating context (the popover only opens for `down` in v1). */
+  rating: FeedbackRating
+  /** Called when the user submits the feedback (with optional reason). */
+  onSubmit: (reason: { category?: FeedbackReasonCategory; text?: string }) => void
+  /** Called when the user dismisses the popover without submitting. */
+  onDismiss: () => void
   /** Additional class names. */
   className?: string
 }
@@ -377,7 +477,10 @@ export type ChatReducerAction =
   | { type: 'APPEND_REASONING'; messageId: string; text: string }
   | { type: 'ADD_ACTION'; messageId: string; action: ChatAction }
   | { type: 'UPDATE_ACTION'; messageId: string; actionId: string; status: ChatAction['status']; detail?: string }
-  | { type: 'FINALIZE_MESSAGE'; messageId: string; sessionId?: string }
+  | { type: 'SET_FOLLOWUPS'; messageId: string; followups: FollowupsData }
+  | { type: 'LOCK_FOLLOWUPS'; messageId: string; selection: string[] }
+  | { type: 'SET_FEEDBACK'; messageId: string; feedback: FeedbackData | null }
+  | { type: 'FINALIZE_MESSAGE'; messageId: string; sessionId?: string; backendMessageId?: string }
   | { type: 'SET_ERROR'; messageId: string; error: string }
   | { type: 'SET_MESSAGES'; messages: ChatMessage[] }
   | { type: 'SET_STREAMING'; isStreaming: boolean }
@@ -386,6 +489,7 @@ export type ChatReducerAction =
   | { type: 'REMOVE_SESSION'; sessionId: string }
   | { type: 'SET_INPUT'; value: string }
   | { type: 'SET_CONNECTION_STATUS'; status: ChatState['connectionStatus'] }
+  | { type: 'TRIM_LAST_PAIR' }
   | { type: 'RESET' }
 
 // ============================================================================
@@ -432,4 +536,14 @@ export interface ChatContextValue {
   loadSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   newConversation: () => void
+  /** Pick (or finalize) one or more options from a followups card. Sends the joined text as the next user message. */
+  selectFollowup: (messageId: string, options: string[]) => void
+  /** Submit feedback on an assistant message. Requires ChatConfig.feedback. */
+  submitFeedback: (messageId: string, feedback: FeedbackData) => Promise<void>
+  /** Remove feedback on an assistant message. Requires ChatConfig.feedback. */
+  removeFeedback: (messageId: string) => Promise<void>
+  /** Edit the last user message and regenerate. Removes the last user+assistant pair locally and re-sends with regenerate=true. */
+  editAndRegenerate: (newContent: string) => void
+  /** Regenerate the last assistant message using the same prompt + regenerate=true. */
+  regenerateLast: () => void
 }

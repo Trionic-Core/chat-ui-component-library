@@ -12,7 +12,41 @@ interface ChatMessage$1 {
     actions?: ChatAction[];
     reasoning?: string;
     error?: boolean;
+    /** Structured follow-up suggestions emitted by the agent (assistant only). */
+    followups?: FollowupsData;
+    /** Locked-in selection from a followups card. Once set, the card renders read-only. */
+    followupsSelection?: string[];
+    /** The user's like/dislike rating on this message (assistant only). */
+    feedback?: FeedbackData | null;
+    /** Backend-issued message id (set on the assistant turn after `done` lands). */
+    backendMessageId?: string;
     metadata?: Record<string, unknown>;
+}
+interface FollowupsData {
+    /** Agent-written intro line, e.g. "Want to dig deeper?". */
+    label: string;
+    /** 2-5 options. The last is always "Other (specify)" appended by backend. */
+    options: string[];
+    /** Single-select if false (default), multi-select if true. */
+    multi: boolean;
+}
+type FeedbackRating = 'up' | 'down';
+type FeedbackReasonCategory = 'incorrect' | 'hallucinated' | 'unhelpful' | 'too_verbose' | 'too_brief' | 'unsafe' | 'off_topic' | 'other';
+interface FeedbackData {
+    rating: FeedbackRating;
+    reasonCategory?: FeedbackReasonCategory;
+    reasonText?: string;
+}
+/**
+ * Optional handler the consumer wires to a backend feedback endpoint.
+ * Provide via ChatConfig.feedback to enable thumbs-up / thumbs-down on
+ * assistant messages.
+ */
+interface FeedbackHandler {
+    /** Submit (or update) the user's feedback for an assistant message. */
+    submit: (backendMessageId: string, feedback: FeedbackData) => Promise<void>;
+    /** Remove the user's feedback for a message. */
+    remove: (backendMessageId: string) => Promise<void>;
 }
 interface ChatAction {
     id: string;
@@ -49,6 +83,9 @@ type ChatEvent = {
     actionId: string;
     status: ChatAction['status'];
     detail?: string;
+} | {
+    type: 'followups';
+    followups: FollowupsData;
 } | {
     type: 'done';
     sessionId?: string;
@@ -110,6 +147,18 @@ interface ChatConfig {
         active: string;
         completed: string;
     }>;
+    /**
+     * Optional feedback handler. When provided, thumbs-up / thumbs-down buttons
+     * appear in the action bar of assistant messages, and submitting calls
+     * `feedback.submit(backendMessageId, ...)` against the consumer's endpoint.
+     */
+    feedback?: FeedbackHandler;
+    /**
+     * When true, the LAST user message renders an Edit affordance and the LAST
+     * assistant message renders a Regenerate affordance. Both submit via
+     * `send(text, { regenerate: true })` so the backend trims the tail. Default: false.
+     */
+    enableRegenerate?: boolean;
 }
 interface ChatContainerProps {
     /** Show session sidebar. Default: false. */
@@ -135,6 +184,8 @@ interface ChatMessageProps {
     message: ChatMessage$1;
     /** Whether this message is currently streaming. */
     isStreaming?: boolean;
+    /** Whether this is the LAST message in the list. Drives edit/regenerate affordances. */
+    isLast?: boolean;
     /** Called when user clicks retry on an errored message. */
     onRetry?: () => void;
     /** Additional class names. */
@@ -188,6 +239,35 @@ interface MessageActionBarProps {
     onRetry?: () => void;
     /** Called when edit is clicked. Omit to hide edit button. */
     onEdit?: () => void;
+    /** Current feedback rating. When defined the like/dislike buttons render. */
+    feedback?: FeedbackData | null;
+    /** Submit handler for like/dislike. Omit to hide feedback buttons. */
+    onFeedback?: (rating: FeedbackRating) => void;
+    /** Optional handler invoked when the user opens the dislike reason popover. */
+    onFeedbackDetail?: () => void;
+    /** Additional class names. */
+    className?: string;
+}
+interface FollowupsCardProps {
+    /** The data emitted by the agent's `suggest_followups` tool. */
+    followups: FollowupsData;
+    /** Locked-in selection (renders read-only). When set, the card no longer accepts input. */
+    lockedSelection?: string[];
+    /** Called when the user submits one or more options. The joined text is what gets sent as the next user message. */
+    onSelect: (options: string[]) => void;
+    /** Additional class names. */
+    className?: string;
+}
+interface FeedbackPopoverProps {
+    /** The current rating context (the popover only opens for `down` in v1). */
+    rating: FeedbackRating;
+    /** Called when the user submits the feedback (with optional reason). */
+    onSubmit: (reason: {
+        category?: FeedbackReasonCategory;
+        text?: string;
+    }) => void;
+    /** Called when the user dismisses the popover without submitting. */
+    onDismiss: () => void;
     /** Additional class names. */
     className?: string;
 }
@@ -352,6 +432,16 @@ interface ChatContextValue {
     loadSession: (sessionId: string) => Promise<void>;
     deleteSession: (sessionId: string) => Promise<void>;
     newConversation: () => void;
+    /** Pick (or finalize) one or more options from a followups card. Sends the joined text as the next user message. */
+    selectFollowup: (messageId: string, options: string[]) => void;
+    /** Submit feedback on an assistant message. Requires ChatConfig.feedback. */
+    submitFeedback: (messageId: string, feedback: FeedbackData) => Promise<void>;
+    /** Remove feedback on an assistant message. Requires ChatConfig.feedback. */
+    removeFeedback: (messageId: string) => Promise<void>;
+    /** Edit the last user message and regenerate. Removes the last user+assistant pair locally and re-sends with regenerate=true. */
+    editAndRegenerate: (newContent: string) => void;
+    /** Regenerate the last assistant message using the same prompt + regenerate=true. */
+    regenerateLast: () => void;
 }
 
 interface ChatProviderProps extends ChatConfig {
@@ -364,7 +454,7 @@ interface ChatProviderProps extends ChatConfig {
  * consumption loop for streaming messages. Supports cancellation via
  * generator.return().
  */
-declare function ChatProvider({ children, onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, }: ChatProviderProps): react_jsx_runtime.JSX.Element;
+declare function ChatProvider({ children, onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, enableRegenerate, }: ChatProviderProps): react_jsx_runtime.JSX.Element;
 
 /**
  * ChatContainer v0.2.0 — main layout shell.
@@ -401,17 +491,19 @@ declare function ChatContainer({ showSessions, sessionPosition, emptyState, clas
 declare const MessageList: react.ForwardRefExoticComponent<MessageListProps & react.RefAttributes<HTMLDivElement>>;
 
 /**
- * ChatMessage v0.2.0 — CypherX message layout.
+ * ChatMessage v0.3.0 — CypherX message layout.
  *
- * User messages: Right-aligned dark pill, snug fit, rounded corners.
- * Assistant messages: Left-aligned, no bubble, clean flowing text.
+ * User messages: Right-aligned dark pill. When `isLast && config.enableRegenerate`,
+ * an Edit affordance reveals an inline textarea that submits via editAndRegenerate.
  *
- * New in v0.2.0:
- * - MessageActionBar (copy/retry) appears on hover via group/message.
- * - ChainOfThought replaces ActionIndicator with smooth accordion.
- * - Reasoning block uses CSS max-height transition (no motion dep).
+ * Assistant messages: Left-aligned, no bubble. New in v0.3.0:
+ * - FollowupsCard renders below content when `message.followups` is set.
+ * - MessageActionBar shows like/dislike buttons when ChatConfig.feedback is provided.
+ * - Dislike opens a popover for reason category + free text.
+ * - When `isLast && config.enableRegenerate`, the bar also exposes Retry which
+ *   calls regenerateLast (re-runs the last user prompt with regenerate=true).
  */
-declare function ChatMessage({ message, isStreaming, onRetry, className, }: ChatMessageProps): react_jsx_runtime.JSX.Element;
+declare function ChatMessage({ message, isStreaming, isLast, onRetry, className, }: ChatMessageProps): react_jsx_runtime.JSX.Element;
 
 /**
  * Token-by-token text reveal animation component.
@@ -575,7 +667,7 @@ declare function TextShimmer({ children, as, duration, spread, className, }: Tex
  *
  * The parent ChatMessage must have `group/message` class for this to work.
  */
-declare function MessageActionBar({ content, actions, onCopy, onRetry, onEdit, className, }: MessageActionBarProps): react_jsx_runtime.JSX.Element | null;
+declare function MessageActionBar({ content, actions, onCopy, onRetry, onEdit, feedback, onFeedback, className, }: MessageActionBarProps): react_jsx_runtime.JSX.Element | null;
 
 /**
  * ChainOfThought — CypherX collapsible accordion with timeline.
@@ -640,6 +732,37 @@ interface ModeSwitchProps {
     className?: string;
 }
 declare function ModeSwitch({ options, value, onChange, className }: ModeSwitchProps): react_jsx_runtime.JSX.Element;
+
+/**
+ * FollowupsCard — render the agent's `suggest_followups` tool output as
+ * an MCQ-style block of buttons, displayed below an assistant message.
+ *
+ * Design pattern:
+ * - Single-select (multi=false): each option is a pill button. Clicking
+ *   any one immediately submits and locks the card.
+ * - Multi-select (multi=true): options become checkbox-style toggles with
+ *   a "Continue" button that submits the union.
+ * - "Other (specify)" is always the last option (appended by backend). It
+ *   reveals a text input on selection; submitting commits the typed text.
+ * - Once submitted, the card locks and visibly shows the chosen options.
+ *
+ * The card receives `lockedSelection` from the message state — the parent
+ * (ChatMessage) reads `message.followupsSelection` to determine if the
+ * card should render read-only.
+ */
+declare function FollowupsCard({ followups, lockedSelection, onSelect, className, }: FollowupsCardProps): react_jsx_runtime.JSX.Element;
+
+/**
+ * FeedbackPopover — small floating panel that appears after a thumbs-down
+ * is clicked. Lets the user pick a reason chip + optionally type a comment.
+ *
+ * Currently only opens on `down`. Up-feedback submits immediately without
+ * a popover (matches claude.ai's pattern).
+ *
+ * Positioned by the parent (MessageActionBar) — this component is just the
+ * panel, not the trigger.
+ */
+declare function FeedbackPopover({ rating: _rating, onSubmit, onDismiss, className, }: FeedbackPopoverProps): react_jsx_runtime.JSX.Element;
 
 /**
  * Access the chat context. Must be used within a <ChatProvider>.
@@ -771,4 +894,4 @@ declare function formatRelativeTime(date: Date): string;
  */
 declare function renderMarkdown(markdown: string): string;
 
-export { ActionIndicator, type ActionIndicatorProps, ChainOfThought, type ChainOfThoughtProps, type ChatAction, type ChatConfig, ChatContainer, type ChatContainerProps, type ChatContextValue, type ChatEvent, ChatInput, type ChatInputProps, ChatMessage, type ChatMessage$1 as ChatMessageData, type ChatMessageProps, ChatProvider, type ChatSendFn, type ChatSession, ChatWidget, type ChatWidgetProps, CodeBlock, type CodeBlockProps, EmptyState, type EmptyStateProps, type FileAttachment, MessageActionBar, type MessageActionBarProps, type MessageActionItem, MessageList, type MessageListProps, ModeSwitch, type ModeSwitchOption$1 as ModeSwitchOption, type ModeSwitchProps$1 as ModeSwitchProps, PromptInput, type PromptInputProps, type SSEStreamConfig, type SessionAdapter, SessionList, type SessionListProps, SessionSelector, type SessionSelectorProps, StreamingText, type StreamingTextProps, TextShimmer, type TextShimmerProps, ThinkingIndicator, type ThinkingIndicatorProps, cn, formatRelativeTime, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText };
+export { ActionIndicator, type ActionIndicatorProps, ChainOfThought, type ChainOfThoughtProps, type ChatAction, type ChatConfig, ChatContainer, type ChatContainerProps, type ChatContextValue, type ChatEvent, ChatInput, type ChatInputProps, ChatMessage, type ChatMessage$1 as ChatMessageData, type ChatMessageProps, ChatProvider, type ChatSendFn, type ChatSession, ChatWidget, type ChatWidgetProps, CodeBlock, type CodeBlockProps, EmptyState, type EmptyStateProps, type FeedbackData, type FeedbackHandler, FeedbackPopover, type FeedbackPopoverProps, type FeedbackRating, type FeedbackReasonCategory, type FileAttachment, FollowupsCard, type FollowupsCardProps, type FollowupsData, MessageActionBar, type MessageActionBarProps, type MessageActionItem, MessageList, type MessageListProps, ModeSwitch, type ModeSwitchOption$1 as ModeSwitchOption, type ModeSwitchProps$1 as ModeSwitchProps, PromptInput, type PromptInputProps, type SSEStreamConfig, type SessionAdapter, SessionList, type SessionListProps, SessionSelector, type SessionSelectorProps, StreamingText, type StreamingTextProps, TextShimmer, type TextShimmerProps, ThinkingIndicator, type ThinkingIndicatorProps, cn, formatRelativeTime, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText };

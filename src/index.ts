@@ -1,9 +1,5 @@
 // ============================================================================
-// @cypherx/chat-ui — Public API
-// ============================================================================
-
-// ============================================================================
-// @cypherx/chat-ui v0.2.0 — Public API
+// @cypherx/chat-ui v0.3.0 — Public API
 // ============================================================================
 
 // Types
@@ -37,6 +33,14 @@ export type {
   PromptInputProps,
   ModeSwitchOption,
   ModeSwitchProps,
+  // v0.3.0 types — followups, feedback, regenerate
+  FollowupsData,
+  FollowupsCardProps,
+  FeedbackRating,
+  FeedbackReasonCategory,
+  FeedbackData,
+  FeedbackHandler,
+  FeedbackPopoverProps,
 } from './types'
 
 // Export the ChatMessage interface under an alias to avoid collision
@@ -64,6 +68,10 @@ export { MessageActionBar } from './components/message-action-bar'
 export { ChainOfThought } from './components/chain-of-thought'
 export { PromptInput } from './components/prompt-input'
 export { ModeSwitch } from './components/mode-switch'
+
+// v0.3.0 components — followups MCQ + dislike-reason popover
+export { FollowupsCard } from './components/followups-card'
+export { FeedbackPopover } from './components/feedback-popover'
 
 // Context
 export { useChatContext } from './context/chat-context'

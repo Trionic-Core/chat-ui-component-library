@@ -99,12 +99,42 @@ export function chatReducer(state: ChatState, action: ChatReducerAction): ChatSt
         })),
       }
 
+    case 'SET_FOLLOWUPS':
+      return {
+        ...state,
+        messages: updateMessage(state.messages, action.messageId, (msg) => ({
+          ...msg,
+          followups: action.followups,
+        })),
+      }
+
+    case 'LOCK_FOLLOWUPS':
+      return {
+        ...state,
+        messages: updateMessage(state.messages, action.messageId, (msg) => ({
+          ...msg,
+          followupsSelection: action.selection,
+        })),
+      }
+
+    case 'SET_FEEDBACK':
+      return {
+        ...state,
+        messages: updateMessage(state.messages, action.messageId, (msg) => ({
+          ...msg,
+          feedback: action.feedback,
+        })),
+      }
+
     case 'FINALIZE_MESSAGE':
       return {
         ...state,
         messages: updateMessage(state.messages, action.messageId, (msg) => ({
           ...msg,
           isStreaming: false,
+          // Capture the backend's persisted message id so feedback / regen
+          // can target this turn after streaming completes.
+          backendMessageId: action.backendMessageId ?? msg.backendMessageId,
           // Auto-complete any running/pending actions when the message finalizes
           actions: msg.actions?.map((a) =>
             a.status === 'running' || a.status === 'pending'
@@ -114,6 +144,26 @@ export function chatReducer(state: ChatState, action: ChatReducerAction): ChatSt
         })),
         activeSessionId: action.sessionId ?? state.activeSessionId,
       }
+
+    case 'TRIM_LAST_PAIR': {
+      // Walk from the end, drop the last assistant + last user pair (or just the
+      // lone trailing user / assistant if the pair is broken). Mirrors the
+      // server-side trim that fires when regenerate=true is sent.
+      const msgs = state.messages
+      const last = msgs[msgs.length - 1]
+      if (!last) return state
+      let dropCount = 1
+      if (last.role === 'assistant' && msgs.length >= 2 && msgs[msgs.length - 2].role === 'user') {
+        dropCount = 2
+      } else if (last.role === 'user' && msgs.length >= 2 && msgs[msgs.length - 2].role === 'assistant') {
+        // Lone trailing user: drop only the user.
+        dropCount = 1
+      }
+      return {
+        ...state,
+        messages: msgs.slice(0, msgs.length - dropCount),
+      }
+    }
 
     case 'SET_ERROR':
       return {

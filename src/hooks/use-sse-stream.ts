@@ -49,6 +49,21 @@ function defaultParseEvent(eventType: string, data: string): ChatEvent | null {
           detail: parsed.detail != null ? String(parsed.detail) : undefined,
         }
 
+      case 'followups': {
+        // Backend `suggest_followups` tool emits this AFTER the assistant
+        // text stream completes but BEFORE the `done` event. Frontend renders
+        // the options as MCQ buttons.
+        const opts = Array.isArray(parsed.options) ? parsed.options : []
+        return {
+          type: 'followups',
+          followups: {
+            label: String(parsed.label ?? ''),
+            options: opts.map((o) => String(o)),
+            multi: Boolean(parsed.multi ?? false),
+          },
+        }
+      }
+
       case 'done':
         return {
           type: 'done',
@@ -141,10 +156,14 @@ export function useSSEStream(config: SSEStreamConfig): ChatSendFn {
 
         if (method === 'POST') {
           const body = buildBody(message, sessionId)
-          // Merge metadata into the body if it's an object
+          // Spread metadata at the TOP LEVEL of the body. Backends typically
+          // expect flags like `regenerate: true` directly on the request, not
+          // nested under `metadata`. Pydantic / extra-strict backends drop
+          // unknown fields safely, so this is harmless when the field isn't
+          // recognized server-side.
           const bodyWithMeta =
             metadata && typeof body === 'object' && body !== null
-              ? { ...(body as Record<string, unknown>), metadata }
+              ? { ...(body as Record<string, unknown>), ...metadata }
               : body
           fetchOptions.body = JSON.stringify(bodyWithMeta)
         }
