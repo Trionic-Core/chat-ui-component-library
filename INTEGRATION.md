@@ -14,6 +14,27 @@ rest.
 
 ## 1. Install
 
+`@cypherx/chat-ui` is a **private** package. CypherX issues you a **read-only
+access token** during onboarding — keep it secret (treat it like a password).
+
+**a. Configure the registry.** Add a `.npmrc` to your project root. Reference the
+token via an environment variable so it never gets committed:
+
+```ini
+# .npmrc  (safe to commit — the token comes from the environment)
+@cypherx:registry=https://registry.npmjs.org/
+//registry.npmjs.org/:_authToken=${NPM_TOKEN}
+```
+
+**b. Provide the token** via your shell / CI secret store (never hard-code it in
+a file you commit):
+
+```bash
+export NPM_TOKEN=<the read-only token CypherX gave you>
+```
+
+**c. Install:**
+
 ```bash
 npm install @cypherx/chat-ui
 ```
