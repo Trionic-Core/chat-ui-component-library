@@ -1,9 +1,10 @@
-import { createContext, forwardRef, useCallback, useContext, useRef, useState, useEffect, useMemo, useReducer } from 'react';
+import { createContext, forwardRef, useCallback, useContext, useRef, useState, useEffect, useMemo, Component, useReducer } from 'react';
 import { jsx, jsxs, Fragment } from 'react/jsx-runtime';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowDown, Sparkles, ChevronDown, ThumbsUp, ThumbsDown, CheckCircle2, AlertCircle, Lock, Check, X, Circle, Clock, Copy, RotateCcw, Pencil, Paperclip, Plus, Square, ArrowUp, MessageSquare, PanelLeftClose, PanelLeftOpen, Loader2, MessageCircle, Minimize2, Maximize2, Trash2 } from 'lucide-react';
+import { ArrowDown, Sparkles, ChevronDown, ThumbsUp, ThumbsDown, CheckCircle2, AlertCircle, Lock, Check, X, Circle, Clock, Copy, RotateCcw, Pencil, Paperclip, Plus, Square, ArrowUp, MessageSquare, Trash2, PanelLeftClose, PanelLeftOpen, Loader2, MessageCircle, Minimize2, Maximize2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { ResponsiveContainer, ScatterChart as ScatterChart$1, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Scatter, PieChart as PieChart$1, Pie, Cell, AreaChart as AreaChart$1, Area, LineChart, Line, BarChart as BarChart$1, Bar } from 'recharts';
 
 // src/components/chat-provider.tsx
 var ChatContext = createContext(null);
@@ -95,6 +96,14 @@ function chatReducer(state, action) {
         messages: updateMessage(state.messages, action.messageId, (msg) => ({
           ...msg,
           followups: action.followups
+        }))
+      };
+    case "APPEND_BLOCK":
+      return {
+        ...state,
+        messages: updateMessage(state.messages, action.messageId, (msg) => ({
+          ...msg,
+          blocks: [...msg.blocks ?? [], action.spec]
         }))
       };
     case "LOCK_FOLLOWUPS":
@@ -319,6 +328,13 @@ function ChatProvider({
                   followups: event.followups
                 });
                 break;
+              case "ui_block":
+                dispatch({
+                  type: "APPEND_BLOCK",
+                  messageId: assistantMessage.id,
+                  spec: event.spec
+                });
+                break;
               case "done":
                 dispatch({
                   type: "FINALIZE_MESSAGE",
@@ -401,10 +417,13 @@ function ChatProvider({
       try {
         await sessionAdapter.delete(sessionId);
         dispatch({ type: "REMOVE_SESSION", sessionId });
+        if (sessionId === state.activeSessionId) {
+          dispatch({ type: "RESET" });
+        }
       } catch {
       }
     },
-    [sessionAdapter]
+    [sessionAdapter, state.activeSessionId]
   );
   const newConversation = useCallback(() => {
     if (isStreamingRef.current) {
@@ -412,6 +431,28 @@ function ChatProvider({
     }
     dispatch({ type: "RESET" });
   }, [stop]);
+  const refreshSessions = useCallback(async () => {
+    if (!sessionAdapter?.list) return;
+    try {
+      const sessions = await sessionAdapter.list();
+      dispatch({ type: "SET_SESSIONS", sessions });
+    } catch {
+    }
+  }, [sessionAdapter]);
+  const didInitialListRef = useRef(false);
+  useEffect(() => {
+    if (sessionAdapter && !didInitialListRef.current) {
+      didInitialListRef.current = true;
+      void refreshSessions();
+    }
+  }, [sessionAdapter, refreshSessions]);
+  const wasStreamingRef = useRef(false);
+  useEffect(() => {
+    if (wasStreamingRef.current && !state.isStreaming) {
+      void refreshSessions();
+    }
+    wasStreamingRef.current = state.isStreaming;
+  }, [state.isStreaming, refreshSessions]);
   const selectFollowup = useCallback(
     (messageId, options) => {
       if (options.length === 0) return;
@@ -483,6 +524,7 @@ function ChatProvider({
       loadSession,
       deleteSession,
       newConversation,
+      refreshSessions,
       selectFollowup,
       submitFeedback,
       removeFeedback,
@@ -501,6 +543,7 @@ function ChatProvider({
       loadSession,
       deleteSession,
       newConversation,
+      refreshSessions,
       selectFollowup,
       submitFeedback,
       removeFeedback,
@@ -810,7 +853,7 @@ function TextShimmer({
   spread = 20,
   className
 }) {
-  const Component = as ?? "span";
+  const Component2 = as ?? "span";
   const style = {
     "--cxc-shimmer-duration": `${duration}s`
   };
@@ -824,7 +867,7 @@ function TextShimmer({
     style.WebkitTextFillColor = "transparent";
   }
   return /* @__PURE__ */ jsx(
-    Component,
+    Component2,
     {
       className: cn("cxc-text-shimmer", className),
       style,
@@ -1691,6 +1734,1167 @@ function FeedbackPopover({
     }
   );
 }
+
+// src/aui/aui-types.ts
+function isRecord(value) {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+function isFieldRef(value) {
+  return isRecord(value) && typeof value.key === "string" && typeof value.label === "string";
+}
+function hasMetricGroupShape(block) {
+  return Array.isArray(block.metrics);
+}
+function hasChartShape(block) {
+  return typeof block.chart_type === "string" && Array.isArray(block.data) && isFieldRef(block.x) && Array.isArray(block.series) && block.series.every(isFieldRef);
+}
+function hasTableShape(block) {
+  return Array.isArray(block.columns) && Array.isArray(block.rows);
+}
+function hasTextShape(block) {
+  return typeof block.markdown === "string";
+}
+function hasActionsShape(block) {
+  return Array.isArray(block.actions);
+}
+function isValidBlock(value) {
+  if (!isRecord(value)) return false;
+  switch (value.type) {
+    case "metric_group":
+      return hasMetricGroupShape(value);
+    case "chart":
+      return hasChartShape(value);
+    case "table":
+      return hasTableShape(value);
+    case "text":
+      return hasTextShape(value);
+    case "actions":
+      return hasActionsShape(value);
+    default:
+      return false;
+  }
+}
+function isValidViewSpec(value) {
+  return isRecord(value) && Array.isArray(value.blocks);
+}
+var paddingClasses = {
+  none: "",
+  sm: "p-4",
+  md: "p-5",
+  lg: "p-6"
+};
+function Card({ padding = "md", className, style, children, ...props }) {
+  return /* @__PURE__ */ jsx(
+    "div",
+    {
+      className: cn("rounded-lg border", paddingClasses[padding], className),
+      style: {
+        borderColor: "var(--cx-border)",
+        backgroundColor: "var(--cx-canvas)",
+        boxShadow: "var(--cxc-shadow-sm)",
+        ...style
+      },
+      ...props,
+      children
+    }
+  );
+}
+
+// src/aui/chart-theme.ts
+var CHART_X_AXIS = {
+  tickLine: false,
+  axisLine: false,
+  tickMargin: 10,
+  fontSize: 12,
+  fontFamily: "inherit",
+  stroke: "var(--cx-text-muted)"
+};
+var CHART_Y_AXIS = {
+  tickLine: false,
+  axisLine: false,
+  tickMargin: 8,
+  fontSize: 12,
+  fontFamily: "inherit",
+  stroke: "var(--cx-text-muted)"
+};
+var CHART_GRID_STYLE = {
+  vertical: false,
+  stroke: "var(--cx-border-subtle)",
+  strokeDasharray: "3 3",
+  strokeOpacity: 0.6
+};
+var CHART_TOOLTIP_STYLE = {
+  backgroundColor: "var(--cx-canvas)",
+  border: "1px solid var(--cx-border)",
+  borderRadius: 8,
+  fontSize: 12,
+  color: "var(--cx-text-primary)",
+  // Theme-aware depth (flips for light/dark) instead of a fixed light-mode rgba.
+  boxShadow: "var(--cxc-shadow-md)"
+};
+var CHART_ANIMATION = {
+  duration: 800,
+  easing: "ease-out"
+};
+var CHART_LEGEND_STYLE = {
+  fontSize: 12,
+  color: "var(--cx-text-secondary)"
+};
+
+// src/aui/chart-colors.ts
+var CHART_FALLBACKS = [
+  "#E76E50",
+  // 1 — warm coral / terracotta
+  "#2A9D8F",
+  // 2 — teal
+  "#E9C46A",
+  // 3 — soft gold
+  "#264653",
+  // 4 — dark teal
+  "#F4A261",
+  // 5 — sandy orange
+  "#7C3AED",
+  // 6 — violet
+  "#059669",
+  // 7 — emerald
+  "#E11D48"
+  // 8 — rose
+];
+var CHART_COLOR_COUNT = CHART_FALLBACKS.length;
+function getChartColor(index) {
+  const slot = (index % CHART_COLOR_COUNT + CHART_COLOR_COUNT) % CHART_COLOR_COUNT;
+  return `var(--cxc-chart-${slot + 1}, ${CHART_FALLBACKS[slot]})`;
+}
+
+// src/aui/format.ts
+var COMPACT = new Intl.NumberFormat("en-US", { notation: "compact", maximumFractionDigits: 1 });
+var PLAIN = new Intl.NumberFormat("en-US", { maximumFractionDigits: 2 });
+var CURRENCY = new Intl.NumberFormat("en-US", {
+  style: "decimal",
+  useGrouping: true,
+  maximumFractionDigits: 2
+});
+function formatValue(value, format) {
+  if (value === null || value === void 0) return "--";
+  if (format && format !== "raw") {
+    const num = typeof value === "number" ? value : Number(value);
+    if (Number.isFinite(num)) {
+      switch (format) {
+        case "currency":
+          return CURRENCY.format(num);
+        case "percent":
+          return `${PLAIN.format(num)}%`;
+        case "compact":
+          return COMPACT.format(num);
+        case "number":
+          return PLAIN.format(num);
+      }
+    }
+  }
+  return String(value);
+}
+function formatWithUnit(value, format, unit) {
+  const formatted = formatValue(value, format);
+  if (!unit || formatted === "--") return formatted;
+  return `${formatted} ${unit}`;
+}
+function isNumeric(value) {
+  if (typeof value === "number") return Number.isFinite(value);
+  if (typeof value === "string" && value.trim() !== "") return Number.isFinite(Number(value));
+  return false;
+}
+function MetricGroupBlock({ block }) {
+  if (block.metrics.length === 0) return null;
+  return /* @__PURE__ */ jsx("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3", children: block.metrics.map((metric) => /* @__PURE__ */ jsx(MetricCard, { metric }, metric.id)) });
+}
+function MetricCard({ metric }) {
+  const value = formatValue(metric.value, metric.format);
+  return /* @__PURE__ */ jsxs(Card, { padding: "sm", className: "flex flex-col gap-2", children: [
+    /* @__PURE__ */ jsx("p", { className: "text-xs font-medium", style: { color: "var(--cx-text-secondary)" }, children: metric.label }),
+    /* @__PURE__ */ jsxs("div", { className: "flex items-baseline gap-1.5", children: [
+      /* @__PURE__ */ jsx(
+        "span",
+        {
+          className: "text-2xl font-semibold tracking-tight",
+          style: { color: "var(--cx-text-primary)" },
+          children: value
+        }
+      ),
+      metric.unit && /* @__PURE__ */ jsx("span", { className: "text-xs", style: { color: "var(--cx-text-muted)" }, children: metric.unit })
+    ] }),
+    /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between gap-2", children: [
+      metric.delta ? /* @__PURE__ */ jsx(DeltaPill, { delta: metric.delta }) : /* @__PURE__ */ jsx("span", {}),
+      metric.spark && metric.spark.length > 1 && /* @__PURE__ */ jsx(Sparkline, { values: metric.spark })
+    ] })
+  ] });
+}
+var DELTA_COLOR = {
+  up: "var(--cx-success)",
+  down: "var(--cx-error)",
+  flat: "var(--cx-text-muted)"
+};
+var DELTA_GLYPH = {
+  up: "\u25B2",
+  down: "\u25BC",
+  flat: "\u2014"
+};
+function DeltaPill({ delta }) {
+  const color = DELTA_COLOR[delta.direction];
+  return /* @__PURE__ */ jsxs("span", { className: "inline-flex items-center gap-1 text-xs font-medium", style: { color }, children: [
+    /* @__PURE__ */ jsx("span", { "aria-hidden": "true", children: DELTA_GLYPH[delta.direction] }),
+    /* @__PURE__ */ jsx("span", { children: formatValue(delta.value) }),
+    delta.label && /* @__PURE__ */ jsx("span", { className: "font-normal", style: { color: "var(--cx-text-muted)" }, children: delta.label })
+  ] });
+}
+function Sparkline({ values }) {
+  const data = values.map((value, index) => ({ index, value }));
+  return /* @__PURE__ */ jsx("div", { className: "h-7 w-20", "aria-hidden": "true", children: /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsx(LineChart, { data, margin: { top: 2, right: 2, bottom: 2, left: 2 }, children: /* @__PURE__ */ jsx(
+    Line,
+    {
+      type: "monotone",
+      dataKey: "value",
+      stroke: getChartColor(0),
+      strokeWidth: 1.5,
+      dot: false,
+      isAnimationActive: true,
+      animationDuration: CHART_ANIMATION.duration,
+      animationEasing: CHART_ANIMATION.easing
+    }
+  ) }) }) });
+}
+function Dialog({ open, onClose, title, children }) {
+  const overlayRef = useRef(null);
+  const handleKeyDown = useCallback(
+    (e) => {
+      if (e.key === "Escape") onClose();
+    },
+    [onClose]
+  );
+  useEffect(() => {
+    if (open) {
+      document.addEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      document.removeEventListener("keydown", handleKeyDown);
+      document.body.style.overflow = "";
+    };
+  }, [open, handleKeyDown]);
+  if (!open) return null;
+  return /* @__PURE__ */ jsx(
+    "div",
+    {
+      ref: overlayRef,
+      className: "fixed inset-0 z-50 flex items-center justify-center p-4",
+      style: { backgroundColor: "var(--cxc-bg-overlay)" },
+      onClick: (e) => {
+        if (e.target === overlayRef.current) onClose();
+      },
+      role: "dialog",
+      "aria-modal": "true",
+      "aria-label": title,
+      children: /* @__PURE__ */ jsxs(
+        "div",
+        {
+          className: "w-full max-w-3xl rounded-lg border",
+          style: {
+            borderColor: "var(--cx-border)",
+            backgroundColor: "var(--cx-canvas)",
+            boxShadow: "var(--cxc-shadow-lg)"
+          },
+          children: [
+            /* @__PURE__ */ jsxs(
+              "div",
+              {
+                className: "flex items-center justify-between border-b px-5 py-4",
+                style: { borderColor: "var(--cx-border)" },
+                children: [
+                  /* @__PURE__ */ jsx("h2", { className: "text-base font-semibold", style: { color: "var(--cx-text-primary)" }, children: title }),
+                  /* @__PURE__ */ jsx(
+                    "button",
+                    {
+                      onClick: onClose,
+                      className: "rounded-md p-1 transition-colors focus:outline-none focus-visible:ring-2",
+                      style: { color: "var(--cx-text-muted)" },
+                      "aria-label": "Close dialog",
+                      children: /* @__PURE__ */ jsxs(
+                        "svg",
+                        {
+                          xmlns: "http://www.w3.org/2000/svg",
+                          width: "18",
+                          height: "18",
+                          viewBox: "0 0 24 24",
+                          fill: "none",
+                          stroke: "currentColor",
+                          strokeWidth: "2",
+                          strokeLinecap: "round",
+                          strokeLinejoin: "round",
+                          "aria-hidden": "true",
+                          children: [
+                            /* @__PURE__ */ jsx("line", { x1: "18", y1: "6", x2: "6", y2: "18" }),
+                            /* @__PURE__ */ jsx("line", { x1: "6", y1: "6", x2: "18", y2: "18" })
+                          ]
+                        }
+                      )
+                    }
+                  )
+                ]
+              }
+            ),
+            /* @__PURE__ */ jsx("div", { className: "px-5 py-4", children })
+          ]
+        }
+      )
+    }
+  );
+}
+
+// src/aui/charts/chart-helpers.ts
+function shortenLabel(value) {
+  const str = String(value ?? "");
+  return str.length > 12 ? `${str.slice(0, 10)}...` : str;
+}
+function shouldShowLegend(seriesCount, showLegend) {
+  return showLegend ?? seriesCount > 1;
+}
+function ChartEmpty({ label = "No data" }) {
+  return /* @__PURE__ */ jsx(
+    "div",
+    {
+      className: "flex h-full items-center justify-center text-sm",
+      style: { color: "var(--cx-text-muted)" },
+      role: "status",
+      "aria-label": "No chart data available",
+      children: label
+    }
+  );
+}
+function BarChart({ data, x, series, options }) {
+  if (!data.length || !x.key || series.length === 0) {
+    return /* @__PURE__ */ jsx(ChartEmpty, {});
+  }
+  const isVertical = options?.orientation === "vertical";
+  const showLegend = shouldShowLegend(series.length, options?.showLegend);
+  const seriesLabels = series.map((s) => s.label).join(", ");
+  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxs(
+    BarChart$1,
+    {
+      data,
+      layout: isVertical ? "vertical" : "horizontal",
+      accessibilityLayer: true,
+      "aria-label": `Bar chart of ${seriesLabels} by ${x.label}`,
+      children: [
+        /* @__PURE__ */ jsx(CartesianGrid, { ...CHART_GRID_STYLE }),
+        isVertical ? /* @__PURE__ */ jsxs(Fragment, { children: [
+          /* @__PURE__ */ jsx(XAxis, { ...CHART_X_AXIS, type: "number" }),
+          /* @__PURE__ */ jsx(
+            YAxis,
+            {
+              ...CHART_Y_AXIS,
+              dataKey: x.key,
+              type: "category",
+              width: 100,
+              tickFormatter: shortenLabel
+            }
+          )
+        ] }) : /* @__PURE__ */ jsx(XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
+        /* @__PURE__ */ jsx(Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE }),
+        showLegend && /* @__PURE__ */ jsx(
+          Legend,
+          {
+            wrapperStyle: {
+              fontSize: CHART_LEGEND_STYLE.fontSize,
+              color: CHART_LEGEND_STYLE.color
+            }
+          }
+        ),
+        series.map((s, index) => /* @__PURE__ */ jsx(
+          Bar,
+          {
+            dataKey: s.key,
+            name: s.label,
+            fill: getChartColor(index),
+            radius: 4,
+            stackId: options?.stacked ? "stack" : void 0,
+            isAnimationActive: true,
+            animationDuration: CHART_ANIMATION.duration,
+            animationEasing: CHART_ANIMATION.easing
+          },
+          s.key
+        ))
+      ]
+    }
+  ) });
+}
+function LineChart2({ data, x, series, options }) {
+  if (!data.length || !x.key || series.length === 0) {
+    return /* @__PURE__ */ jsx(ChartEmpty, {});
+  }
+  const showLegend = shouldShowLegend(series.length, options?.showLegend);
+  const seriesLabels = series.map((s) => s.label).join(", ");
+  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxs(
+    LineChart,
+    {
+      data,
+      accessibilityLayer: true,
+      "aria-label": `Line chart of ${seriesLabels} by ${x.label}`,
+      children: [
+        /* @__PURE__ */ jsx(CartesianGrid, { ...CHART_GRID_STYLE }),
+        /* @__PURE__ */ jsx(XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
+        /* @__PURE__ */ jsx(Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE }),
+        showLegend && /* @__PURE__ */ jsx(
+          Legend,
+          {
+            wrapperStyle: {
+              fontSize: CHART_LEGEND_STYLE.fontSize,
+              color: CHART_LEGEND_STYLE.color
+            }
+          }
+        ),
+        series.map((s, index) => /* @__PURE__ */ jsx(
+          Line,
+          {
+            dataKey: s.key,
+            name: s.label,
+            type: "monotone",
+            stroke: getChartColor(index),
+            strokeWidth: 2,
+            dot: false,
+            activeDot: { r: 4, strokeWidth: 0 },
+            isAnimationActive: true,
+            animationDuration: CHART_ANIMATION.duration,
+            animationEasing: CHART_ANIMATION.easing
+          },
+          s.key
+        ))
+      ]
+    }
+  ) });
+}
+function AreaChart({ data, x, series, options }) {
+  if (!data.length || !x.key || series.length === 0) {
+    return /* @__PURE__ */ jsx(ChartEmpty, {});
+  }
+  const showLegend = shouldShowLegend(series.length, options?.showLegend);
+  const seriesLabels = series.map((s) => s.label).join(", ");
+  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxs(
+    AreaChart$1,
+    {
+      data,
+      accessibilityLayer: true,
+      "aria-label": `Area chart of ${seriesLabels} by ${x.label}`,
+      children: [
+        /* @__PURE__ */ jsx("defs", { children: series.map((s, index) => /* @__PURE__ */ jsxs(
+          "linearGradient",
+          {
+            id: `area-gradient-${s.key}`,
+            x1: "0",
+            y1: "0",
+            x2: "0",
+            y2: "1",
+            children: [
+              /* @__PURE__ */ jsx("stop", { offset: "0%", stopColor: getChartColor(index), stopOpacity: 0.3 }),
+              /* @__PURE__ */ jsx("stop", { offset: "100%", stopColor: getChartColor(index), stopOpacity: 0.05 })
+            ]
+          },
+          `area-gradient-${s.key}`
+        )) }),
+        /* @__PURE__ */ jsx(CartesianGrid, { ...CHART_GRID_STYLE }),
+        /* @__PURE__ */ jsx(XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
+        /* @__PURE__ */ jsx(Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE }),
+        showLegend && /* @__PURE__ */ jsx(
+          Legend,
+          {
+            wrapperStyle: {
+              fontSize: CHART_LEGEND_STYLE.fontSize,
+              color: CHART_LEGEND_STYLE.color
+            }
+          }
+        ),
+        series.map((s, index) => /* @__PURE__ */ jsx(
+          Area,
+          {
+            dataKey: s.key,
+            name: s.label,
+            type: "monotone",
+            stroke: getChartColor(index),
+            fill: `url(#area-gradient-${s.key})`,
+            strokeWidth: 2,
+            stackId: options?.stacked ? "stack" : void 0,
+            isAnimationActive: true,
+            animationDuration: CHART_ANIMATION.duration,
+            animationEasing: CHART_ANIMATION.easing
+          },
+          s.key
+        ))
+      ]
+    }
+  ) });
+}
+function PieChart({ data, x, series, options, donut = false }) {
+  const valueKey = series[0]?.key;
+  const valueLabel = series[0]?.label ?? "";
+  const chartData = useMemo(() => {
+    if (!data.length || !x.key || !valueKey) return [];
+    return data.map((row) => ({
+      name: String(row[x.key] ?? ""),
+      value: Number(row[valueKey]) || 0
+    }));
+  }, [data, x.key, valueKey]);
+  if (!chartData.length) {
+    return /* @__PURE__ */ jsx(ChartEmpty, { label: "No data available" });
+  }
+  const showLegend = shouldShowLegend(chartData.length, options?.showLegend);
+  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxs(
+    PieChart$1,
+    {
+      accessibilityLayer: true,
+      "aria-label": `${donut ? "Donut" : "Pie"} chart of ${valueLabel} by ${x.label}`,
+      children: [
+        /* @__PURE__ */ jsx(
+          Pie,
+          {
+            data: chartData,
+            dataKey: "value",
+            nameKey: "name",
+            cx: "50%",
+            cy: "50%",
+            innerRadius: donut ? "60%" : 0,
+            outerRadius: "80%",
+            paddingAngle: 2,
+            strokeWidth: 0,
+            animationDuration: CHART_ANIMATION.duration,
+            animationEasing: CHART_ANIMATION.easing,
+            children: chartData.map((_, index) => /* @__PURE__ */ jsx(
+              Cell,
+              {
+                fill: getChartColor(index),
+                className: "outline-none focus:outline-none"
+              },
+              `cell-${index}`
+            ))
+          }
+        ),
+        /* @__PURE__ */ jsx(
+          Tooltip,
+          {
+            contentStyle: CHART_TOOLTIP_STYLE,
+            formatter: (value) => {
+              if (value === void 0 || value === null) return "--";
+              return Number(value).toLocaleString();
+            }
+          }
+        ),
+        showLegend && /* @__PURE__ */ jsx(
+          Legend,
+          {
+            wrapperStyle: CHART_LEGEND_STYLE,
+            verticalAlign: "bottom",
+            iconType: "circle",
+            iconSize: 8
+          }
+        )
+      ]
+    }
+  ) });
+}
+function ScatterChart({ data, x, series, options }) {
+  if (!data.length || !x.key || series.length === 0) {
+    return /* @__PURE__ */ jsx(ChartEmpty, { label: "Configure X-axis and a measure for the scatter plot" });
+  }
+  const showLegend = shouldShowLegend(series.length, options?.showLegend);
+  const seriesLabels = series.map((s) => s.label).join(", ");
+  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxs(
+    ScatterChart$1,
+    {
+      margin: { top: 10, right: 20, bottom: 20, left: 10 },
+      accessibilityLayer: true,
+      "aria-label": `Scatter chart of ${seriesLabels} by ${x.label}`,
+      children: [
+        /* @__PURE__ */ jsx(CartesianGrid, { ...CHART_GRID_STYLE }),
+        /* @__PURE__ */ jsx(XAxis, { ...CHART_X_AXIS, dataKey: x.key, type: "number", name: x.label }),
+        /* @__PURE__ */ jsx(YAxis, { ...CHART_Y_AXIS, type: "number" }),
+        /* @__PURE__ */ jsx(Tooltip, { cursor: { strokeDasharray: "3 3" }, contentStyle: CHART_TOOLTIP_STYLE }),
+        showLegend && /* @__PURE__ */ jsx(
+          Legend,
+          {
+            wrapperStyle: {
+              fontSize: CHART_LEGEND_STYLE.fontSize,
+              color: CHART_LEGEND_STYLE.color
+            }
+          }
+        ),
+        series.map((s, index) => /* @__PURE__ */ jsx(
+          Scatter,
+          {
+            name: s.label,
+            dataKey: s.key,
+            data,
+            fill: getChartColor(index),
+            isAnimationActive: true,
+            animationDuration: CHART_ANIMATION.duration,
+            animationEasing: CHART_ANIMATION.easing
+          },
+          s.key
+        ))
+      ]
+    }
+  ) });
+}
+function toChartOptions(block) {
+  const stacked = block.options?.stacked ?? (block.chart_type === "bar_stacked" || block.chart_type === "area_stacked");
+  const orientation = block.options?.orientation ?? (block.chart_type === "bar_horizontal" ? "vertical" : void 0);
+  return {
+    stacked,
+    showLegend: block.options?.show_legend,
+    orientation
+  };
+}
+function ChartDispatch({ block }) {
+  const props = {
+    data: block.data,
+    x: block.x,
+    series: block.series,
+    options: toChartOptions(block)
+  };
+  switch (block.chart_type) {
+    case "bar":
+    case "bar_horizontal":
+    case "bar_grouped":
+    case "bar_stacked":
+      return /* @__PURE__ */ jsx(BarChart, { ...props });
+    case "line":
+      return /* @__PURE__ */ jsx(LineChart2, { ...props });
+    case "area":
+    case "area_stacked":
+      return /* @__PURE__ */ jsx(AreaChart, { ...props });
+    case "pie":
+      return /* @__PURE__ */ jsx(PieChart, { ...props });
+    case "donut":
+      return /* @__PURE__ */ jsx(PieChart, { ...props, donut: true });
+    case "scatter":
+      return /* @__PURE__ */ jsx(ScatterChart, { ...props });
+    default:
+      return /* @__PURE__ */ jsx(ChartEmpty, { label: "Unsupported chart type" });
+  }
+}
+
+// src/aui/csv.ts
+var FORMULA_TRIGGERS = ["=", "+", "-", "@", "	", "\r"];
+function escapeCell(value) {
+  if (value === null || value === void 0) return "";
+  let str = String(value);
+  if (FORMULA_TRIGGERS.includes(str.charAt(0))) {
+    str = `'${str}`;
+  }
+  if (/[",\n\r]/.test(str)) {
+    return `"${str.replace(/"/g, '""')}"`;
+  }
+  return str;
+}
+function rowsToCsv(columns, rows) {
+  const header = columns.map((c) => escapeCell(c.label)).join(",");
+  const body = rows.map((row) => columns.map((c) => escapeCell(row[c.key] ?? null)).join(",")).join("\n");
+  return body ? `${header}
+${body}` : header;
+}
+function downloadCsv(filename, content) {
+  const blob = new Blob([content], { type: "text/csv;charset=utf-8;" });
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename.endsWith(".csv") ? filename : `${filename}.csv`;
+  document.body.appendChild(link);
+  link.click();
+  document.body.removeChild(link);
+  URL.revokeObjectURL(url);
+}
+function ChartBlock({ block }) {
+  const [expanded, setExpanded] = useState(false);
+  const csvColumns = useMemo(
+    () => [{ key: block.x.key, label: block.x.label }, ...block.series.map((s) => ({ key: s.key, label: s.label }))],
+    [block.x, block.series]
+  );
+  const handleExport = useCallback(() => {
+    downloadCsv(block.title || "chart", rowsToCsv(csvColumns, block.data));
+  }, [block.title, block.data, csvColumns]);
+  const openExpand = useCallback(() => setExpanded(true), []);
+  const closeExpand = useCallback(() => setExpanded(false), []);
+  return /* @__PURE__ */ jsxs(Card, { padding: "sm", children: [
+    /* @__PURE__ */ jsxs("div", { className: "mb-3 flex items-center justify-between gap-2", children: [
+      /* @__PURE__ */ jsx("h4", { className: "truncate text-sm font-semibold", style: { color: "var(--cx-text-primary)" }, children: block.title || "Chart" }),
+      /* @__PURE__ */ jsxs("div", { className: "flex shrink-0 items-center gap-1", children: [
+        /* @__PURE__ */ jsx(IconButton, { label: "Download CSV", onClick: handleExport, children: /* @__PURE__ */ jsx(DownloadIcon, {}) }),
+        /* @__PURE__ */ jsx(IconButton, { label: "Expand chart", onClick: openExpand, children: /* @__PURE__ */ jsx(ExpandIcon, {}) })
+      ] })
+    ] }),
+    /* @__PURE__ */ jsx("div", { className: "h-64 w-full", children: /* @__PURE__ */ jsx(ChartDispatch, { block }) }),
+    /* @__PURE__ */ jsx(Dialog, { open: expanded, onClose: closeExpand, title: block.title || "Chart", children: /* @__PURE__ */ jsx("div", { className: "h-[60vh] w-full", children: /* @__PURE__ */ jsx(ChartDispatch, { block }) }) })
+  ] });
+}
+function IconButton({
+  label,
+  onClick,
+  children
+}) {
+  return /* @__PURE__ */ jsx(
+    "button",
+    {
+      type: "button",
+      onClick,
+      "aria-label": label,
+      title: label,
+      className: "rounded-md p-1.5 transition-colors hover:bg-[var(--cx-canvas-muted)] focus:outline-none focus-visible:ring-2",
+      style: { color: "var(--cx-text-muted)" },
+      children
+    }
+  );
+}
+function DownloadIcon() {
+  return /* @__PURE__ */ jsxs(
+    "svg",
+    {
+      xmlns: "http://www.w3.org/2000/svg",
+      width: "14",
+      height: "14",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true",
+      children: [
+        /* @__PURE__ */ jsx("path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }),
+        /* @__PURE__ */ jsx("polyline", { points: "7 10 12 15 17 10" }),
+        /* @__PURE__ */ jsx("line", { x1: "12", y1: "15", x2: "12", y2: "3" })
+      ]
+    }
+  );
+}
+function ExpandIcon() {
+  return /* @__PURE__ */ jsxs(
+    "svg",
+    {
+      xmlns: "http://www.w3.org/2000/svg",
+      width: "14",
+      height: "14",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true",
+      children: [
+        /* @__PURE__ */ jsx("polyline", { points: "15 3 21 3 21 9" }),
+        /* @__PURE__ */ jsx("polyline", { points: "9 21 3 21 3 15" }),
+        /* @__PURE__ */ jsx("line", { x1: "21", y1: "3", x2: "14", y2: "10" }),
+        /* @__PURE__ */ jsx("line", { x1: "3", y1: "21", x2: "10", y2: "14" })
+      ]
+    }
+  );
+}
+function Table({ className, style, ...props }) {
+  return /* @__PURE__ */ jsx("div", { className: "overflow-x-auto", children: /* @__PURE__ */ jsx(
+    "table",
+    {
+      className: cn("min-w-full", className),
+      style: { borderCollapse: "collapse", ...style },
+      ...props
+    }
+  ) });
+}
+function Thead(props) {
+  return /* @__PURE__ */ jsx("thead", { ...props });
+}
+function Tbody(props) {
+  return /* @__PURE__ */ jsx("tbody", { ...props });
+}
+function Tr({ style, ...props }) {
+  return /* @__PURE__ */ jsx("tr", { style: { borderTop: "1px solid var(--cx-border-subtle)", ...style }, ...props });
+}
+function Th({ className, style, ...props }) {
+  return /* @__PURE__ */ jsx(
+    "th",
+    {
+      className: cn(
+        "px-4 py-3 text-left text-xs font-medium uppercase tracking-wider",
+        className
+      ),
+      style: { color: "var(--cx-text-muted)", backgroundColor: "var(--cx-canvas-subtle)", ...style },
+      ...props
+    }
+  );
+}
+function Td({ className, style, ...props }) {
+  return /* @__PURE__ */ jsx(
+    "td",
+    {
+      className: cn("whitespace-nowrap px-4 py-3 text-sm", className),
+      style: { color: "var(--cx-text-secondary)", ...style },
+      ...props
+    }
+  );
+}
+var DEFAULT_PAGE_SIZE = 10;
+function TableBlock({ block }) {
+  const [sort, setSort] = useState(null);
+  const [page, setPage] = useState(0);
+  const [viewAll, setViewAll] = useState(false);
+  const pageSize = block.page_size && block.page_size > 0 ? block.page_size : DEFAULT_PAGE_SIZE;
+  const sortedRows = useMemo(() => sortRows(block.rows, sort), [block.rows, sort]);
+  const pageCount = Math.max(1, Math.ceil(sortedRows.length / pageSize));
+  const safePage = Math.min(page, pageCount - 1);
+  const pagedRows = useMemo(
+    () => sortedRows.slice(safePage * pageSize, safePage * pageSize + pageSize),
+    [sortedRows, safePage, pageSize]
+  );
+  const toggleSort = useCallback((key) => {
+    setSort((prev) => {
+      if (prev?.key !== key) return { key, direction: "asc" };
+      if (prev.direction === "asc") return { key, direction: "desc" };
+      return null;
+    });
+    setPage(0);
+  }, []);
+  const handleExport = useCallback(() => {
+    downloadCsv(block.title || "table", rowsToCsv(block.columns, block.rows));
+  }, [block.title, block.columns, block.rows]);
+  const totalCount = block.total_count ?? block.rows.length;
+  const hasMoreThanEmbedded = totalCount > block.rows.length;
+  const openViewAll = useCallback(() => setViewAll(true), []);
+  const closeViewAll = useCallback(() => setViewAll(false), []);
+  if (block.columns.length === 0) return null;
+  return /* @__PURE__ */ jsxs(Card, { padding: "sm", children: [
+    /* @__PURE__ */ jsxs("div", { className: "mb-3 flex items-center justify-between gap-2", children: [
+      /* @__PURE__ */ jsx("h4", { className: "truncate text-sm font-semibold", style: { color: "var(--cx-text-primary)" }, children: block.title || "Results" }),
+      /* @__PURE__ */ jsx(
+        "button",
+        {
+          type: "button",
+          onClick: handleExport,
+          "aria-label": "Download CSV",
+          title: "Download CSV",
+          className: "shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--cx-canvas-muted)] focus:outline-none focus-visible:ring-2",
+          style: { color: "var(--cx-text-muted)" },
+          children: /* @__PURE__ */ jsx(DownloadIcon2, {})
+        }
+      )
+    ] }),
+    /* @__PURE__ */ jsx(DataTable, { columns: block.columns, rows: pagedRows, sort, onSort: toggleSort }),
+    /* @__PURE__ */ jsxs("div", { className: "mt-3 flex items-center justify-between text-xs", style: { color: "var(--cx-text-muted)" }, children: [
+      /* @__PURE__ */ jsxs("span", { children: [
+        "Showing ",
+        pagedRows.length,
+        " of ",
+        sortedRows.length,
+        hasMoreThanEmbedded ? ` (${totalCount.toLocaleString()} total)` : ""
+      ] }),
+      /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-2", children: [
+        pageCount > 1 && /* @__PURE__ */ jsx(Pagination, { page: safePage, pageCount, onChange: setPage }),
+        block.rows.length > pageSize && /* @__PURE__ */ jsx(
+          "button",
+          {
+            type: "button",
+            onClick: openViewAll,
+            className: "font-medium",
+            style: { color: "var(--cx-accent)" },
+            children: "View all"
+          }
+        )
+      ] })
+    ] }),
+    /* @__PURE__ */ jsxs(Dialog, { open: viewAll, onClose: closeViewAll, title: block.title || "Results", children: [
+      /* @__PURE__ */ jsx("div", { className: "max-h-[60vh] overflow-y-auto", children: /* @__PURE__ */ jsx(DataTable, { columns: block.columns, rows: sortedRows, sort, onSort: toggleSort }) }),
+      hasMoreThanEmbedded && /* @__PURE__ */ jsxs("p", { className: "mt-3 text-xs", style: { color: "var(--cx-text-muted)" }, children: [
+        "Showing the first ",
+        block.rows.length.toLocaleString(),
+        " of ",
+        totalCount.toLocaleString(),
+        " rows."
+      ] })
+    ] })
+  ] });
+}
+function DataTable({
+  columns,
+  rows,
+  sort,
+  onSort
+}) {
+  return /* @__PURE__ */ jsxs(Table, { children: [
+    /* @__PURE__ */ jsx(Thead, { children: /* @__PURE__ */ jsx(Tr, { children: columns.map((col) => /* @__PURE__ */ jsx(Th, { className: alignClass(col), children: /* @__PURE__ */ jsxs(
+      "button",
+      {
+        type: "button",
+        onClick: () => onSort(col.key),
+        className: "inline-flex items-center gap-1 uppercase tracking-wider",
+        "aria-label": `Sort by ${col.label}`,
+        children: [
+          col.label,
+          /* @__PURE__ */ jsx(SortGlyph, { active: sort?.key === col.key, direction: sort?.direction })
+        ]
+      }
+    ) }, col.key)) }) }),
+    /* @__PURE__ */ jsx(Tbody, { children: rows.map((row, rowIdx) => /* @__PURE__ */ jsx(Tr, { children: columns.map((col) => /* @__PURE__ */ jsx(Td, { className: alignClass(col, row[col.key]), children: formatWithUnit(row[col.key] ?? null, col.format, col.unit) }, col.key)) }, rowIdx)) })
+  ] });
+}
+function Pagination({
+  page,
+  pageCount,
+  onChange
+}) {
+  return /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1.5", children: [
+    /* @__PURE__ */ jsx(
+      "button",
+      {
+        type: "button",
+        onClick: () => onChange(Math.max(0, page - 1)),
+        disabled: page === 0,
+        className: "rounded p-1 hover:bg-[var(--cx-canvas-muted)] disabled:opacity-40",
+        "aria-label": "Previous page",
+        children: /* @__PURE__ */ jsx(ChevronIcon, { direction: "left" })
+      }
+    ),
+    /* @__PURE__ */ jsxs("span", { children: [
+      page + 1,
+      " / ",
+      pageCount
+    ] }),
+    /* @__PURE__ */ jsx(
+      "button",
+      {
+        type: "button",
+        onClick: () => onChange(Math.min(pageCount - 1, page + 1)),
+        disabled: page >= pageCount - 1,
+        className: "rounded p-1 hover:bg-[var(--cx-canvas-muted)] disabled:opacity-40",
+        "aria-label": "Next page",
+        children: /* @__PURE__ */ jsx(ChevronIcon, { direction: "right" })
+      }
+    )
+  ] });
+}
+function alignClass(col, value) {
+  const align = col.align ?? (col.format && col.format !== "raw" ? "right" : value !== void 0 && isNumeric(value) ? "right" : "left");
+  return cn(align === "right" && "text-right", align === "center" && "text-center");
+}
+function sortRows(rows, sort) {
+  if (!sort) return rows;
+  const dir = sort.direction === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const av = a[sort.key];
+    const bv = b[sort.key];
+    if (av === null || av === void 0) return 1;
+    if (bv === null || bv === void 0) return -1;
+    if (isNumeric(av) && isNumeric(bv)) return (Number(av) - Number(bv)) * dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+}
+function SortGlyph({ active, direction }) {
+  if (!active) {
+    return /* @__PURE__ */ jsx("span", { style: { color: "var(--cx-text-muted)", opacity: 0.5 }, "aria-hidden": "true", children: "\u2195" });
+  }
+  return /* @__PURE__ */ jsx("span", { style: { color: "var(--cx-text-secondary)" }, "aria-hidden": "true", children: direction === "asc" ? "\u2191" : "\u2193" });
+}
+function DownloadIcon2() {
+  return /* @__PURE__ */ jsxs(
+    "svg",
+    {
+      xmlns: "http://www.w3.org/2000/svg",
+      width: "14",
+      height: "14",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true",
+      children: [
+        /* @__PURE__ */ jsx("path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }),
+        /* @__PURE__ */ jsx("polyline", { points: "7 10 12 15 17 10" }),
+        /* @__PURE__ */ jsx("line", { x1: "12", y1: "15", x2: "12", y2: "3" })
+      ]
+    }
+  );
+}
+function ChevronIcon({ direction }) {
+  return /* @__PURE__ */ jsx(
+    "svg",
+    {
+      xmlns: "http://www.w3.org/2000/svg",
+      width: "12",
+      height: "12",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true",
+      children: direction === "left" ? /* @__PURE__ */ jsx("polyline", { points: "15 18 9 12 15 6" }) : /* @__PURE__ */ jsx("polyline", { points: "9 18 15 12 9 6" })
+    }
+  );
+}
+
+// src/aui/blocks/inline-markdown.ts
+function renderInlineMarkdown(text) {
+  if (!text) return "";
+  let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  html = html.replace(
+    /`([^`\n]+)`/g,
+    '<code class="cxc-aui-inline-code">$1</code>'
+  );
+  html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
+  html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
+  html = html.replace(
+    /\[([^\]]+)\]\((https?:\/\/[^\s"'<>)]+)\)/g,
+    (_match, label, url) => {
+      const href = url.replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+      return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="cxc-aui-link">${label}</a>`;
+    }
+  );
+  html = html.replace(/\n/g, "<br />");
+  return html;
+}
+function TextBlock({ block }) {
+  const html = useMemo(() => renderInlineMarkdown(block.markdown), [block.markdown]);
+  return /* @__PURE__ */ jsx(
+    "div",
+    {
+      className: "text-sm leading-relaxed",
+      style: { color: "var(--cx-text-secondary)" },
+      dangerouslySetInnerHTML: { __html: html }
+    }
+  );
+}
+var sizeClasses = {
+  sm: "px-2.5 py-1.5 text-xs",
+  md: "px-3.5 py-2 text-sm",
+  lg: "px-4 py-2.5 text-sm"
+};
+var variantStyles = {
+  primary: {
+    backgroundColor: "var(--cx-accent)",
+    color: "var(--cxc-text-inverse)",
+    border: "1px solid var(--cx-accent)",
+    boxShadow: "var(--cxc-shadow-sm)"
+  },
+  secondary: {
+    backgroundColor: "var(--cx-canvas)",
+    color: "var(--cx-text-secondary)",
+    border: "1px solid var(--cx-border)",
+    boxShadow: "var(--cxc-shadow-sm)"
+  }
+};
+var Button = forwardRef(
+  ({ variant = "primary", size = "md", className, style, disabled, ...props }, ref) => {
+    return /* @__PURE__ */ jsx(
+      "button",
+      {
+        ref,
+        disabled,
+        className: cn(
+          "inline-flex items-center justify-center gap-1.5 rounded-md font-medium",
+          "transition-colors duration-150",
+          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+          "disabled:pointer-events-none disabled:opacity-50",
+          sizeClasses[size],
+          className
+        ),
+        style: { ...variantStyles[variant], ...style },
+        ...props
+      }
+    );
+  }
+);
+Button.displayName = "AuiButton";
+function ActionsBlock({ block, onSendMessage }) {
+  if (block.actions.length === 0) return null;
+  return /* @__PURE__ */ jsx("div", { className: "flex flex-wrap gap-2", children: block.actions.map((action) => /* @__PURE__ */ jsx(ActionButton, { action, onSendMessage }, action.id)) });
+}
+function ActionButton({
+  action,
+  onSendMessage
+}) {
+  return /* @__PURE__ */ jsx(
+    Button,
+    {
+      size: "sm",
+      variant: action.style === "primary" ? "primary" : "secondary",
+      onClick: () => onSendMessage(action.on_click.send_message),
+      children: action.label
+    }
+  );
+}
+var REGISTRY = {
+  metric_group: ({ block }) => block.type === "metric_group" ? /* @__PURE__ */ jsx(MetricGroupBlock, { block }) : null,
+  chart: ({ block }) => block.type === "chart" ? /* @__PURE__ */ jsx(ChartBlock, { block }) : null,
+  table: ({ block }) => block.type === "table" ? /* @__PURE__ */ jsx(TableBlock, { block }) : null,
+  text: ({ block }) => block.type === "text" ? /* @__PURE__ */ jsx(TextBlock, { block }) : null,
+  actions: ({ block, onSendMessage }) => block.type === "actions" ? /* @__PURE__ */ jsx(ActionsBlock, { block, onSendMessage }) : null
+};
+function resolveBlock(block) {
+  const renderer = REGISTRY[block.type];
+  if (!renderer) {
+    console.warn("[aui] no renderer for block type:", block.type);
+    return null;
+  }
+  return renderer;
+}
+var BlockErrorBoundary = class extends Component {
+  constructor() {
+    super(...arguments);
+    this.state = { hasError: false };
+  }
+  static getDerivedStateFromError() {
+    return { hasError: true };
+  }
+  componentDidCatch(error, info) {
+    console.error(`[aui] block "${this.props.blockType}" failed to render:`, error, info);
+  }
+  render() {
+    if (this.state.hasError) {
+      return /* @__PURE__ */ jsx(
+        "div",
+        {
+          className: "rounded-md border px-3 py-2 text-xs",
+          style: {
+            borderColor: "var(--cx-border)",
+            color: "var(--cx-text-muted)"
+          },
+          role: "status",
+          children: "This block could not be displayed."
+        }
+      );
+    }
+    return this.props.children;
+  }
+};
+function AuiView({ spec, onSendMessage }) {
+  const blocks = useMemo(
+    () => Array.isArray(spec.blocks) ? spec.blocks.filter(isValidBlock) : [],
+    [spec.blocks]
+  );
+  if (blocks.length === 0) return null;
+  return /* @__PURE__ */ jsxs(
+    "section",
+    {
+      className: "space-y-3 rounded-lg border p-3",
+      style: { borderColor: "var(--cx-border-subtle)", backgroundColor: "var(--cx-canvas-subtle)" },
+      "aria-label": spec.title || "Data view",
+      children: [
+        spec.title && /* @__PURE__ */ jsx("h3", { className: "text-sm font-semibold", style: { color: "var(--cx-text-primary)" }, children: spec.title }),
+        blocks.map((block, index) => {
+          const Renderer = resolveBlock(block);
+          if (!Renderer) return null;
+          return /* @__PURE__ */ jsx(BlockErrorBoundary, { blockType: block.type, children: /* @__PURE__ */ jsx(Renderer, { block, onSendMessage }) }, `${block.type}-${index}`);
+        })
+      ]
+    }
+  );
+}
 function ChatMessage({
   message,
   isStreaming = false,
@@ -1698,7 +2902,7 @@ function ChatMessage({
   onRetry,
   className
 }) {
-  const { config, selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast } = useChatContext();
+  const { config, send, selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast } = useChatContext();
   const [reasoningOpen, setReasoningOpen] = useState(isStreaming);
   const reasoningRef = useRef(null);
   const [reasoningHeight, setReasoningHeight] = useState(0);
@@ -1735,6 +2939,7 @@ function ChatMessage({
   const hasActions = (message.actions?.length ?? 0) > 0;
   const hasReasoning = Boolean(message.reasoning);
   const hasFollowups = Boolean(message.followups);
+  const hasBlocks = (message.blocks?.length ?? 0) > 0;
   const showThinking = isStreaming && !hasContent && !hasActions;
   const enableEdit = isUser && isLast && config.enableRegenerate === true;
   const enableRegenButton = isAssistant && isLast && config.enableRegenerate === true && !isStreaming;
@@ -1944,6 +3149,14 @@ function ChatMessage({
               dangerouslySetInnerHTML: { __html: renderedContent }
             }
           ),
+          hasBlocks && message.blocks && /* @__PURE__ */ jsx("div", { className: "mt-3 space-y-3", children: message.blocks.map((spec, index) => /* @__PURE__ */ jsx(
+            AuiView,
+            {
+              spec,
+              onSendMessage: send
+            },
+            `${spec.surface_id}-${index}`
+          )) }),
           hasFollowups && message.followups && !isStreaming && /* @__PURE__ */ jsx(
             FollowupsCard,
             {
@@ -2724,14 +3937,16 @@ function SessionItem({
             className: cn(
               "flex h-6 w-6 shrink-0 items-center justify-center rounded",
               "transition-colors duration-100",
-              "hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-1"
+              "focus-visible:outline-none focus-visible:ring-1"
             ),
             style: { color: "var(--cxc-text-muted)" },
             onMouseOver: (e) => {
               e.currentTarget.style.color = "var(--cxc-error)";
+              e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--cxc-error) 12%, transparent)";
             },
             onMouseOut: (e) => {
               e.currentTarget.style.color = "var(--cxc-text-muted)";
+              e.currentTarget.style.backgroundColor = "transparent";
             },
             "aria-label": `Delete session: ${session.title}`,
             children: /* @__PURE__ */ jsx(Trash2, { size: 14 })
@@ -2877,7 +4092,7 @@ function SessionList({
   );
 }
 function SessionSelector({ className }) {
-  const { state, loadSession, newConversation } = useChatContext();
+  const { state, loadSession, newConversation, deleteSession } = useChatContext();
   const { sessions, activeSessionId } = state;
   const [isOpen, setIsOpen] = useState(false);
   const containerRef = useRef(null);
@@ -2896,6 +4111,13 @@ function SessionSelector({ className }) {
       close();
     },
     [loadSession, close]
+  );
+  const handleDeleteSession = useCallback(
+    (e, sessionId) => {
+      e.stopPropagation();
+      deleteSession(sessionId);
+    },
+    [deleteSession]
   );
   const handleNewChat = useCallback(() => {
     newConversation();
@@ -3056,7 +4278,7 @@ function SessionSelector({ className }) {
                     "data-session-item": true,
                     onClick: () => handleSelectSession(session.id),
                     className: cn(
-                      "flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm",
+                      "group flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm",
                       "transition-colors duration-100",
                       "focus-visible:outline-none"
                     ),
@@ -3103,6 +4325,36 @@ function SessionSelector({ className }) {
                           className: "shrink-0",
                           style: { color: "var(--cxc-accent)" },
                           "aria-hidden": "true"
+                        }
+                      ),
+                      /* @__PURE__ */ jsx(
+                        "span",
+                        {
+                          role: "button",
+                          tabIndex: 0,
+                          onClick: (e) => handleDeleteSession(e, session.id),
+                          onKeyDown: (e) => {
+                            if (e.key === "Enter" || e.key === " ") {
+                              e.preventDefault();
+                              handleDeleteSession(e, session.id);
+                            }
+                          },
+                          className: cn(
+                            "flex h-6 w-6 shrink-0 items-center justify-center rounded",
+                            "opacity-0 transition-opacity duration-100",
+                            "group-hover:opacity-100 focus:opacity-100 focus-visible:outline-none"
+                          ),
+                          style: { color: "var(--cxc-text-muted)" },
+                          onMouseOver: (e) => {
+                            e.currentTarget.style.color = "var(--cxc-error)";
+                            e.currentTarget.style.backgroundColor = "color-mix(in srgb, var(--cxc-error) 12%, transparent)";
+                          },
+                          onMouseOut: (e) => {
+                            e.currentTarget.style.color = "var(--cxc-text-muted)";
+                            e.currentTarget.style.backgroundColor = "transparent";
+                          },
+                          "aria-label": `Delete chat: ${session.title}`,
+                          children: /* @__PURE__ */ jsx(Trash2, { size: 13, "aria-hidden": "true" })
                         }
                       )
                     ]
@@ -4257,6 +5509,13 @@ function defaultParseEvent(eventType, data) {
           }
         };
       }
+      case "ui_block": {
+        const candidate = isValidViewSpec(parsed.spec) ? parsed.spec : parsed;
+        if (isValidViewSpec(candidate)) {
+          return { type: "ui_block", spec: candidate };
+        }
+        return null;
+      }
       case "done":
         return {
           type: "done",
@@ -4463,6 +5722,6 @@ function useSessionManager(adapter) {
   };
 }
 
-export { ActionIndicator, ChainOfThought, ChatContainer, ChatInput, ChatMessage, ChatProvider, ChatWidget, CodeBlock, EmptyState, FeedbackPopover, FollowupsCard, MessageActionBar, MessageList, ModeSwitch, PromptInput, SessionList, SessionSelector, StreamingText, TextShimmer, ThinkingIndicator, cn, formatRelativeTime, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText };
+export { ActionIndicator, AuiView, ChainOfThought, ChatContainer, ChatInput, ChatMessage, ChatProvider, ChatWidget, CodeBlock, EmptyState, FeedbackPopover, FollowupsCard, MessageActionBar, MessageList, ModeSwitch, PromptInput, SessionList, SessionSelector, StreamingText, TextShimmer, ThinkingIndicator, cn, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map

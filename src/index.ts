@@ -73,6 +73,31 @@ export { ModeSwitch } from './components/mode-switch'
 export { FollowupsCard } from './components/followups-card'
 export { FeedbackPopover } from './components/feedback-popover'
 
+// AUI (Agentic UI) — renders ui_block ViewSpecs below assistant messages
+export { AuiView } from './aui'
+export { isValidViewSpec, isValidBlock } from './aui'
+export type {
+  AuiViewProps,
+  ViewSpec,
+  Block,
+  BlockType,
+  MetricGroupBlock,
+  ChartBlock,
+  TableBlock,
+  TextBlock,
+  ActionsBlock,
+  Metric,
+  MetricDelta,
+  ChartType,
+  ChartFieldRef,
+  ChartBlockOptions,
+  TableColumn,
+  ActionItem,
+  ValueFormat,
+  CellValue,
+  DataRow,
+} from './aui'
+
 // Context
 export { useChatContext } from './context/chat-context'
 

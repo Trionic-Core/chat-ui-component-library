@@ -1,8 +1,11 @@
 {
   "name": "@cypherx/chat-ui",
-  "version": "0.3.0",
-  "description": "Production-ready chat UI components for streaming AI interfaces. SSE support, session management, action indicators, and more.",
+  "version": "0.4.0",
+  "description": "CypherX client renderer: streaming chat UI + Agentic UI (KPI cards, charts, tables) over the CypherX-native ViewSpec protocol. Themeable, session-aware, backend-agnostic.",
   "type": "module",
+  "publishConfig": {
+    "access": "restricted"
+  },
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -24,12 +27,16 @@
   ],
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "INTEGRATION.md",
+    "THEMING.md"
   ],
   "scripts": {
     "build": "tsup",
     "postbuild": "npx @tailwindcss/cli -i src/styles/globals.css -o dist/styles.css",
-    "prepublishOnly": "npm run build",
+    "check:contract": "node scripts/check-aui-contract.mjs",
+    "test": "npm run check:contract",
+    "prepublishOnly": "npm run check:contract && npm run lint && npm run build",
     "dev": "tsup --watch",
     "demo": "vite",
     "lint": "tsc --noEmit",
@@ -62,6 +69,7 @@
     "clsx": "^2.1.0",
     "lucide-react": ">=0.400.0",
     "motion": "^12.0.0",
+    "recharts": "^3.7.0",
     "tailwind-merge": "^3.0.0"
   },
   "keywords": [

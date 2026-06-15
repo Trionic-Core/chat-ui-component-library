@@ -39,6 +39,20 @@
     --cxc-error: #C44D4D;
     --cxc-error-light: #FDF0F0;
 
+    /* --- Chart Data Palette (AUI charts: bar/line/area/pie/scatter series) ---
+       Series N reads --cxc-chart-N (1-based). Override these to brand every
+       chart to the client's identity. Designed to read on light AND dark; set
+       a separate palette under .dark below if a client needs different tones.
+       The TS fallback in chart-colors.ts mirrors these defaults. */
+    --cxc-chart-1: #E76E50;
+    --cxc-chart-2: #2A9D8F;
+    --cxc-chart-3: #E9C46A;
+    --cxc-chart-4: #264653;
+    --cxc-chart-5: #F4A261;
+    --cxc-chart-6: #7C3AED;
+    --cxc-chart-7: #059669;
+    --cxc-chart-8: #E11D48;
+
     /* --- User Message Bubble (Dark pill) --- */
     --cxc-user-bg: #2D2B28;
     --cxc-user-text: #F5F4F0;
@@ -156,6 +170,60 @@
     --cxc-shimmer-via: #E5E5E5;
     --cxc-shimmer-to: #6B6B6B;
   }
+}
+
+/* ============================================================
+   AUI Token Bridge
+
+   The AUI renderer (src/aui/*) was ported from fde-console, which
+   themes on a --cx-* palette. Rather than rewrite every className,
+   we alias --cx-* onto the library's native, theme-aware --cxc-*
+   tokens in ONE place. Each --cxc-* already flips for light/dark,
+   so a single :root definition resolves correctly under both themes
+   (the value is a reference, evaluated against the active theme at
+   paint time). Closest-meaning mapping below.
+   ============================================================ */
+
+:root {
+  /* Surfaces */
+  --cx-canvas: var(--cxc-bg);
+  --cx-canvas-subtle: var(--cxc-bg-subtle);
+  --cx-canvas-muted: var(--cxc-bg-muted);
+
+  /* Borders */
+  --cx-border: var(--cxc-border);
+  --cx-border-subtle: var(--cxc-border-subtle);
+
+  /* Text */
+  --cx-text-primary: var(--cxc-text);
+  --cx-text-secondary: var(--cxc-text-secondary);
+  --cx-text-muted: var(--cxc-text-muted);
+
+  /* Accent + semantic */
+  --cx-accent: var(--cxc-accent);
+  --cx-success: var(--cxc-success);
+  --cx-error: var(--cxc-error);
+}
+
+/* AUI inline-markdown classes (text-block). Themed via the bridged
+   tokens so short captions read correctly in light + dark. */
+.cxc-aui-inline-code {
+  border-radius: var(--cxc-radius-sm);
+  background: var(--cxc-bg-muted);
+  padding: 0.1em 0.35em;
+  font-family: var(--cxc-font-mono);
+  font-size: 11px;
+  color: var(--cxc-text);
+}
+
+.cxc-aui-link {
+  color: var(--cxc-accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color 0.15s ease;
+}
+.cxc-aui-link:hover {
+  color: var(--cxc-accent-hover);
 }
 
 /* ============================================================

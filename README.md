@@ -1,9 +1,13 @@
 # @cypherx/chat-ui
 
-Production-ready React components for building streaming AI chat interfaces. SSE support, session management, chain-of-thought, markdown rendering, and more.
+CypherX's client renderer: streaming chat UI + **Agentic UI** (KPI cards, charts, tables) over the CypherX-native `ViewSpec` protocol. SSE support, session management, markdown rendering, and more.
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-blue.svg)](https://www.typescriptlang.org/)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
+> **Integrating with CypherX?** Start here:
+> - **[INTEGRATION.md](./INTEGRATION.md)** — connect to your CypherX backend, render AUI surfaces, sessions/history, the event protocol.
+> - **[THEMING.md](./THEMING.md)** — match your brand (colors, fonts, radius, **chart palette**) by overriding `--cxc-*` tokens.
 
 ---
 

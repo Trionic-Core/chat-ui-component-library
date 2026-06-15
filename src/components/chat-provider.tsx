@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
 import { ChatContext } from '../context/chat-context'
 import { chatReducer, initialChatState } from '../context/chat-reducer'
 import type { ChatConfig, ChatContextValue, ChatEvent, ChatMessage, FeedbackData } from '../types'
@@ -147,6 +147,14 @@ export function ChatProvider({
                 })
                 break
 
+              case 'ui_block':
+                dispatch({
+                  type: 'APPEND_BLOCK',
+                  messageId: assistantMessage.id,
+                  spec: event.spec,
+                })
+                break
+
               case 'done':
                 dispatch({
                   type: 'FINALIZE_MESSAGE',
@@ -253,11 +261,17 @@ export function ChatProvider({
       try {
         await sessionAdapter.delete(sessionId)
         dispatch({ type: 'REMOVE_SESSION', sessionId })
+        // If the deleted chat is the one currently on screen, reset to a fresh
+        // conversation. RESET keeps state.sessions (it spreads ...state) and
+        // only clears the active messages + session id, so the list survives.
+        if (sessionId === state.activeSessionId) {
+          dispatch({ type: 'RESET' })
+        }
       } catch {
         // Delete failed silently
       }
     },
-    [sessionAdapter]
+    [sessionAdapter, state.activeSessionId]
   )
 
   const newConversation = useCallback(() => {
@@ -266,6 +280,39 @@ export function ChatProvider({
     }
     dispatch({ type: 'RESET' })
   }, [stop])
+
+  // Pull the session list from the adapter into context state so SessionList /
+  // SessionSelector (which read state.sessions) actually populate. No-op without
+  // an adapter; failures are swallowed so a list error never breaks the chat.
+  const refreshSessions = useCallback(async () => {
+    if (!sessionAdapter?.list) return
+    try {
+      const sessions = await sessionAdapter.list()
+      dispatch({ type: 'SET_SESSIONS', sessions })
+    } catch {
+      // Keep the existing list; the chat itself is unaffected.
+    }
+  }, [sessionAdapter])
+
+  // Load the list once when an adapter is present...
+  const didInitialListRef = useRef(false)
+  useEffect(() => {
+    if (sessionAdapter && !didInitialListRef.current) {
+      didInitialListRef.current = true
+      void refreshSessions()
+    }
+  }, [sessionAdapter, refreshSessions])
+
+  // ...and refresh it each time a turn FINISHES (streaming true -> false), so a
+  // newly-created session and updated titles appear without a manual call. The
+  // transition guard keeps this robust even if the adapter prop isn't memoized.
+  const wasStreamingRef = useRef(false)
+  useEffect(() => {
+    if (wasStreamingRef.current && !state.isStreaming) {
+      void refreshSessions()
+    }
+    wasStreamingRef.current = state.isStreaming
+  }, [state.isStreaming, refreshSessions])
 
   const selectFollowup = useCallback(
     (messageId: string, options: string[]) => {
@@ -351,6 +398,7 @@ export function ChatProvider({
       loadSession,
       deleteSession,
       newConversation,
+      refreshSessions,
       selectFollowup,
       submitFeedback,
       removeFeedback,
@@ -359,7 +407,7 @@ export function ChatProvider({
     }),
     [
       state, config, send, stop, retry, setInput, clearMessages, setMessages,
-      loadSession, deleteSession, newConversation,
+      loadSession, deleteSession, newConversation, refreshSessions,
       selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast,
     ]
   )
