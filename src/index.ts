@@ -1,5 +1,5 @@
 // ============================================================================
-// @cypherx/chat-ui v0.3.0 — Public API
+// @cypherx/chat-ui v0.4.1 — Public API
 // ============================================================================
 
 // Types
@@ -72,6 +72,31 @@ export { ModeSwitch } from './components/mode-switch'
 // v0.3.0 components — followups MCQ + dislike-reason popover
 export { FollowupsCard } from './components/followups-card'
 export { FeedbackPopover } from './components/feedback-popover'
+
+// AUI (Agentic UI) — renders ui_block ViewSpecs below assistant messages
+export { AuiView } from './aui'
+export { isValidViewSpec, isValidBlock } from './aui'
+export type {
+  AuiViewProps,
+  ViewSpec,
+  Block,
+  BlockType,
+  MetricGroupBlock,
+  ChartBlock,
+  TableBlock,
+  TextBlock,
+  ActionsBlock,
+  Metric,
+  MetricDelta,
+  ChartType,
+  ChartFieldRef,
+  ChartBlockOptions,
+  TableColumn,
+  ActionItem,
+  ValueFormat,
+  CellValue,
+  DataRow,
+} from './aui'
 
 // Context
 export { useChatContext } from './context/chat-context'

@@ -8,6 +8,7 @@ import { ThinkingIndicator } from './thinking-indicator'
 import { MessageActionBar } from './message-action-bar'
 import { FollowupsCard } from './followups-card'
 import { FeedbackPopover } from './feedback-popover'
+import { AuiView } from '../aui/aui-view'
 import { useChatContext } from '../context/chat-context'
 import type { ChatMessageProps, FeedbackRating } from '../types'
 
@@ -31,7 +32,7 @@ export function ChatMessage({
   onRetry,
   className,
 }: ChatMessageProps) {
-  const { config, selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast } = useChatContext()
+  const { config, send, selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast } = useChatContext()
 
   const [reasoningOpen, setReasoningOpen] = useState(isStreaming)
   const reasoningRef = useRef<HTMLDivElement>(null)
@@ -81,6 +82,7 @@ export function ChatMessage({
   const hasActions = (message.actions?.length ?? 0) > 0
   const hasReasoning = Boolean(message.reasoning)
   const hasFollowups = Boolean(message.followups)
+  const hasBlocks = (message.blocks?.length ?? 0) > 0
   const showThinking = isStreaming && !hasContent && !hasActions
 
   const enableEdit = isUser && isLast && config.enableRegenerate === true
@@ -282,6 +284,21 @@ export function ChatMessage({
               className="cxc-markdown text-[15px] leading-[1.7]"
               dangerouslySetInnerHTML={{ __html: renderedContent }}
             />
+          )}
+
+          {/* Agentic-UI surfaces (ui_block ViewSpecs) rendered below the prose.
+              Action buttons within a surface send a new chat turn via `send`,
+              the provider's existing one-shot send path. */}
+          {hasBlocks && message.blocks && (
+            <div className="mt-3 space-y-3">
+              {message.blocks.map((spec, index) => (
+                <AuiView
+                  key={`${spec.surface_id}-${index}`}
+                  spec={spec}
+                  onSendMessage={send}
+                />
+              ))}
+            </div>
           )}
 
           {/* Followups MCQ card. Auto-lock once a new turn arrives even if the

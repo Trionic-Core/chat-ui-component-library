@@ -1,0 +1,32 @@
+name: Publish @cypherx/chat-ui
+
+# Publishes to the private registry when a chat-ui-v* tag is pushed.
+# The contract guard + lint + build run via the package's `prepublishOnly`,
+# so a drifted ViewSpec contract can never be published.
+on:
+  push:
+    tags:
+      - 'chat-ui-v*'
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Registry defaults to npm's; override with the NPM_REGISTRY_URL secret
+          # (e.g. a Verdaccio URL). setup-node writes the scoped .npmrc + auth.
+          registry-url: ${{ secrets.NPM_REGISTRY_URL || 'https://registry.npmjs.org' }}
+          scope: '@cypherx'
+
+      - run: npm ci
+
+      # prepublishOnly runs check:contract && lint && build; publish restricted.
+      - run: npm publish --access restricted
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

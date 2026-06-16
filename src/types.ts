@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react'
+import type { ViewSpec } from './aui/aui-types'
 
 // ============================================================================
 // Core Message Types
@@ -15,6 +16,11 @@ export interface ChatMessage {
   error?: boolean
   /** Structured follow-up suggestions emitted by the agent (assistant only). */
   followups?: FollowupsData
+  /**
+   * Agentic-UI surfaces (ViewSpecs) emitted via `ui_block` events, rendered
+   * below the prose by <AuiView>. Assistant only; appended in arrival order.
+   */
+  blocks?: ViewSpec[]
   /** Locked-in selection from a followups card. Once set, the card renders read-only. */
   followupsSelection?: string[]
   /** The user's like/dislike rating on this message (assistant only). */
@@ -106,6 +112,7 @@ export type ChatEvent =
   | { type: 'action'; action: ChatAction }
   | { type: 'action_update'; actionId: string; status: ChatAction['status']; detail?: string }
   | { type: 'followups'; followups: FollowupsData }
+  | { type: 'ui_block'; spec: ViewSpec }
   | { type: 'done'; sessionId?: string; messageId?: string }
   | { type: 'error'; message: string; code?: string }
 
@@ -295,8 +302,6 @@ export interface MessageActionBarProps {
   feedback?: FeedbackData | null
   /** Submit handler for like/dislike. Omit to hide feedback buttons. */
   onFeedback?: (rating: FeedbackRating) => void
-  /** Optional handler invoked when the user opens the dislike reason popover. */
-  onFeedbackDetail?: () => void
   /** Additional class names. */
   className?: string
 }
@@ -478,6 +483,7 @@ export type ChatReducerAction =
   | { type: 'ADD_ACTION'; messageId: string; action: ChatAction }
   | { type: 'UPDATE_ACTION'; messageId: string; actionId: string; status: ChatAction['status']; detail?: string }
   | { type: 'SET_FOLLOWUPS'; messageId: string; followups: FollowupsData }
+  | { type: 'APPEND_BLOCK'; messageId: string; spec: ViewSpec }
   | { type: 'LOCK_FOLLOWUPS'; messageId: string; selection: string[] }
   | { type: 'SET_FEEDBACK'; messageId: string; feedback: FeedbackData | null }
   | { type: 'FINALIZE_MESSAGE'; messageId: string; sessionId?: string; backendMessageId?: string }
@@ -536,6 +542,8 @@ export interface ChatContextValue {
   loadSession: (sessionId: string) => Promise<void>
   deleteSession: (sessionId: string) => Promise<void>
   newConversation: () => void
+  /** Re-pull the session list from the SessionAdapter into state.sessions. */
+  refreshSessions: () => Promise<void>
   /** Pick (or finalize) one or more options from a followups card. Sends the joined text as the next user message. */
   selectFollowup: (messageId: string, options: string[]) => void
   /** Submit feedback on an assistant message. Requires ChatConfig.feedback. */

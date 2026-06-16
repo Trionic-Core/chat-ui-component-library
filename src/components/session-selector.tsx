@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState, type KeyboardEvent } from 'react'
 import { motion, AnimatePresence } from 'motion/react'
-import { ChevronDown, Plus, Check } from 'lucide-react'
+import { ChevronDown, Plus, Check, Trash2 } from 'lucide-react'
 import { cn } from '../utils/cn'
 import { formatRelativeTime } from '../utils/format-time'
 import { useChatContext } from '../context/chat-context'
@@ -19,7 +19,7 @@ import type { SessionSelectorProps } from '../types'
  * - Uses the same session data from ChatContext
  */
 export function SessionSelector({ className }: SessionSelectorProps) {
-  const { state, loadSession, newConversation } = useChatContext()
+  const { state, loadSession, newConversation, deleteSession } = useChatContext()
   const { sessions, activeSessionId } = state
   const [isOpen, setIsOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -43,6 +43,15 @@ export function SessionSelector({ className }: SessionSelectorProps) {
       close()
     },
     [loadSession, close]
+  )
+
+  const handleDeleteSession = useCallback(
+    (e: React.MouseEvent | React.KeyboardEvent, sessionId: string) => {
+      // Don't let the row's onClick fire (which would load the session).
+      e.stopPropagation()
+      deleteSession(sessionId)
+    },
+    [deleteSession]
   )
 
   const handleNewChat = useCallback(() => {
@@ -211,7 +220,7 @@ export function SessionSelector({ className }: SessionSelectorProps) {
                     data-session-item
                     onClick={() => handleSelectSession(session.id)}
                     className={cn(
-                      'flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm',
+                      'group flex w-full items-center gap-2 px-3 py-2.5 text-left text-sm',
                       'transition-colors duration-100',
                       'focus-visible:outline-none',
                     )}
@@ -258,6 +267,38 @@ export function SessionSelector({ className }: SessionSelectorProps) {
                         aria-hidden="true"
                       />
                     )}
+
+                    {/* Delete — appears on row hover/focus. role=button (not a
+                        nested <button>) so it can live inside the row button. */}
+                    <span
+                      role="button"
+                      tabIndex={0}
+                      onClick={(e) => handleDeleteSession(e, session.id)}
+                      onKeyDown={(e) => {
+                        if (e.key === 'Enter' || e.key === ' ') {
+                          e.preventDefault()
+                          handleDeleteSession(e, session.id)
+                        }
+                      }}
+                      className={cn(
+                        'flex h-6 w-6 shrink-0 items-center justify-center rounded',
+                        'opacity-0 transition-opacity duration-100',
+                        'group-hover:opacity-100 focus:opacity-100 focus-visible:outline-none',
+                      )}
+                      style={{ color: 'var(--cxc-text-muted)' }}
+                      onMouseOver={(e) => {
+                        e.currentTarget.style.color = 'var(--cxc-error)'
+                        e.currentTarget.style.backgroundColor =
+                          'color-mix(in srgb, var(--cxc-error) 12%, transparent)'
+                      }}
+                      onMouseOut={(e) => {
+                        e.currentTarget.style.color = 'var(--cxc-text-muted)'
+                        e.currentTarget.style.backgroundColor = 'transparent'
+                      }}
+                      aria-label={`Delete chat: ${session.title}`}
+                    >
+                      <Trash2 size={13} aria-hidden="true" />
+                    </span>
                   </button>
                 )
               })

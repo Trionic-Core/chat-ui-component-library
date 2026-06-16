@@ -1,0 +1,34 @@
+name: CI
+
+# Runs the contract guard + lint + tests on every PR and push, so a drifted
+# ViewSpec contract (or a failing test) is caught before merge — not only at
+# tag-publish time (see publish.yml). Auth mirrors publish.yml because the
+# @cypherx scope is private and `npm ci` must resolve it.
+on:
+  pull_request:
+  push:
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          # Registry defaults to npm's; override with the NPM_REGISTRY_URL secret
+          # (e.g. a Verdaccio URL). setup-node writes the scoped .npmrc + auth.
+          registry-url: ${{ secrets.NPM_REGISTRY_URL || 'https://registry.npmjs.org' }}
+          scope: '@cypherx'
+
+      - run: npm ci
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+      - run: npm run lint
+
+      # `npm test` runs vitest then check:contract (the wire-contract guard).
+      - run: npm test

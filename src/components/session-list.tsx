@@ -129,14 +129,17 @@ function SessionItem({
             className={cn(
               'flex h-6 w-6 shrink-0 items-center justify-center rounded',
               'transition-colors duration-100',
-              'hover:bg-red-500/10 focus-visible:outline-none focus-visible:ring-1',
+              'focus-visible:outline-none focus-visible:ring-1',
             )}
             style={{ color: 'var(--cxc-text-muted)' }}
             onMouseOver={(e) => {
               e.currentTarget.style.color = 'var(--cxc-error)'
+              e.currentTarget.style.backgroundColor =
+                'color-mix(in srgb, var(--cxc-error) 12%, transparent)'
             }}
             onMouseOut={(e) => {
               e.currentTarget.style.color = 'var(--cxc-text-muted)'
+              e.currentTarget.style.backgroundColor = 'transparent'
             }}
             aria-label={`Delete session: ${session.title}`}
           >

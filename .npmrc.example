@@ -1,0 +1,11 @@
+# Consumer .npmrc for @cypherx/chat-ui (private registry).
+# Copy to `.npmrc` in the consuming project (fde-console / a client app) and
+# provide NPM_TOKEN via the environment / a build secret — never commit a token.
+#
+# npm private registry (default):
+@cypherx:registry=https://registry.npmjs.org/
+//registry.npmjs.org/:_authToken=${NPM_TOKEN}
+#
+# Self-hosted Verdaccio — use these two lines instead:
+# @cypherx:registry=https://npm.internal.cypherx.ai/
+# //npm.internal.cypherx.ai/:_authToken=${NPM_TOKEN}

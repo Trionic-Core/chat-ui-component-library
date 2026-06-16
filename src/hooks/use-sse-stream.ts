@@ -1,5 +1,6 @@
 import { useCallback, useRef } from 'react'
 import type { ChatEvent, ChatSendFn, SSEStreamConfig } from '../types'
+import { isValidViewSpec } from '../aui/aui-types'
 
 /**
  * Default body builder: wraps message + sessionId in a JSON object.
@@ -62,6 +63,18 @@ function defaultParseEvent(eventType: string, data: string): ChatEvent | null {
             multi: Boolean(parsed.multi ?? false),
           },
         }
+      }
+
+      case 'ui_block': {
+        // Agentic-UI surface emitted by the backend's render_ui_view tool.
+        // The ViewSpec rides either as the data payload itself or nested under
+        // a `spec` field. Validate the load-bearing shape (blocks array) and
+        // skip anything malformed so a bad surface never breaks the stream.
+        const candidate = isValidViewSpec(parsed.spec) ? parsed.spec : parsed
+        if (isValidViewSpec(candidate)) {
+          return { type: 'ui_block', spec: candidate }
+        }
+        return null
       }
 
       case 'done':

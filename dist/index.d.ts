@@ -3,6 +3,94 @@ import { ReactNode } from 'react';
 import * as react_jsx_runtime from 'react/jsx-runtime';
 import { ClassValue } from 'clsx';
 
+/** Display/format hint shared by metrics and table columns. */
+type ValueFormat = 'number' | 'currency' | 'percent' | 'compact' | 'raw';
+/** Closed chart-type enum (mirrors the backend ChartSpec). */
+type ChartType = 'bar' | 'bar_horizontal' | 'bar_grouped' | 'bar_stacked' | 'line' | 'area' | 'area_stacked' | 'pie' | 'donut' | 'scatter';
+/** A scalar cell value as it travels on the wire. */
+type CellValue = string | number | null;
+/** A data row keyed by field name. */
+type DataRow = Record<string, CellValue>;
+interface MetricDelta {
+    value: CellValue;
+    direction: 'up' | 'down' | 'flat';
+    label?: string;
+}
+interface Metric {
+    id: string;
+    label: string;
+    value: CellValue;
+    unit?: string;
+    format?: ValueFormat;
+    delta?: MetricDelta;
+    spark?: number[];
+}
+interface MetricGroupBlock {
+    type: 'metric_group';
+    metrics: Metric[];
+}
+interface ChartFieldRef {
+    key: string;
+    label: string;
+}
+interface ChartBlockOptions {
+    stacked?: boolean;
+    show_legend?: boolean;
+    orientation?: 'vertical' | 'horizontal';
+}
+interface ChartBlock {
+    type: 'chart';
+    chart_type: ChartType;
+    title?: string;
+    data: DataRow[];
+    x: ChartFieldRef;
+    series: ChartFieldRef[];
+    options?: ChartBlockOptions;
+}
+interface TableColumn {
+    key: string;
+    label: string;
+    align?: 'left' | 'right' | 'center';
+    format?: ValueFormat;
+    unit?: string;
+}
+interface TableBlock {
+    type: 'table';
+    title?: string;
+    columns: TableColumn[];
+    rows: DataRow[];
+    total_count?: number;
+    page_size?: number;
+}
+interface TextBlock {
+    type: 'text';
+    markdown: string;
+}
+interface ActionItem {
+    id: string;
+    label: string;
+    style?: 'primary' | 'secondary';
+    on_click: {
+        send_message: string;
+    };
+}
+interface ActionsBlock {
+    type: 'actions';
+    actions: ActionItem[];
+}
+type Block = MetricGroupBlock | ChartBlock | TableBlock | TextBlock | ActionsBlock;
+type BlockType = Block['type'];
+interface ViewSpec {
+    surface_id: string;
+    version: '1';
+    title?: string;
+    blocks: Block[];
+}
+/** True when `value` is a renderable block of a known type with its required shape. */
+declare function isValidBlock(value: unknown): value is Block;
+/** True when `value` is a structurally valid ViewSpec (blocks array present). */
+declare function isValidViewSpec(value: unknown): value is ViewSpec;
+
 interface ChatMessage$1 {
     id: string;
     role: 'user' | 'assistant' | 'system';
@@ -14,6 +102,11 @@ interface ChatMessage$1 {
     error?: boolean;
     /** Structured follow-up suggestions emitted by the agent (assistant only). */
     followups?: FollowupsData;
+    /**
+     * Agentic-UI surfaces (ViewSpecs) emitted via `ui_block` events, rendered
+     * below the prose by <AuiView>. Assistant only; appended in arrival order.
+     */
+    blocks?: ViewSpec[];
     /** Locked-in selection from a followups card. Once set, the card renders read-only. */
     followupsSelection?: string[];
     /** The user's like/dislike rating on this message (assistant only). */
@@ -86,6 +179,9 @@ type ChatEvent = {
 } | {
     type: 'followups';
     followups: FollowupsData;
+} | {
+    type: 'ui_block';
+    spec: ViewSpec;
 } | {
     type: 'done';
     sessionId?: string;
@@ -243,8 +339,6 @@ interface MessageActionBarProps {
     feedback?: FeedbackData | null;
     /** Submit handler for like/dislike. Omit to hide feedback buttons. */
     onFeedback?: (rating: FeedbackRating) => void;
-    /** Optional handler invoked when the user opens the dislike reason popover. */
-    onFeedbackDetail?: () => void;
     /** Additional class names. */
     className?: string;
 }
@@ -432,6 +526,8 @@ interface ChatContextValue {
     loadSession: (sessionId: string) => Promise<void>;
     deleteSession: (sessionId: string) => Promise<void>;
     newConversation: () => void;
+    /** Re-pull the session list from the SessionAdapter into state.sessions. */
+    refreshSessions: () => Promise<void>;
     /** Pick (or finalize) one or more options from a followups card. Sends the joined text as the next user message. */
     selectFollowup: (messageId: string, options: string[]) => void;
     /** Submit feedback on an assistant message. Requires ChatConfig.feedback. */
@@ -764,6 +860,12 @@ declare function FollowupsCard({ followups, lockedSelection, onSelect, className
  */
 declare function FeedbackPopover({ rating: _rating, onSubmit, onDismiss, className, }: FeedbackPopoverProps): react_jsx_runtime.JSX.Element;
 
+interface AuiViewProps {
+    spec: ViewSpec;
+    onSendMessage: (message: string) => void;
+}
+declare function AuiView({ spec, onSendMessage }: AuiViewProps): react_jsx_runtime.JSX.Element | null;
+
 /**
  * Access the chat context. Must be used within a <ChatProvider>.
  * This is the internal hook -- the public `useChat()` wraps it with
@@ -894,4 +996,4 @@ declare function formatRelativeTime(date: Date): string;
  */
 declare function renderMarkdown(markdown: string): string;
 
-export { ActionIndicator, type ActionIndicatorProps, ChainOfThought, type ChainOfThoughtProps, type ChatAction, type ChatConfig, ChatContainer, type ChatContainerProps, type ChatContextValue, type ChatEvent, ChatInput, type ChatInputProps, ChatMessage, type ChatMessage$1 as ChatMessageData, type ChatMessageProps, ChatProvider, type ChatSendFn, type ChatSession, ChatWidget, type ChatWidgetProps, CodeBlock, type CodeBlockProps, EmptyState, type EmptyStateProps, type FeedbackData, type FeedbackHandler, FeedbackPopover, type FeedbackPopoverProps, type FeedbackRating, type FeedbackReasonCategory, type FileAttachment, FollowupsCard, type FollowupsCardProps, type FollowupsData, MessageActionBar, type MessageActionBarProps, type MessageActionItem, MessageList, type MessageListProps, ModeSwitch, type ModeSwitchOption$1 as ModeSwitchOption, type ModeSwitchProps$1 as ModeSwitchProps, PromptInput, type PromptInputProps, type SSEStreamConfig, type SessionAdapter, SessionList, type SessionListProps, SessionSelector, type SessionSelectorProps, StreamingText, type StreamingTextProps, TextShimmer, type TextShimmerProps, ThinkingIndicator, type ThinkingIndicatorProps, cn, formatRelativeTime, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText };
+export { ActionIndicator, type ActionIndicatorProps, type ActionItem, type ActionsBlock, AuiView, type AuiViewProps, type Block, type BlockType, type CellValue, ChainOfThought, type ChainOfThoughtProps, type ChartBlock, type ChartBlockOptions, type ChartFieldRef, type ChartType, type ChatAction, type ChatConfig, ChatContainer, type ChatContainerProps, type ChatContextValue, type ChatEvent, ChatInput, type ChatInputProps, ChatMessage, type ChatMessage$1 as ChatMessageData, type ChatMessageProps, ChatProvider, type ChatSendFn, type ChatSession, ChatWidget, type ChatWidgetProps, CodeBlock, type CodeBlockProps, type DataRow, EmptyState, type EmptyStateProps, type FeedbackData, type FeedbackHandler, FeedbackPopover, type FeedbackPopoverProps, type FeedbackRating, type FeedbackReasonCategory, type FileAttachment, FollowupsCard, type FollowupsCardProps, type FollowupsData, MessageActionBar, type MessageActionBarProps, type MessageActionItem, MessageList, type MessageListProps, type Metric, type MetricDelta, type MetricGroupBlock, ModeSwitch, type ModeSwitchOption$1 as ModeSwitchOption, type ModeSwitchProps$1 as ModeSwitchProps, PromptInput, type PromptInputProps, type SSEStreamConfig, type SessionAdapter, SessionList, type SessionListProps, SessionSelector, type SessionSelectorProps, StreamingText, type StreamingTextProps, type TableBlock, type TableColumn, type TextBlock, TextShimmer, type TextShimmerProps, ThinkingIndicator, type ThinkingIndicatorProps, type ValueFormat, type ViewSpec, cn, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText };

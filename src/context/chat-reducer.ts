@@ -108,6 +108,17 @@ export function chatReducer(state: ChatState, action: ChatReducerAction): ChatSt
         })),
       }
 
+    case 'APPEND_BLOCK':
+      // Append the ViewSpec to the assistant message's blocks in arrival order.
+      // The agent can emit multiple ui_block surfaces within one turn.
+      return {
+        ...state,
+        messages: updateMessage(state.messages, action.messageId, (msg) => ({
+          ...msg,
+          blocks: [...(msg.blocks ?? []), action.spec],
+        })),
+      }
+
     case 'LOCK_FOLLOWUPS':
       return {
         ...state,
