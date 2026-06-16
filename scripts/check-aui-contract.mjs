@@ -20,7 +20,12 @@ import { fileURLToPath } from 'node:url'
 import { dirname, resolve } from 'node:path'
 
 const here = dirname(fileURLToPath(import.meta.url))
-const TYPES_PATH = resolve(here, '../src/aui/aui-types.ts')
+// The types file to check. Defaults to the package's canonical aui-types.ts;
+// CHATUI_CONTRACT_TYPES_PATH overrides it so the guard can be exercised against
+// a deliberately-mutated copy (see check-aui-contract.test.ts) without
+// duplicating the contract logic.
+const TYPES_PATH =
+  process.env.CHATUI_CONTRACT_TYPES_PATH || resolve(here, '../src/aui/aui-types.ts')
 const src = readFileSync(TYPES_PATH, 'utf8')
 
 // ── Canonical contract (mirrors enterprise/app/chat/aui/models.py) ──────────
@@ -46,9 +51,21 @@ function unionMembers(name) {
   return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1])
 }
 
-/** Single-quoted literals on a `<field>: 'a' | 'b' | ...` line within the file. */
-function inlineUnion(fieldDecl) {
-  const m = src.match(new RegExp(`${fieldDecl}\\s*:\\s*([^\\n]+)`))
+/** The `{ ... }` body of `interface <name>`, or null if it isn't declared. */
+function interfaceBody(name) {
+  const m = src.match(new RegExp(`interface ${name}\\s*\\{([\\s\\S]*?)\\n\\}`))
+  return m ? m[1] : null
+}
+
+/**
+ * Single-quoted literals on a `<field>: 'a' | 'b' | ...` line, scoped to the
+ * body of `iface` so a same-named decoy field elsewhere in the file can't
+ * false-pass the check.
+ */
+function inlineUnion(iface, fieldDecl) {
+  const body = interfaceBody(iface)
+  if (body === null) return null
+  const m = body.match(new RegExp(`(?:^|\\n)\\s*${fieldDecl}\\s*:\\s*([^\\n]+)`))
   if (!m) return null
   return [...m[1].matchAll(/'([^']+)'/g)].map((x) => x[1])
 }
@@ -68,19 +85,34 @@ function expectSet(label, actual, expected) {
 // Closed enums
 expectSet('ValueFormat', unionMembers('ValueFormat'), CANONICAL.ValueFormat)
 expectSet('ChartType', unionMembers('ChartType'), CANONICAL.ChartType)
-// Inline unions on their leaf fields
-expectSet('MetricDelta.direction', inlineUnion('direction'), CANONICAL.DeltaDirection)
-expectSet('TableColumn.align', inlineUnion('align\\?'), CANONICAL.Align)
-expectSet('ChartBlockOptions.orientation', inlineUnion('orientation\\?'), CANONICAL.Orientation)
-expectSet('ActionItem.style', inlineUnion('style\\?'), CANONICAL.ActionStyle)
+// Inline unions on their leaf fields — scoped to the owning interface so a
+// same-named decoy field elsewhere can't false-pass.
+expectSet('MetricDelta.direction', inlineUnion('MetricDelta', 'direction'), CANONICAL.DeltaDirection)
+expectSet('TableColumn.align', inlineUnion('TableColumn', 'align\\?'), CANONICAL.Align)
+expectSet(
+  'ChartBlockOptions.orientation',
+  inlineUnion('ChartBlockOptions', 'orientation\\?'),
+  CANONICAL.Orientation,
+)
+expectSet('ActionItem.style', inlineUnion('ActionItem', 'style\\?'), CANONICAL.ActionStyle)
 
 // Block discriminants (the closed catalog) — each block declares `type: '<x>'`.
 const blockTypes = [...src.matchAll(/type:\s*'([^']+)'/g)].map((x) => x[1])
 expectSet('Block discriminants', blockTypes, CANONICAL.BlockTypes)
 
 // The nullable scalar (the original drift bug: a too-narrow Metric.value).
-if (!/export type CellValue\s*=\s*[^\n]*\bnull\b/.test(src)) {
-  errors.push('CellValue: must include `null` (a resolved cell can be missing)')
+// Exact-set check: the union must be precisely `string | number | null` — not
+// merely "contains null" (which a widened or narrowed union could still pass).
+const cellValueMatch = src.match(/export type CellValue\s*=\s*([^\n]+)/)
+if (!cellValueMatch) {
+  errors.push('CellValue: could not be parsed from aui-types.ts')
+} else {
+  const members = cellValueMatch[1]
+    .replace(/\/\/.*$/, '') // drop a trailing line comment
+    .split('|')
+    .map((s) => s.trim())
+    .filter(Boolean)
+  expectSet('CellValue', members, ['string', 'number', 'null'])
 }
 
 // Load-bearing required fields that the renderer + backend both rely on.
@@ -92,10 +124,10 @@ const REQUIRED_FIELDS = {
   ActionItem: ['id', 'label', 'on_click'],
 }
 for (const [iface, fields] of Object.entries(REQUIRED_FIELDS)) {
-  const body = src.match(new RegExp(`interface ${iface}\\s*\\{([\\s\\S]*?)\\n\\}`))
-  if (!body) { errors.push(`interface ${iface}: not found`); continue }
+  const body = interfaceBody(iface)
+  if (body === null) { errors.push(`interface ${iface}: not found`); continue }
   for (const f of fields) {
-    if (!new RegExp(`(^|\\n)\\s*${f}\\s*:`).test(body[1])) {
+    if (!new RegExp(`(^|\\n)\\s*${f}\\s*:`).test(body)) {
       errors.push(`${iface}.${f}: required field missing`)
     }
   }

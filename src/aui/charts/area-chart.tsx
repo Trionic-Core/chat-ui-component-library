@@ -1,3 +1,4 @@
+import { useId } from 'react'
 import {
   AreaChart as RechartsAreaChart,
   Area,
@@ -12,11 +13,10 @@ import {
   CHART_GRID_STYLE,
   CHART_TOOLTIP_STYLE,
   CHART_ANIMATION,
-  CHART_LEGEND_STYLE,
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
-import { shortenLabel, shouldShowLegend } from './chart-helpers'
+import { shortenLabel, shouldShowLegend, chartLegendProps } from './chart-helpers'
 import { ChartEmpty } from './chart-empty'
 
 /**
@@ -26,6 +26,10 @@ import { ChartEmpty } from './chart-empty'
  * `options.stacked` stacks the areas.
  */
 export function AreaChart({ data, x, series, options }: ChartProps) {
+  // Per-instance prefix so two AreaCharts with the same series key don't collide
+  // on a document-global <linearGradient id> (and its url(#...) fill reference).
+  const uid = useId()
+
   if (!data.length || !x.key || series.length === 0) {
     return <ChartEmpty />
   }
@@ -43,8 +47,8 @@ export function AreaChart({ data, x, series, options }: ChartProps) {
         <defs>
           {series.map((s, index) => (
             <linearGradient
-              key={`area-gradient-${s.key}`}
-              id={`area-gradient-${s.key}`}
+              key={s.key}
+              id={`area-gradient-${uid}-${s.key}`}
               x1="0"
               y1="0"
               x2="0"
@@ -61,14 +65,7 @@ export function AreaChart({ data, x, series, options }: ChartProps) {
 
         <Tooltip cursor={false} contentStyle={CHART_TOOLTIP_STYLE} />
 
-        {showLegend && (
-          <Legend
-            wrapperStyle={{
-              fontSize: CHART_LEGEND_STYLE.fontSize,
-              color: CHART_LEGEND_STYLE.color,
-            }}
-          />
-        )}
+        {showLegend && <Legend {...chartLegendProps()} />}
 
         {series.map((s, index) => (
           <Area
@@ -77,7 +74,7 @@ export function AreaChart({ data, x, series, options }: ChartProps) {
             name={s.label}
             type="monotone"
             stroke={getChartColor(index)}
-            fill={`url(#area-gradient-${s.key})`}
+            fill={`url(#area-gradient-${uid}-${s.key})`}
             strokeWidth={2}
             stackId={options?.stacked ? 'stack' : undefined}
             isAnimationActive

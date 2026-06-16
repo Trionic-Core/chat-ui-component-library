@@ -6,22 +6,13 @@
  * together — a flat row set plus an x-axis field and one or more
  * named series. The agent supplies business labels; the wrappers
  * render with indexed colors and the cx-* theme.
+ *
+ * The field/row shapes are the canonical wire types (ChartFieldRef,
+ * DataRow) — these props are a thin, camelCase view of ChartBlock, so
+ * they reuse the contract types rather than redeclaring them.
  * ----------------------------------------------------------------*/
 
-/** A single data row keyed by field name (values are display- or numeric-typed). */
-export type ChartDataRow = Record<string, unknown>
-
-/** The x-axis (category) field: the key to read and the label to show. */
-export interface ChartAxis {
-  key: string
-  label: string
-}
-
-/** One plotted series: the key to read and the label to show in tooltip/legend. */
-export interface ChartSeries {
-  key: string
-  label: string
-}
+import type { ChartFieldRef, DataRow } from '../aui-types'
 
 /** Optional rendering hints from the ChartBlock `options` field. */
 export interface ChartOptions {
@@ -35,8 +26,8 @@ export interface ChartOptions {
 
 /** Shared props for every chart wrapper. */
 export interface ChartProps {
-  data: ChartDataRow[]
-  x: ChartAxis
-  series: ChartSeries[]
+  data: DataRow[]
+  x: ChartFieldRef
+  series: ChartFieldRef[]
   options?: ChartOptions
 }

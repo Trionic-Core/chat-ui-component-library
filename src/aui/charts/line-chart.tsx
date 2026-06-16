@@ -12,11 +12,10 @@ import {
   CHART_GRID_STYLE,
   CHART_TOOLTIP_STYLE,
   CHART_ANIMATION,
-  CHART_LEGEND_STYLE,
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
-import { shortenLabel, shouldShowLegend } from './chart-helpers'
+import { shortenLabel, shouldShowLegend, chartLegendProps } from './chart-helpers'
 import { ChartEmpty } from './chart-empty'
 
 /**
@@ -45,14 +44,7 @@ export function LineChart({ data, x, series, options }: ChartProps) {
 
         <Tooltip cursor={false} contentStyle={CHART_TOOLTIP_STYLE} />
 
-        {showLegend && (
-          <Legend
-            wrapperStyle={{
-              fontSize: CHART_LEGEND_STYLE.fontSize,
-              color: CHART_LEGEND_STYLE.color,
-            }}
-          />
-        )}
+        {showLegend && <Legend {...chartLegendProps()} />}
 
         {series.map((s, index) => (
           <Line

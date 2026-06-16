@@ -6,6 +6,11 @@ import { type ReactNode, useCallback, useEffect, useRef } from 'react'
  * Ported from the fde-console primitive, re-themed onto the library's
  * token system (cx-* bridges to cxc-*) so the panel reads correctly in
  * both light and dark.
+ *
+ * Focus management (no deps): on open, focus moves into the dialog (first
+ * focusable element, else the panel itself); Tab/Shift+Tab are trapped
+ * inside the panel; Escape closes; and focus is restored to the
+ * previously-focused element on close.
  * ----------------------------------------------------------------*/
 
 interface DialogProps {
@@ -15,26 +20,76 @@ interface DialogProps {
   children: ReactNode
 }
 
+const FOCUSABLE_SELECTOR =
+  'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
+
 export function Dialog({ open, onClose, title, children }: DialogProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  // The element focused before the dialog opened, restored when it closes.
+  const previouslyFocused = useRef<HTMLElement | null>(null)
+
+  const focusableElements = useCallback((): HTMLElement[] => {
+    const panel = panelRef.current
+    if (!panel) return []
+    return Array.from(panel.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR))
+  }, [])
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
-      if (e.key === 'Escape') onClose()
+      if (e.key === 'Escape') {
+        onClose()
+        return
+      }
+      if (e.key !== 'Tab') return
+
+      // Trap focus: cycle within the panel's focusable elements.
+      const focusables = focusableElements()
+      if (focusables.length === 0) {
+        // Nothing focusable inside — keep focus on the panel itself.
+        e.preventDefault()
+        panelRef.current?.focus()
+        return
+      }
+      const first = focusables[0]
+      const last = focusables[focusables.length - 1]
+      const active = document.activeElement
+
+      if (e.shiftKey) {
+        if (active === first || !panelRef.current?.contains(active)) {
+          e.preventDefault()
+          last.focus()
+        }
+      } else if (active === last) {
+        e.preventDefault()
+        first.focus()
+      }
     },
-    [onClose],
+    [onClose, focusableElements],
   )
 
+  // Lock scroll + bind the keydown handler while open.
   useEffect(() => {
-    if (open) {
-      document.addEventListener('keydown', handleKeyDown)
-      document.body.style.overflow = 'hidden'
-    }
+    if (!open) return
+    document.addEventListener('keydown', handleKeyDown)
+    document.body.style.overflow = 'hidden'
     return () => {
       document.removeEventListener('keydown', handleKeyDown)
       document.body.style.overflow = ''
     }
   }, [open, handleKeyDown])
+
+  // Move focus into the dialog on open; restore it to the trigger on close.
+  useEffect(() => {
+    if (!open) return
+    previouslyFocused.current = document.activeElement as HTMLElement | null
+    // Focus the first focusable child, else the panel container itself.
+    const focusables = focusableElements()
+    ;(focusables[0] ?? panelRef.current)?.focus()
+    return () => {
+      previouslyFocused.current?.focus?.()
+    }
+  }, [open, focusableElements])
 
   if (!open) return null
 
@@ -51,7 +106,9 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
       aria-label={title}
     >
       <div
-        className="w-full max-w-3xl rounded-lg border"
+        ref={panelRef}
+        tabIndex={-1}
+        className="w-full max-w-3xl rounded-lg border focus:outline-none"
         style={{
           borderColor: 'var(--cx-border)',
           backgroundColor: 'var(--cx-canvas)',

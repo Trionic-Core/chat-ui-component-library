@@ -1907,7 +1907,11 @@ function isNumeric(value) {
 }
 function MetricGroupBlock({ block }) {
   if (block.metrics.length === 0) return null;
-  return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3", children: block.metrics.map((metric) => /* @__PURE__ */ jsxRuntime.jsx(MetricCard, { metric }, metric.id)) });
+  return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3", children: block.metrics.map((metric, index) => (
+    // Composite key: agent-supplied ids may collide, so pair with the index
+    // (matches the pattern in aui-view.tsx / table-block.tsx).
+    /* @__PURE__ */ jsxRuntime.jsx(MetricCard, { metric }, `${metric.id ?? "m"}-${index}`)
+  )) });
 }
 function MetricCard({ metric }) {
   const value = formatValue(metric.value, metric.format);
@@ -1964,24 +1968,62 @@ function Sparkline({ values }) {
     }
   ) }) }) });
 }
+var FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 function Dialog({ open, onClose, title, children }) {
   const overlayRef = react.useRef(null);
+  const panelRef = react.useRef(null);
+  const previouslyFocused = react.useRef(null);
+  const focusableElements = react.useCallback(() => {
+    const panel = panelRef.current;
+    if (!panel) return [];
+    return Array.from(panel.querySelectorAll(FOCUSABLE_SELECTOR));
+  }, []);
   const handleKeyDown = react.useCallback(
     (e) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        onClose();
+        return;
+      }
+      if (e.key !== "Tab") return;
+      const focusables = focusableElements();
+      if (focusables.length === 0) {
+        e.preventDefault();
+        panelRef.current?.focus();
+        return;
+      }
+      const first = focusables[0];
+      const last = focusables[focusables.length - 1];
+      const active = document.activeElement;
+      if (e.shiftKey) {
+        if (active === first || !panelRef.current?.contains(active)) {
+          e.preventDefault();
+          last.focus();
+        }
+      } else if (active === last) {
+        e.preventDefault();
+        first.focus();
+      }
     },
-    [onClose]
+    [onClose, focusableElements]
   );
   react.useEffect(() => {
-    if (open) {
-      document.addEventListener("keydown", handleKeyDown);
-      document.body.style.overflow = "hidden";
-    }
+    if (!open) return;
+    document.addEventListener("keydown", handleKeyDown);
+    document.body.style.overflow = "hidden";
     return () => {
       document.removeEventListener("keydown", handleKeyDown);
       document.body.style.overflow = "";
     };
   }, [open, handleKeyDown]);
+  react.useEffect(() => {
+    if (!open) return;
+    previouslyFocused.current = document.activeElement;
+    const focusables = focusableElements();
+    (focusables[0] ?? panelRef.current)?.focus();
+    return () => {
+      previouslyFocused.current?.focus?.();
+    };
+  }, [open, focusableElements]);
   if (!open) return null;
   return /* @__PURE__ */ jsxRuntime.jsx(
     "div",
@@ -1998,7 +2040,9 @@ function Dialog({ open, onClose, title, children }) {
       children: /* @__PURE__ */ jsxRuntime.jsxs(
         "div",
         {
-          className: "w-full max-w-3xl rounded-lg border",
+          ref: panelRef,
+          tabIndex: -1,
+          className: "w-full max-w-3xl rounded-lg border focus:outline-none",
           style: {
             borderColor: "var(--cx-border)",
             backgroundColor: "var(--cx-canvas)",
@@ -2050,8 +2094,38 @@ function Dialog({ open, onClose, title, children }) {
     }
   );
 }
+function DownloadIcon() {
+  return /* @__PURE__ */ jsxRuntime.jsxs(
+    "svg",
+    {
+      xmlns: "http://www.w3.org/2000/svg",
+      width: "14",
+      height: "14",
+      viewBox: "0 0 24 24",
+      fill: "none",
+      stroke: "currentColor",
+      strokeWidth: "2",
+      strokeLinecap: "round",
+      strokeLinejoin: "round",
+      "aria-hidden": "true",
+      children: [
+        /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }),
+        /* @__PURE__ */ jsxRuntime.jsx("polyline", { points: "7 10 12 15 17 10" }),
+        /* @__PURE__ */ jsxRuntime.jsx("line", { x1: "12", y1: "15", x2: "12", y2: "3" })
+      ]
+    }
+  );
+}
 
 // src/aui/charts/chart-helpers.ts
+function chartLegendProps() {
+  return {
+    wrapperStyle: {
+      fontSize: CHART_LEGEND_STYLE.fontSize,
+      color: CHART_LEGEND_STYLE.color
+    }
+  };
+}
 function shortenLabel(value) {
   const str = String(value ?? "");
   return str.length > 12 ? `${str.slice(0, 10)}...` : str;
@@ -2101,15 +2175,7 @@ function BarChart({ data, x, series, options }) {
           )
         ] }) : /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE }),
-        showLegend && /* @__PURE__ */ jsxRuntime.jsx(
-          recharts.Legend,
-          {
-            wrapperStyle: {
-              fontSize: CHART_LEGEND_STYLE.fontSize,
-              color: CHART_LEGEND_STYLE.color
-            }
-          }
-        ),
+        showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
         series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Bar,
           {
@@ -2144,15 +2210,7 @@ function LineChart2({ data, x, series, options }) {
         /* @__PURE__ */ jsxRuntime.jsx(recharts.CartesianGrid, { ...CHART_GRID_STYLE }),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE }),
-        showLegend && /* @__PURE__ */ jsxRuntime.jsx(
-          recharts.Legend,
-          {
-            wrapperStyle: {
-              fontSize: CHART_LEGEND_STYLE.fontSize,
-              color: CHART_LEGEND_STYLE.color
-            }
-          }
-        ),
+        showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
         series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Line,
           {
@@ -2174,6 +2232,7 @@ function LineChart2({ data, x, series, options }) {
   ) });
 }
 function AreaChart({ data, x, series, options }) {
+  const uid = react.useId();
   if (!data.length || !x.key || series.length === 0) {
     return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, {});
   }
@@ -2189,7 +2248,7 @@ function AreaChart({ data, x, series, options }) {
         /* @__PURE__ */ jsxRuntime.jsx("defs", { children: series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsxs(
           "linearGradient",
           {
-            id: `area-gradient-${s.key}`,
+            id: `area-gradient-${uid}-${s.key}`,
             x1: "0",
             y1: "0",
             x2: "0",
@@ -2199,20 +2258,12 @@ function AreaChart({ data, x, series, options }) {
               /* @__PURE__ */ jsxRuntime.jsx("stop", { offset: "100%", stopColor: getChartColor(index), stopOpacity: 0.05 })
             ]
           },
-          `area-gradient-${s.key}`
+          s.key
         )) }),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.CartesianGrid, { ...CHART_GRID_STYLE }),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE }),
-        showLegend && /* @__PURE__ */ jsxRuntime.jsx(
-          recharts.Legend,
-          {
-            wrapperStyle: {
-              fontSize: CHART_LEGEND_STYLE.fontSize,
-              color: CHART_LEGEND_STYLE.color
-            }
-          }
-        ),
+        showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
         series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Area,
           {
@@ -2220,7 +2271,7 @@ function AreaChart({ data, x, series, options }) {
             name: s.label,
             type: "monotone",
             stroke: getChartColor(index),
-            fill: `url(#area-gradient-${s.key})`,
+            fill: `url(#area-gradient-${uid}-${s.key})`,
             strokeWidth: 2,
             stackId: options?.stacked ? "stack" : void 0,
             isAnimationActive: true,
@@ -2287,7 +2338,10 @@ function PieChart({ data, x, series, options, donut = false }) {
             }
           }
         ),
-        showLegend && /* @__PURE__ */ jsxRuntime.jsx(
+        showLegend && // Intentionally diverges from chartLegendProps(): the pie legend uses
+        // the full CHART_LEGEND_STYLE plus bottom-aligned circle swatches,
+        // since its slices are otherwise unlabeled.
+        /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Legend,
           {
             wrapperStyle: CHART_LEGEND_STYLE,
@@ -2317,15 +2371,7 @@ function ScatterChart({ data, x, series, options }) {
         /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, dataKey: x.key, type: "number", name: x.label }),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.YAxis, { ...CHART_Y_AXIS, type: "number" }),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: { strokeDasharray: "3 3" }, contentStyle: CHART_TOOLTIP_STYLE }),
-        showLegend && /* @__PURE__ */ jsxRuntime.jsx(
-          recharts.Legend,
-          {
-            wrapperStyle: {
-              fontSize: CHART_LEGEND_STYLE.fontSize,
-              color: CHART_LEGEND_STYLE.color
-            }
-          }
-        ),
+        showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
         series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Scatter,
           {
@@ -2452,28 +2498,6 @@ function IconButton({
     }
   );
 }
-function DownloadIcon() {
-  return /* @__PURE__ */ jsxRuntime.jsxs(
-    "svg",
-    {
-      xmlns: "http://www.w3.org/2000/svg",
-      width: "14",
-      height: "14",
-      viewBox: "0 0 24 24",
-      fill: "none",
-      stroke: "currentColor",
-      strokeWidth: "2",
-      strokeLinecap: "round",
-      strokeLinejoin: "round",
-      "aria-hidden": "true",
-      children: [
-        /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }),
-        /* @__PURE__ */ jsxRuntime.jsx("polyline", { points: "7 10 12 15 17 10" }),
-        /* @__PURE__ */ jsxRuntime.jsx("line", { x1: "12", y1: "15", x2: "12", y2: "3" })
-      ]
-    }
-  );
-}
 function ExpandIcon() {
   return /* @__PURE__ */ jsxRuntime.jsxs(
     "svg",
@@ -2539,6 +2563,20 @@ function Td({ className, style, ...props }) {
     }
   );
 }
+
+// src/aui/sort.ts
+function sortRows(rows, sort) {
+  if (!sort) return rows;
+  const dir = sort.direction === "asc" ? 1 : -1;
+  return [...rows].sort((a, b) => {
+    const av = a[sort.key];
+    const bv = b[sort.key];
+    if (av === null || av === void 0) return 1;
+    if (bv === null || bv === void 0) return -1;
+    if (isNumeric(av) && isNumeric(bv)) return (Number(av) - Number(bv)) * dir;
+    return String(av).localeCompare(String(bv)) * dir;
+  });
+}
 var DEFAULT_PAGE_SIZE = 10;
 function TableBlock({ block }) {
   const [sort, setSort] = react.useState(null);
@@ -2580,7 +2618,7 @@ function TableBlock({ block }) {
           title: "Download CSV",
           className: "shrink-0 rounded-md p-1.5 transition-colors hover:bg-[var(--cx-canvas-muted)] focus:outline-none focus-visible:ring-2",
           style: { color: "var(--cx-text-muted)" },
-          children: /* @__PURE__ */ jsxRuntime.jsx(DownloadIcon2, {})
+          children: /* @__PURE__ */ jsxRuntime.jsx(DownloadIcon, {})
         }
       )
     ] }),
@@ -2681,45 +2719,11 @@ function alignClass(col, value) {
   const align = col.align ?? (col.format && col.format !== "raw" ? "right" : value !== void 0 && isNumeric(value) ? "right" : "left");
   return cn(align === "right" && "text-right", align === "center" && "text-center");
 }
-function sortRows(rows, sort) {
-  if (!sort) return rows;
-  const dir = sort.direction === "asc" ? 1 : -1;
-  return [...rows].sort((a, b) => {
-    const av = a[sort.key];
-    const bv = b[sort.key];
-    if (av === null || av === void 0) return 1;
-    if (bv === null || bv === void 0) return -1;
-    if (isNumeric(av) && isNumeric(bv)) return (Number(av) - Number(bv)) * dir;
-    return String(av).localeCompare(String(bv)) * dir;
-  });
-}
 function SortGlyph({ active, direction }) {
   if (!active) {
     return /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--cx-text-muted)", opacity: 0.5 }, "aria-hidden": "true", children: "\u2195" });
   }
   return /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--cx-text-secondary)" }, "aria-hidden": "true", children: direction === "asc" ? "\u2191" : "\u2193" });
-}
-function DownloadIcon2() {
-  return /* @__PURE__ */ jsxRuntime.jsxs(
-    "svg",
-    {
-      xmlns: "http://www.w3.org/2000/svg",
-      width: "14",
-      height: "14",
-      viewBox: "0 0 24 24",
-      fill: "none",
-      stroke: "currentColor",
-      strokeWidth: "2",
-      strokeLinecap: "round",
-      strokeLinejoin: "round",
-      "aria-hidden": "true",
-      children: [
-        /* @__PURE__ */ jsxRuntime.jsx("path", { d: "M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4" }),
-        /* @__PURE__ */ jsxRuntime.jsx("polyline", { points: "7 10 12 15 17 10" }),
-        /* @__PURE__ */ jsxRuntime.jsx("line", { x1: "12", y1: "15", x2: "12", y2: "3" })
-      ]
-    }
-  );
 }
 function ChevronIcon({ direction }) {
   return /* @__PURE__ */ jsxRuntime.jsx(
@@ -2741,13 +2745,17 @@ function ChevronIcon({ direction }) {
 }
 
 // src/aui/blocks/inline-markdown.ts
+var PLACEHOLDER_PREFIX = "&lt;CXC-CODE:";
+var PLACEHOLDER_SUFFIX = "&gt;";
+var PLACEHOLDER_RE = /&lt;CXC-CODE:(\d+)&gt;/g;
 function renderInlineMarkdown(text) {
   if (!text) return "";
   let html = text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-  html = html.replace(
-    /`([^`\n]+)`/g,
-    '<code class="cxc-aui-inline-code">$1</code>'
-  );
+  const codeSpans = [];
+  html = html.replace(/`([^`\n]+)`/g, (_match, code) => {
+    const index = codeSpans.push(`<code class="cxc-aui-inline-code">${code}</code>`) - 1;
+    return `${PLACEHOLDER_PREFIX}${index}${PLACEHOLDER_SUFFIX}`;
+  });
   html = html.replace(/\*\*(.+?)\*\*/g, '<strong class="font-semibold">$1</strong>');
   html = html.replace(/\*(.+?)\*/g, "<em>$1</em>");
   html = html.replace(
@@ -2758,6 +2766,10 @@ function renderInlineMarkdown(text) {
     }
   );
   html = html.replace(/\n/g, "<br />");
+  html = html.replace(PLACEHOLDER_RE, (match, index) => {
+    const span = codeSpans[Number(index)];
+    return span ?? match;
+  });
   return html;
 }
 function TextBlock({ block }) {
@@ -2814,7 +2826,18 @@ var Button = react.forwardRef(
 Button.displayName = "AuiButton";
 function ActionsBlock({ block, onSendMessage }) {
   if (block.actions.length === 0) return null;
-  return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "flex flex-wrap gap-2", children: block.actions.map((action) => /* @__PURE__ */ jsxRuntime.jsx(ActionButton, { action, onSendMessage }, action.id)) });
+  return /* @__PURE__ */ jsxRuntime.jsx("div", { className: "flex flex-wrap gap-2", children: block.actions.map((action, index) => (
+    // Composite key: agent-supplied ids may collide, so pair with the index
+    // (matches the pattern in aui-view.tsx / table-block.tsx).
+    /* @__PURE__ */ jsxRuntime.jsx(
+      ActionButton,
+      {
+        action,
+        onSendMessage
+      },
+      `${action.id ?? "a"}-${index}`
+    )
+  )) });
 }
 function ActionButton({
   action,

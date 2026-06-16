@@ -37,13 +37,3 @@ export function getChartColor(index: number): string {
   const slot = ((index % CHART_COLOR_COUNT) + CHART_COLOR_COUNT) % CHART_COLOR_COUNT
   return `var(--cxc-chart-${slot + 1}, ${CHART_FALLBACKS[slot]})`
 }
-
-/**
- * Get a series color with opacity applied — for fills/backgrounds. Uses
- * `color-mix` so it stays brand-aware (composes over the themed token), instead
- * of baking a fixed rgba. `opacity` is clamped to [0, 1].
- */
-export function getChartColorWithOpacity(index: number, opacity: number): string {
-  const pct = Math.round(Math.min(Math.max(opacity, 0), 1) * 100)
-  return `color-mix(in srgb, ${getChartColor(index)} ${pct}%, transparent)`
-}

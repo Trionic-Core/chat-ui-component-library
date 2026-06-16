@@ -19,8 +19,14 @@ export function ActionsBlock({ block, onSendMessage }: ActionsBlockProps) {
 
   return (
     <div className="flex flex-wrap gap-2">
-      {block.actions.map((action) => (
-        <ActionButton key={action.id} action={action} onSendMessage={onSendMessage} />
+      {block.actions.map((action, index) => (
+        // Composite key: agent-supplied ids may collide, so pair with the index
+        // (matches the pattern in aui-view.tsx / table-block.tsx).
+        <ActionButton
+          key={`${action.id ?? 'a'}-${index}`}
+          action={action}
+          onSendMessage={onSendMessage}
+        />
       ))}
     </div>
   )

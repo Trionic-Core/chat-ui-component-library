@@ -1168,6 +1168,7 @@
     --cxc-sidebar-hover: #EEECE8;
     --cxc-sidebar-active: #FDF4EE;
     --cxc-font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    --cxc-font-serif: var(--cxc-font-sans);
     --cxc-font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', ui-monospace, monospace;
     --cxc-letter-spacing: -0.15px;
     --cxc-radius-sm: 8px;

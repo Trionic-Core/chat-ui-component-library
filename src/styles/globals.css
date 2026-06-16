@@ -79,6 +79,9 @@
 
     /* --- Typography (Inter, 2 weights only: 400 regular, 500 medium) --- */
     --cxc-font-sans: 'Inter', system-ui, -apple-system, sans-serif;
+    /* Public override token (THEMING.md); defaults to the sans stack until a
+       client opts into a serif. Consumed via --font-family-cxc-serif below. */
+    --cxc-font-serif: var(--cxc-font-sans);
     --cxc-font-mono: 'JetBrains Mono', 'Fira Code', 'SF Mono', ui-monospace, monospace;
     --cxc-letter-spacing: -0.15px;
 

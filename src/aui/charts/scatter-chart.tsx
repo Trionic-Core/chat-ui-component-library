@@ -14,11 +14,10 @@ import {
   CHART_GRID_STYLE,
   CHART_TOOLTIP_STYLE,
   CHART_ANIMATION,
-  CHART_LEGEND_STYLE,
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
-import { shouldShowLegend } from './chart-helpers'
+import { shouldShowLegend, chartLegendProps } from './chart-helpers'
 import { ChartEmpty } from './chart-empty'
 
 /**
@@ -49,14 +48,7 @@ export function ScatterChart({ data, x, series, options }: ChartProps) {
 
         <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={CHART_TOOLTIP_STYLE} />
 
-        {showLegend && (
-          <Legend
-            wrapperStyle={{
-              fontSize: CHART_LEGEND_STYLE.fontSize,
-              color: CHART_LEGEND_STYLE.color,
-            }}
-          />
-        )}
+        {showLegend && <Legend {...chartLegendProps()} />}
 
         {series.map((s, index) => (
           <Scatter

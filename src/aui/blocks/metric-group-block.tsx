@@ -22,8 +22,10 @@ export function MetricGroupBlock({ block }: MetricGroupBlockProps) {
 
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
-      {block.metrics.map((metric) => (
-        <MetricCard key={metric.id} metric={metric} />
+      {block.metrics.map((metric, index) => (
+        // Composite key: agent-supplied ids may collide, so pair with the index
+        // (matches the pattern in aui-view.tsx / table-block.tsx).
+        <MetricCard key={`${metric.id ?? 'm'}-${index}`} metric={metric} />
       ))}
     </div>
   )

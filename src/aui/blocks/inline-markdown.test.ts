@@ -63,3 +63,37 @@ describe('renderInlineMarkdown — legitimate rendering', () => {
     expect(renderInlineMarkdown('')).toBe('')
   })
 })
+
+describe('renderInlineMarkdown — emphasis does not bleed into inline code', () => {
+  it('keeps `*` literal inside a code span (no <em> produced)', () => {
+    const out = renderInlineMarkdown('`a*b*c`')
+    // The asterisks stay literal inside the rendered <code>…</code>.
+    expect(out).toContain('<code class="cxc-aui-inline-code">a*b*c</code>')
+    expect(out).not.toContain('<em>')
+  })
+
+  it('keeps a SQL star literal inside a code span', () => {
+    const out = renderInlineMarkdown('`SELECT * FROM t`')
+    expect(out).toContain('<code class="cxc-aui-inline-code">SELECT * FROM t</code>')
+    expect(out).not.toContain('<em>')
+    expect(out).not.toContain('<strong')
+  })
+
+  it('still applies emphasis OUTSIDE a code span (code body stays literal)', () => {
+    const out = renderInlineMarkdown('*before* `a*b*c` *after*')
+    // Outer emphasis renders…
+    expect(out).toContain('<em>before</em>')
+    expect(out).toContain('<em>after</em>')
+    // …but the code body keeps its asterisks verbatim.
+    expect(out).toContain('<code class="cxc-aui-inline-code">a*b*c</code>')
+  })
+
+  it('does not produce overlapping/malformed tags across a code boundary', () => {
+    // A stray `*` after a code span must not pair with one inside it.
+    const out = renderInlineMarkdown('`a*b` *c*')
+    expect(out).toContain('<code class="cxc-aui-inline-code">a*b</code>')
+    expect(out).toContain('<em>c</em>')
+    // The code body's asterisk never becomes an <em>, so there is exactly one.
+    expect(out.match(/<em>/g)?.length).toBe(1)
+  })
+})

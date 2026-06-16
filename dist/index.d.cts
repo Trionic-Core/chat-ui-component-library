@@ -339,8 +339,6 @@ interface MessageActionBarProps {
     feedback?: FeedbackData | null;
     /** Submit handler for like/dislike. Omit to hide feedback buttons. */
     onFeedback?: (rating: FeedbackRating) => void;
-    /** Optional handler invoked when the user opens the dislike reason popover. */
-    onFeedbackDetail?: () => void;
     /** Additional class names. */
     className?: string;
 }

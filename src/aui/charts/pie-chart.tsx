@@ -84,6 +84,9 @@ export function PieChart({ data, x, series, options, donut = false }: PieChartPr
         />
 
         {showLegend && (
+          // Intentionally diverges from chartLegendProps(): the pie legend uses
+          // the full CHART_LEGEND_STYLE plus bottom-aligned circle swatches,
+          // since its slices are otherwise unlabeled.
           <Legend
             wrapperStyle={CHART_LEGEND_STYLE}
             verticalAlign="bottom"
