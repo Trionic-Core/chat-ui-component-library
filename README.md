@@ -36,13 +36,14 @@ CypherX's client renderer: streaming chat UI + **Agentic UI** (KPI cards, charts
 ### Installation
 
 ```bash
-npm install github:Trionic-Core/chat-ui-component-library
+# Private package — configure the @cypherx registry token first (see INTEGRATION.md §1)
+npm install @cypherx/chat-ui
 ```
 
-You also need these peer dependencies:
+Peer dependency — just **React** (everything else is bundled):
 
 ```bash
-npm install react react-dom lucide-react
+npm install react react-dom
 ```
 
 ### Import Styles

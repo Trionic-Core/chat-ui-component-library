@@ -10,6 +10,10 @@ rest.
 > `ViewSpec` over an SSE `ui_block` event). It is CypherX's own contract — no
 > third-party UI-protocol dependency. See [Extensibility](#extensibility).
 
+> **Requires** a CypherX Enterprise backend on **v3.5.11 or later** — the version
+> that emits AUI `ui_block` surfaces and persists them for history replay. On an
+> older backend the wiring below is harmless but no surfaces will appear.
+
 ---
 
 ## 1. Install
@@ -39,10 +43,10 @@ export NPM_TOKEN=<the read-only token CypherX gave you>
 npm install @cypherx/chat-ui
 ```
 
-Peer dependencies (you likely already have React):
+Peer dependencies — just **React** (everything else is bundled):
 
 ```bash
-npm install react react-dom lucide-react motion recharts
+npm install react react-dom
 ```
 
 Import the stylesheet once (ships the default theme tokens + base styles):
@@ -51,9 +55,17 @@ Import the stylesheet once (ships the default theme tokens + base styles):
 import '@cypherx/chat-ui/styles.css'
 ```
 
+> **Tailwind v3 users:** importing this compiled stylesheet can conflict
+> (`@layer base` with no matching `@tailwind base`). If you hit that build error,
+> skip the import and define the `--cxc-*` tokens yourself — see
+> [THEMING.md](./THEMING.md).
+
 ---
 
 ## 2. Quick start (full chat widget)
+
+> **Already have your own chat UI?** Jump to **§3 (Just the AUI renderer)** — most
+> product integrations only need the renderer, not the full widget.
 
 The fastest integration: a floating chat widget wired to your CypherX endpoint.
 
@@ -67,7 +79,7 @@ const API_BASE = 'https://your-cypherx-host'
 const HEADERS = {
   'X-API-Key': '<your enterprise API key>',
   // Tenant/row-level scope enforced by the backend access policies:
-  'X-Access-Context': JSON.stringify({ company_id: '36967' }),
+  'X-Access-Context': JSON.stringify({ tenant_id: '<your-tenant-id>' }),
 }
 
 // Map CypherX SSE events -> the library's ChatEvent union (see §4).
@@ -227,6 +239,9 @@ The protocol is built to grow **without you writing rendering code**:
 - **New component types** (e.g. a timeline, a map, a form) → ship in a new
   **library version**; you adopt them with `npm update @cypherx/chat-ui`. Your
   application code does not change — you never author block renderers.
+- **Theming stays automatic** when you `import '@cypherx/chat-ui/styles.css'`: a
+  new block's tokens ship *with* the upgrade — no token edits. (Only hand-defined
+  `--cxc-*` setups need to add the new vars.)
 - **Forward-compatible:** an older client that receives a newer block type it
   doesn't know **skips it gracefully** (it won't crash) until you upgrade.
 
