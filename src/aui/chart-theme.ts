@@ -61,6 +61,25 @@ export const CHART_ANIMATION = {
 } as const
 
 /**
+ * Positive first-frame dimensions for ResponsiveContainer.
+ *
+ * Recharts otherwise starts at -1 × -1 until ResizeObserver runs. That creates
+ * a broken first render when a chart mounts inside the animated chat widget or
+ * a just-opened history session. The observer replaces these with the real host
+ * dimensions immediately afterwards.
+ */
+export const CHART_INITIAL_DIMENSION = {
+  width: 320,
+  height: 256,
+} as const
+
+/** Positive first-frame dimensions for the compact KPI sparkline host. */
+export const SPARKLINE_INITIAL_DIMENSION = {
+  width: 80,
+  height: 28,
+} as const
+
+/**
  * Legend text styles.
  */
 export const CHART_LEGEND_STYLE = {

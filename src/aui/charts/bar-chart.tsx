@@ -14,6 +14,7 @@ import {
   CHART_GRID_STYLE,
   CHART_TOOLTIP_STYLE,
   CHART_ANIMATION,
+  CHART_INITIAL_DIMENSION,
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
@@ -37,7 +38,7 @@ export function BarChart({ data, x, series, options }: ChartProps) {
   const seriesLabels = series.map((s) => s.label).join(', ')
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
       <RechartsBarChart
         data={data}
         layout={isVertical ? 'vertical' : 'horizontal'}

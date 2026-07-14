@@ -49,12 +49,12 @@ export function ChartBlock({ block }: ChartBlockProps) {
         </div>
       </div>
 
-      <div className="h-64 w-full">
+      <div className="h-64 min-h-64 w-full min-w-0">
         <ChartDispatch block={block} />
       </div>
 
       <Dialog open={expanded} onClose={closeExpand} title={block.title || 'Chart'}>
-        <div className="h-[60vh] w-full">
+        <div className="h-[60vh] w-full min-w-0">
           <ChartDispatch block={block} />
         </div>
       </Dialog>

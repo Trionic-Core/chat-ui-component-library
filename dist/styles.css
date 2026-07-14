@@ -1,4 +1,4 @@
-/*! tailwindcss v4.3.1 | MIT License | https://tailwindcss.com */
+/*! tailwindcss v4.3.2 | MIT License | https://tailwindcss.com */
 @layer properties;
 @layer theme, base, components, utilities;
 @layer theme {
@@ -422,6 +422,9 @@
   }
   .min-h-0 {
     min-height: 0;
+  }
+  .min-h-64 {
+    min-height: calc(var(--spacing) * 64);
   }
   .w-0\.5 {
     width: calc(var(--spacing) * 0.5);
