@@ -1840,6 +1840,10 @@ var CHART_INITIAL_DIMENSION = {
   width: 320,
   height: 256
 };
+var SPARKLINE_INITIAL_DIMENSION = {
+  width: 80,
+  height: 28
+};
 var CHART_LEGEND_STYLE = {
   fontSize: 12,
   color: "var(--cx-text-secondary)"
@@ -1956,19 +1960,27 @@ function DeltaPill({ delta }) {
 }
 function Sparkline({ values }) {
   const data = values.map((value, index) => ({ index, value }));
-  return /* @__PURE__ */ jsx("div", { className: "h-7 w-20", "aria-hidden": "true", children: /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsx(LineChart, { data, margin: { top: 2, right: 2, bottom: 2, left: 2 }, children: /* @__PURE__ */ jsx(
-    Line,
+  return /* @__PURE__ */ jsx("div", { className: "h-7 w-20", "aria-hidden": "true", children: /* @__PURE__ */ jsx(
+    ResponsiveContainer,
     {
-      type: "monotone",
-      dataKey: "value",
-      stroke: getChartColor(0),
-      strokeWidth: 1.5,
-      dot: false,
-      isAnimationActive: true,
-      animationDuration: CHART_ANIMATION.duration,
-      animationEasing: CHART_ANIMATION.easing
+      width: "100%",
+      height: "100%",
+      initialDimension: SPARKLINE_INITIAL_DIMENSION,
+      children: /* @__PURE__ */ jsx(LineChart, { data, margin: { top: 2, right: 2, bottom: 2, left: 2 }, children: /* @__PURE__ */ jsx(
+        Line,
+        {
+          type: "monotone",
+          dataKey: "value",
+          stroke: getChartColor(0),
+          strokeWidth: 1.5,
+          dot: false,
+          isAnimationActive: true,
+          animationDuration: CHART_ANIMATION.duration,
+          animationEasing: CHART_ANIMATION.easing
+        }
+      ) })
     }
-  ) }) }) });
+  ) });
 }
 var FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 function Dialog({ open, onClose, title, children }) {
@@ -2479,7 +2491,7 @@ function ChartBlock({ block }) {
       ] })
     ] }),
     /* @__PURE__ */ jsx("div", { className: "h-64 min-h-64 w-full min-w-0", children: /* @__PURE__ */ jsx(ChartDispatch, { block }) }),
-    /* @__PURE__ */ jsx(Dialog, { open: expanded, onClose: closeExpand, title: block.title || "Chart", children: /* @__PURE__ */ jsx("div", { className: "h-[60vh] min-h-64 w-full min-w-0", children: /* @__PURE__ */ jsx(ChartDispatch, { block }) }) })
+    /* @__PURE__ */ jsx(Dialog, { open: expanded, onClose: closeExpand, title: block.title || "Chart", children: /* @__PURE__ */ jsx("div", { className: "h-[60vh] w-full min-w-0", children: /* @__PURE__ */ jsx(ChartDispatch, { block }) }) })
   ] });
 }
 function IconButton({

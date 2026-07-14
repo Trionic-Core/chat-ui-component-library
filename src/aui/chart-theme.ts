@@ -73,6 +73,12 @@ export const CHART_INITIAL_DIMENSION = {
   height: 256,
 } as const
 
+/** Positive first-frame dimensions for the compact KPI sparkline host. */
+export const SPARKLINE_INITIAL_DIMENSION = {
+  width: 80,
+  height: 28,
+} as const
+
 /**
  * Legend text styles.
  */
