@@ -1838,6 +1838,10 @@ var CHART_ANIMATION = {
   duration: 800,
   easing: "ease-out"
 };
+var CHART_INITIAL_DIMENSION = {
+  width: 320,
+  height: 256
+};
 var CHART_LEGEND_STYLE = {
   fontSize: 12,
   color: "var(--cx-text-secondary)"
@@ -2152,7 +2156,7 @@ function BarChart({ data, x, series, options }) {
   const isVertical = options?.orientation === "vertical";
   const showLegend = shouldShowLegend(series.length, options?.showLegend);
   const seriesLabels = series.map((s) => s.label).join(", ");
-  return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxRuntime.jsxs(
+  return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxRuntime.jsxs(
     recharts.BarChart,
     {
       data,
@@ -2200,7 +2204,7 @@ function LineChart2({ data, x, series, options }) {
   }
   const showLegend = shouldShowLegend(series.length, options?.showLegend);
   const seriesLabels = series.map((s) => s.label).join(", ");
-  return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxRuntime.jsxs(
+  return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxRuntime.jsxs(
     recharts.LineChart,
     {
       data,
@@ -2238,7 +2242,7 @@ function AreaChart({ data, x, series, options }) {
   }
   const showLegend = shouldShowLegend(series.length, options?.showLegend);
   const seriesLabels = series.map((s) => s.label).join(", ");
-  return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxRuntime.jsxs(
+  return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxRuntime.jsxs(
     recharts.AreaChart,
     {
       data,
@@ -2298,7 +2302,7 @@ function PieChart({ data, x, series, options, donut = false }) {
     return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, { label: "No data available" });
   }
   const showLegend = shouldShowLegend(chartData.length, options?.showLegend);
-  return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxRuntime.jsxs(
+  return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxRuntime.jsxs(
     recharts.PieChart,
     {
       accessibilityLayer: true,
@@ -2360,7 +2364,7 @@ function ScatterChart({ data, x, series, options }) {
   }
   const showLegend = shouldShowLegend(series.length, options?.showLegend);
   const seriesLabels = series.map((s) => s.label).join(", ");
-  return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxRuntime.jsxs(
+  return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxRuntime.jsxs(
     recharts.ScatterChart,
     {
       margin: { top: 10, right: 20, bottom: 20, left: 10 },
@@ -2476,8 +2480,8 @@ function ChartBlock({ block }) {
         /* @__PURE__ */ jsxRuntime.jsx(IconButton, { label: "Expand chart", onClick: openExpand, children: /* @__PURE__ */ jsxRuntime.jsx(ExpandIcon, {}) })
       ] })
     ] }),
-    /* @__PURE__ */ jsxRuntime.jsx("div", { className: "h-64 w-full", children: /* @__PURE__ */ jsxRuntime.jsx(ChartDispatch, { block }) }),
-    /* @__PURE__ */ jsxRuntime.jsx(Dialog, { open: expanded, onClose: closeExpand, title: block.title || "Chart", children: /* @__PURE__ */ jsxRuntime.jsx("div", { className: "h-[60vh] w-full", children: /* @__PURE__ */ jsxRuntime.jsx(ChartDispatch, { block }) }) })
+    /* @__PURE__ */ jsxRuntime.jsx("div", { className: "h-64 min-h-64 w-full min-w-0", children: /* @__PURE__ */ jsxRuntime.jsx(ChartDispatch, { block }) }),
+    /* @__PURE__ */ jsxRuntime.jsx(Dialog, { open: expanded, onClose: closeExpand, title: block.title || "Chart", children: /* @__PURE__ */ jsxRuntime.jsx("div", { className: "h-[60vh] min-h-64 w-full min-w-0", children: /* @__PURE__ */ jsxRuntime.jsx(ChartDispatch, { block }) }) })
   ] });
 }
 function IconButton({

@@ -11,6 +11,7 @@ import {
   CHART_TOOLTIP_STYLE,
   CHART_ANIMATION,
   CHART_LEGEND_STYLE,
+  CHART_INITIAL_DIMENSION,
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
@@ -48,7 +49,7 @@ export function PieChart({ data, x, series, options, donut = false }: PieChartPr
   const showLegend = shouldShowLegend(chartData.length, options?.showLegend)
 
   return (
-    <ResponsiveContainer width="100%" height="100%">
+    <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
       <RechartsPieChart
         accessibilityLayer
         aria-label={`${donut ? 'Donut' : 'Pie'} chart of ${valueLabel} by ${x.label}`}

@@ -1836,6 +1836,10 @@ var CHART_ANIMATION = {
   duration: 800,
   easing: "ease-out"
 };
+var CHART_INITIAL_DIMENSION = {
+  width: 320,
+  height: 256
+};
 var CHART_LEGEND_STYLE = {
   fontSize: 12,
   color: "var(--cx-text-secondary)"
@@ -2150,7 +2154,7 @@ function BarChart({ data, x, series, options }) {
   const isVertical = options?.orientation === "vertical";
   const showLegend = shouldShowLegend(series.length, options?.showLegend);
   const seriesLabels = series.map((s) => s.label).join(", ");
-  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxs(
+  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxs(
     BarChart$1,
     {
       data,
@@ -2198,7 +2202,7 @@ function LineChart2({ data, x, series, options }) {
   }
   const showLegend = shouldShowLegend(series.length, options?.showLegend);
   const seriesLabels = series.map((s) => s.label).join(", ");
-  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxs(
+  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxs(
     LineChart,
     {
       data,
@@ -2236,7 +2240,7 @@ function AreaChart({ data, x, series, options }) {
   }
   const showLegend = shouldShowLegend(series.length, options?.showLegend);
   const seriesLabels = series.map((s) => s.label).join(", ");
-  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxs(
+  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxs(
     AreaChart$1,
     {
       data,
@@ -2296,7 +2300,7 @@ function PieChart({ data, x, series, options, donut = false }) {
     return /* @__PURE__ */ jsx(ChartEmpty, { label: "No data available" });
   }
   const showLegend = shouldShowLegend(chartData.length, options?.showLegend);
-  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxs(
+  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxs(
     PieChart$1,
     {
       accessibilityLayer: true,
@@ -2358,7 +2362,7 @@ function ScatterChart({ data, x, series, options }) {
   }
   const showLegend = shouldShowLegend(series.length, options?.showLegend);
   const seriesLabels = series.map((s) => s.label).join(", ");
-  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", children: /* @__PURE__ */ jsxs(
+  return /* @__PURE__ */ jsx(ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxs(
     ScatterChart$1,
     {
       margin: { top: 10, right: 20, bottom: 20, left: 10 },
@@ -2474,8 +2478,8 @@ function ChartBlock({ block }) {
         /* @__PURE__ */ jsx(IconButton, { label: "Expand chart", onClick: openExpand, children: /* @__PURE__ */ jsx(ExpandIcon, {}) })
       ] })
     ] }),
-    /* @__PURE__ */ jsx("div", { className: "h-64 w-full", children: /* @__PURE__ */ jsx(ChartDispatch, { block }) }),
-    /* @__PURE__ */ jsx(Dialog, { open: expanded, onClose: closeExpand, title: block.title || "Chart", children: /* @__PURE__ */ jsx("div", { className: "h-[60vh] w-full", children: /* @__PURE__ */ jsx(ChartDispatch, { block }) }) })
+    /* @__PURE__ */ jsx("div", { className: "h-64 min-h-64 w-full min-w-0", children: /* @__PURE__ */ jsx(ChartDispatch, { block }) }),
+    /* @__PURE__ */ jsx(Dialog, { open: expanded, onClose: closeExpand, title: block.title || "Chart", children: /* @__PURE__ */ jsx("div", { className: "h-[60vh] min-h-64 w-full min-w-0", children: /* @__PURE__ */ jsx(ChartDispatch, { block }) }) })
   ] });
 }
 function IconButton({
