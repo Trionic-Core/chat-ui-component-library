@@ -11,6 +11,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { ArrowUp, Square, Plus, Paperclip, X } from 'lucide-react'
 import { cn } from '../utils/cn'
 import { useChatContext } from '../context/chat-context'
+import { VoiceRecordButton } from './voice-record-button'
 import type { PromptInputProps, FileAttachment } from '../types'
 
 let fileIdCounter = 0
@@ -373,6 +374,9 @@ export function PromptInput({
                 <Plus size={16} strokeWidth={1.8} />
               </button>
             )}
+
+            {/* Mic — self-hiding when ChatConfig.voice is absent. */}
+            <VoiceRecordButton disabled={isDisabled} />
 
             {/* Addon slot (custom action buttons) */}
             {addonSlot && (

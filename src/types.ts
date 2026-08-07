@@ -77,6 +77,94 @@ export interface FeedbackHandler {
   remove: (backendMessageId: string) => Promise<void>
 }
 
+// ============================================================================
+// Voice (Speech synthesis + transcription)
+// ============================================================================
+
+export interface VoiceTranscription {
+  text: string
+  language: string
+  language_code: string
+  /**
+   * How the language was determined. `autodetect` means the backend chose from
+   * its candidate locales; `forced` means a single language was used — either
+   * because the caller passed one, or because the install's region only
+   * supports single-language transcription.
+   */
+  mode?: 'autodetect' | 'forced'
+}
+
+/**
+ * Shape of `GET /v1/enterprise/voice`. The library never fetches this — the
+ * consumer does, to decide whether to pass a VoiceHandler at all — but the
+ * type ships so consumers don't hand-roll it.
+ */
+export interface VoiceStatus {
+  enabled: boolean
+  locales?: VoiceLocale[]
+  autodetect_candidates?: string[]
+  /**
+   * Whether this install's region supports multi-language auto-detection.
+   * `null` means the install has not determined it yet. When `false`, every
+   * transcription is single-language, so a consumer serving multilingual users
+   * may want to render a language picker and pass `language` to `transcribe`.
+   */
+  stt_autodetect_available?: boolean | null
+}
+
+export interface VoiceLocale {
+  locale: string
+  locale_name: string
+  language_code: string
+  default_voice: string
+  alt_voice?: string
+}
+
+/**
+ * Optional handler the consumer wires to a backend voice endpoint.
+ * Provide via ChatConfig.voice to enable the speaker button on assistant
+ * messages (TTS) and the microphone button in the input (STT).
+ *
+ * Voice is a per-install feature on the CypherX side, so the consumer should
+ * probe its own backend first (`GET /v1/enterprise/voice` returns
+ * `{ enabled }`) and only pass `voice` when the install has it turned on —
+ * the library renders the buttons whenever the handler is present.
+ *
+ * Both calls run consumer-side, so auth headers (X-API-Key) and CORS stay in
+ * the consumer's fetch. Audio is fetched as a Blob rather than assigned to an
+ * `<audio src>` precisely because an element load cannot carry those headers.
+ */
+export interface VoiceHandler {
+  /** Synthesize spoken audio for a persisted assistant message. Return the audio blob (audio/mpeg). */
+  synthesize: (backendMessageId: string) => Promise<Blob>
+  /**
+   * Transcribe a recorded audio clip.
+   *
+   * The library's own mic converts recordings to 16 kHz mono WAV
+   * (`audio/wav`) before calling this, because which containers the backend
+   * accepts depends on the install's Azure region — regions without fast
+   * transcription take only WAV or OGG. Upload the blob you are given as-is;
+   * its `type` is authoritative.
+   *
+   * `language` is an optional BCP-47 locale that forces single-language
+   * transcription. Leave it unset for auto-detection. Installs whose region
+   * reports `stt_autodetect_available: false` are single-language regardless,
+   * so consumers serving multilingual users may want to offer a picker there.
+   */
+  transcribe: (file: Blob, language?: string) => Promise<VoiceTranscription>
+}
+
+/** Playback status of the provider's shared audio element for one message. */
+export type SpeechStatus = 'idle' | 'loading' | 'playing' | 'error'
+
+export interface SpeechState {
+  /** Local id of the message this status refers to; null when nothing is active. */
+  messageId: string | null
+  status: SpeechStatus
+  /** Human-readable failure reason. Only set when status is 'error'. */
+  error?: string
+}
+
 export interface ChatAction {
   id: string
   type: string
@@ -197,6 +285,17 @@ export interface ChatConfig {
   feedback?: FeedbackHandler
 
   /**
+   * Optional voice handler. When provided, a speaker button appears in the
+   * action bar of persisted assistant messages (synthesize-on-click, never
+   * autoplay) and a microphone button appears in the input, whose transcript
+   * lands in the input for review rather than sending automatically.
+   *
+   * Voice ships dark per install, so gate this yourself: probe
+   * `GET /v1/enterprise/voice` and pass `voice` only when `enabled` is true.
+   */
+  voice?: VoiceHandler
+
+  /**
    * When true, the LAST user message renders an Edit affordance and the LAST
    * assistant message renders a Regenerate affordance. Both submit via
    * `send(text, { regenerate: true })` so the backend trims the tail. Default: false.
@@ -302,6 +401,12 @@ export interface MessageActionBarProps {
   feedback?: FeedbackData | null
   /** Submit handler for like/dislike. Omit to hide feedback buttons. */
   onFeedback?: (rating: FeedbackRating) => void
+  /** Playback status of THIS message. Omit (or 'idle') for the resting state. */
+  speechStatus?: SpeechStatus
+  /** Failure reason to surface next to the speaker button when status is 'error'. */
+  speechError?: string
+  /** Toggle handler for the speaker button. Omit to hide it. */
+  onSpeak?: () => void
   /** Additional class names. */
   className?: string
 }
@@ -554,4 +659,11 @@ export interface ChatContextValue {
   editAndRegenerate: (newContent: string) => void
   /** Regenerate the last assistant message using the same prompt + regenerate=true. */
   regenerateLast: () => void
+  /** Which message (if any) the shared audio element is currently loading or playing. */
+  speech: SpeechState
+  /**
+   * Play the spoken form of an assistant message, or stop it if it is already
+   * playing. Starting one message stops any other. Requires ChatConfig.voice.
+   */
+  toggleSpeech: (messageId: string) => void
 }

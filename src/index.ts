@@ -41,6 +41,13 @@ export type {
   FeedbackData,
   FeedbackHandler,
   FeedbackPopoverProps,
+  // v0.5.0 types — voice (TTS speaker + STT mic)
+  VoiceHandler,
+  VoiceTranscription,
+  VoiceStatus,
+  VoiceLocale,
+  SpeechStatus,
+  SpeechState,
 } from './types'
 
 // Export the ChatMessage interface under an alias to avoid collision
@@ -72,6 +79,10 @@ export { ModeSwitch } from './components/mode-switch'
 // v0.3.0 components — followups MCQ + dislike-reason popover
 export { FollowupsCard } from './components/followups-card'
 export { FeedbackPopover } from './components/feedback-popover'
+
+// v0.5.0 components — voice. The mic is already mounted inside PromptInput and
+// ChatInput; exported for consumers composing their own input surface.
+export { VoiceRecordButton } from './components/voice-record-button'
 
 // AUI (Agentic UI) — renders ui_block ViewSpecs below assistant messages
 export { AuiView } from './aui'
@@ -107,8 +118,13 @@ export { useSSEStream } from './hooks/use-sse-stream'
 export { useChatScroll } from './hooks/use-chat-scroll'
 export { useStreamingText } from './hooks/use-streaming-text'
 export { useSessionManager } from './hooks/use-session-manager'
+export { useVoiceRecorder } from './hooks/use-voice-recorder'
 
 // Utilities
 export { cn } from './utils/cn'
 export { formatRelativeTime } from './utils/format-time'
 export { renderMarkdown } from './utils/markdown'
+// Voice audio conversion — the mic applies this itself; exported for consumers
+// uploading recordings they captured outside the library.
+export { blobToWav, encodeWav, canConvertToWav, TARGET_SAMPLE_RATE, WAV_CONTENT_TYPE } from './utils/wav'
+export { MAX_RECORDING_SECONDS } from './utils/voice'

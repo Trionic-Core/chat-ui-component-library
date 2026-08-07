@@ -32,7 +32,7 @@ export function ChatMessage({
   onRetry,
   className,
 }: ChatMessageProps) {
-  const { config, send, selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast } = useChatContext()
+  const { config, send, selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast, speech, toggleSpeech } = useChatContext()
 
   const [reasoningOpen, setReasoningOpen] = useState(isStreaming)
   const reasoningRef = useRef<HTMLDivElement>(null)
@@ -88,6 +88,10 @@ export function ChatMessage({
   const enableEdit = isUser && isLast && config.enableRegenerate === true
   const enableRegenButton = isAssistant && isLast && config.enableRegenerate === true && !isStreaming
   const feedbackEnabled = isAssistant && Boolean(config.feedback) && Boolean(message.backendMessageId) && !isStreaming
+  // Same gate as feedback: TTS is keyed on the persisted message, so it can
+  // only appear once the backend id has landed and streaming has finished.
+  const voiceEnabled = isAssistant && Boolean(config.voice) && Boolean(message.backendMessageId) && !isStreaming
+  const speechStatus = speech.messageId === message.id ? speech.status : 'idle'
 
   // Wire edit submit
   const handleEditSubmit = useCallback(() => {
@@ -120,6 +124,10 @@ export function ChatMessage({
     },
     [message.feedback?.rating, message.id, submitFeedback, removeFeedback]
   )
+
+  const handleSpeakClick = useCallback(() => {
+    toggleSpeech(message.id)
+  }, [toggleSpeech, message.id])
 
   return (
     <motion.div
@@ -340,6 +348,9 @@ export function ChatMessage({
                 }
                 feedback={feedbackEnabled ? message.feedback : null}
                 onFeedback={feedbackEnabled ? handleFeedbackClick : undefined}
+                speechStatus={speechStatus}
+                speechError={speechStatus === 'error' ? speech.error : undefined}
+                onSpeak={voiceEnabled ? handleSpeakClick : undefined}
               />
               {/* Dislike reason popover, anchored above the bar. */}
               {feedbackOpen && feedbackEnabled && (

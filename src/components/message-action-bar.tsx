@@ -1,5 +1,5 @@
 import { useState, useCallback } from 'react'
-import { Check, Copy, RotateCcw, Pencil, ThumbsUp, ThumbsDown } from 'lucide-react'
+import { Check, Copy, RotateCcw, Pencil, ThumbsUp, ThumbsDown, Volume2, Square, Loader2 } from 'lucide-react'
 import { cn } from '../utils/cn'
 import type { FeedbackRating, MessageActionBarProps, MessageActionItem } from '../types'
 
@@ -22,6 +22,9 @@ export function MessageActionBar({
   onEdit,
   feedback,
   onFeedback,
+  speechStatus = 'idle',
+  speechError,
+  onSpeak,
   className,
 }: MessageActionBarProps) {
   const [copied, setCopied] = useState(false)
@@ -99,15 +102,33 @@ export function MessageActionBar({
     onFeedback('down')
   }, [onFeedback])
 
-  if (allActions.length === 0 && !showFeedback) return null
+  // The speaker is inline for the same reason feedback is: three visual states
+  // (idle / loading / playing) plus an error label don't fit the flat
+  // MessageActionItem shape.
+  const showSpeak = Boolean(onSpeak)
+  const isPlaying = speechStatus === 'playing'
+  const isLoadingSpeech = speechStatus === 'loading'
+  const speechFailed = speechStatus === 'error'
+
+  const speakLabel = isPlaying
+    ? 'Stop reading aloud'
+    : isLoadingSpeech
+      ? 'Preparing audio'
+      : 'Read aloud'
+
+  if (allActions.length === 0 && !showFeedback && !showSpeak) return null
 
   return (
     <div className="relative">
       <div
         className={cn(
           'flex items-center gap-0.5',
-          'opacity-0 transition-opacity duration-150',
-          'group-hover/message:opacity-100',
+          'transition-opacity duration-150',
+          // Audio outlives the hover that started it, so an active or failed
+          // speaker pins the bar open — otherwise Stop would be unreachable.
+          isPlaying || isLoadingSpeech || speechFailed
+            ? 'opacity-100'
+            : 'opacity-0 group-hover/message:opacity-100',
           'focus-within:opacity-100',
           className
         )}
@@ -207,6 +228,58 @@ export function MessageActionBar({
               <ThumbsDown size={14} fill={currentRating === 'down' ? 'currentColor' : 'none'} />
             </button>
           </>
+        )}
+
+        {showSpeak && (
+          <button
+            type="button"
+            onClick={onSpeak}
+            disabled={isLoadingSpeech}
+            className={cn(
+              'flex h-7 w-7 items-center justify-center',
+              'rounded-[var(--cxc-radius-sm)]',
+              'transition-colors duration-100',
+              'focus-visible:outline-none focus-visible:ring-2',
+              'focus-visible:ring-[var(--cxc-border-focus)]',
+              'disabled:cursor-progress'
+            )}
+            style={{
+              color: isPlaying
+                ? 'var(--cxc-text)'
+                : speechFailed
+                  ? 'var(--cxc-error)'
+                  : 'var(--cxc-text-muted)',
+            }}
+            onMouseOver={(e) => {
+              if (isPlaying || speechFailed) return
+              e.currentTarget.style.backgroundColor = 'var(--cxc-bg-muted)'
+              e.currentTarget.style.color = 'var(--cxc-text-secondary)'
+            }}
+            onMouseOut={(e) => {
+              if (isPlaying || speechFailed) return
+              e.currentTarget.style.backgroundColor = 'transparent'
+              e.currentTarget.style.color = 'var(--cxc-text-muted)'
+            }}
+            aria-label={speakLabel}
+            aria-pressed={isPlaying}
+            title={speechFailed ? (speechError ?? 'Could not play this message') : speakLabel}
+          >
+            {isLoadingSpeech ? (
+              <Loader2 size={14} className="cxc-spin" aria-hidden="true" />
+            ) : isPlaying ? (
+              <Square size={12} fill="currentColor" aria-hidden="true" />
+            ) : (
+              <Volume2 size={14} aria-hidden="true" />
+            )}
+          </button>
+        )}
+
+        {/* Failures are announced rather than only shown, since the speaker's
+            whole audience may not be looking at the screen. */}
+        {showSpeak && speechFailed && (
+          <span className="ml-1 text-[12px]" style={{ color: 'var(--cxc-error)' }} role="alert">
+            {speechError ?? 'Could not play this message'}
+          </span>
         )}
       </div>
 
