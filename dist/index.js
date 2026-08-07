@@ -1,7 +1,7 @@
 import { createContext, forwardRef, useCallback, useContext, useRef, useState, useEffect, useMemo, Component, useId, useReducer } from 'react';
 import { jsx, jsxs, Fragment } from 'react/jsx-runtime';
 import { AnimatePresence, motion } from 'motion/react';
-import { ArrowDown, Sparkles, ChevronDown, ThumbsUp, ThumbsDown, CheckCircle2, AlertCircle, Lock, Check, X, Circle, Clock, Copy, RotateCcw, Pencil, Paperclip, Plus, Square, ArrowUp, MessageSquare, Trash2, PanelLeftClose, PanelLeftOpen, Loader2, MessageCircle, Minimize2, Maximize2 } from 'lucide-react';
+import { ArrowDown, Sparkles, ChevronDown, ThumbsUp, ThumbsDown, Loader2, Square, Volume2, CheckCircle2, AlertCircle, Lock, Check, X, Circle, Clock, Copy, RotateCcw, Pencil, Mic, Paperclip, Plus, ArrowUp, MessageSquare, Trash2, PanelLeftClose, PanelLeftOpen, MessageCircle, Minimize2, Maximize2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { ResponsiveContainer, ScatterChart as ScatterChart$1, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Scatter, PieChart as PieChart$1, Pie, Cell, AreaChart as AreaChart$1, Area, LineChart, Line, BarChart as BarChart$1, Bar } from 'recharts';
@@ -217,6 +217,73 @@ function chatReducer(state, action) {
       return state;
   }
 }
+
+// src/utils/voice.ts
+var VOICE_MIME_PREFERENCE = [
+  "audio/webm;codecs=opus",
+  "audio/webm",
+  "audio/mp4"
+];
+function pickMimeType(isSupported) {
+  if (!isSupported) return void 0;
+  return VOICE_MIME_PREFERENCE.find((type) => isSupported(type));
+}
+function getMimeSupportProbe() {
+  if (typeof MediaRecorder === "undefined") return void 0;
+  return (type) => MediaRecorder.isTypeSupported(type);
+}
+var MAX_RECORDING_SECONDS = 58;
+function remainingSeconds(elapsed) {
+  return Math.max(0, MAX_RECORDING_SECONDS - Math.floor(elapsed));
+}
+function formatDuration(seconds) {
+  const safe = Math.max(0, Math.floor(seconds));
+  const minutes = Math.floor(safe / 60);
+  return `${minutes}:${String(safe % 60).padStart(2, "0")}`;
+}
+var ObjectUrlCache = class {
+  constructor(capacity = 20, revoke = defaultRevoke) {
+    this.capacity = capacity;
+    this.revoke = revoke;
+    this.urls = /* @__PURE__ */ new Map();
+  }
+  get size() {
+    return this.urls.size;
+  }
+  get(key) {
+    return this.urls.get(key);
+  }
+  /** Store a URL, revoking any URL it displaces and evicting past capacity. */
+  set(key, url) {
+    const previous = this.urls.get(key);
+    if (previous !== void 0) {
+      if (previous === url) return;
+      this.revoke(previous);
+    }
+    this.urls.set(key, url);
+    while (this.urls.size > this.capacity) {
+      const oldest = this.urls.keys().next();
+      if (oldest.done) break;
+      this.delete(oldest.value);
+    }
+  }
+  delete(key) {
+    const url = this.urls.get(key);
+    if (url === void 0) return;
+    this.urls.delete(key);
+    this.revoke(url);
+  }
+  /** Revoke every URL and empty the cache. Call on provider unmount. */
+  clear() {
+    for (const url of this.urls.values()) this.revoke(url);
+    this.urls.clear();
+  }
+};
+function defaultRevoke(url) {
+  if (typeof URL !== "undefined" && typeof URL.revokeObjectURL === "function") {
+    URL.revokeObjectURL(url);
+  }
+}
 var messageCounter = 0;
 function generateId() {
   messageCounter += 1;
@@ -233,6 +300,7 @@ function ChatProvider({
   autoFocus = true,
   actionLabels,
   feedback,
+  voice,
   enableRegenerate = false
 }) {
   const [state, dispatch] = useReducer(chatReducer, {
@@ -253,9 +321,10 @@ function ChatProvider({
       autoFocus,
       actionLabels,
       feedback,
+      voice,
       enableRegenerate
     }),
-    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, enableRegenerate]
+    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, enableRegenerate]
   );
   const send = useCallback(
     (message, metadata) => {
@@ -496,6 +565,98 @@ function ChatProvider({
     },
     [feedback, state.messages]
   );
+  const [speech, setSpeech] = useState({ messageId: null, status: "idle" });
+  const audioRef = useRef(null);
+  const audioUrlsRef = useRef(null);
+  const speechRequestRef = useRef(null);
+  const getAudioElement = useCallback(() => {
+    if (typeof Audio === "undefined") return null;
+    if (!audioRef.current) {
+      const audio = new Audio();
+      audio.onended = () => setSpeech({ messageId: null, status: "idle" });
+      audio.onerror = () => {
+        const pending = speechRequestRef.current;
+        if (!pending) return;
+        setSpeech({ messageId: pending, status: "error", error: "Playback failed" });
+      };
+      audioRef.current = audio;
+    }
+    return audioRef.current;
+  }, []);
+  const stopSpeech = useCallback(() => {
+    speechRequestRef.current = null;
+    const audio = audioRef.current;
+    if (audio) {
+      audio.pause();
+      audio.currentTime = 0;
+    }
+    setSpeech({ messageId: null, status: "idle" });
+  }, []);
+  useEffect(() => {
+    return () => {
+      const audio = audioRef.current;
+      if (audio) {
+        audio.pause();
+        audio.onended = null;
+        audio.onerror = null;
+        audio.removeAttribute("src");
+        audioRef.current = null;
+      }
+      audioUrlsRef.current?.clear();
+      audioUrlsRef.current = null;
+    };
+  }, []);
+  const toggleSpeech = useCallback(
+    (messageId) => {
+      if (!voice) return;
+      if (speech.messageId === messageId && (speech.status === "playing" || speech.status === "loading")) {
+        stopSpeech();
+        return;
+      }
+      const msg = state.messages.find((m) => m.id === messageId);
+      const backendId = msg?.backendMessageId;
+      if (!backendId) return;
+      const audio = getAudioElement();
+      if (!audio) {
+        setSpeech({ messageId, status: "error", error: "Audio playback is unavailable" });
+        return;
+      }
+      audio.pause();
+      speechRequestRef.current = messageId;
+      const play = (url) => {
+        audio.src = url;
+        void audio.play().then(() => {
+          if (speechRequestRef.current !== messageId) return;
+          setSpeech({ messageId, status: "playing" });
+        }).catch(() => {
+          if (speechRequestRef.current !== messageId) return;
+          setSpeech({ messageId, status: "error", error: "Playback failed" });
+        });
+      };
+      if (!audioUrlsRef.current) audioUrlsRef.current = new ObjectUrlCache();
+      const cached = audioUrlsRef.current.get(backendId);
+      if (cached) {
+        setSpeech({ messageId, status: "playing" });
+        play(cached);
+        return;
+      }
+      setSpeech({ messageId, status: "loading" });
+      void voice.synthesize(backendId).then((blob) => {
+        const url = URL.createObjectURL(blob);
+        audioUrlsRef.current?.set(backendId, url);
+        if (speechRequestRef.current !== messageId) return;
+        play(url);
+      }).catch((err) => {
+        if (speechRequestRef.current !== messageId) return;
+        setSpeech({
+          messageId,
+          status: "error",
+          error: err instanceof Error ? err.message : "Could not play this message"
+        });
+      });
+    },
+    [voice, speech.messageId, speech.status, state.messages, getAudioElement, stopSpeech]
+  );
   const editAndRegenerate = useCallback(
     (newContent) => {
       const trimmed = newContent.trim();
@@ -529,7 +690,9 @@ function ChatProvider({
       submitFeedback,
       removeFeedback,
       editAndRegenerate,
-      regenerateLast
+      regenerateLast,
+      speech,
+      toggleSpeech
     }),
     [
       state,
@@ -548,7 +711,9 @@ function ChatProvider({
       submitFeedback,
       removeFeedback,
       editAndRegenerate,
-      regenerateLast
+      regenerateLast,
+      speech,
+      toggleSpeech
     ]
   );
   return /* @__PURE__ */ jsx(ChatContext.Provider, { value: contextValue, children });
@@ -1159,6 +1324,9 @@ function MessageActionBar({
   onEdit,
   feedback,
   onFeedback,
+  speechStatus = "idle",
+  speechError,
+  onSpeak,
   className
 }) {
   const [copied, setCopied] = useState(false);
@@ -1219,14 +1387,21 @@ function MessageActionBar({
     if (!onFeedback) return;
     onFeedback("down");
   }, [onFeedback]);
-  if (allActions.length === 0 && !showFeedback) return null;
+  const showSpeak = Boolean(onSpeak);
+  const isPlaying = speechStatus === "playing";
+  const isLoadingSpeech = speechStatus === "loading";
+  const speechFailed = speechStatus === "error";
+  const speakLabel = isPlaying ? "Stop reading aloud" : isLoadingSpeech ? "Preparing audio" : "Read aloud";
+  if (allActions.length === 0 && !showFeedback && !showSpeak) return null;
   return /* @__PURE__ */ jsx("div", { className: "relative", children: /* @__PURE__ */ jsxs(
     "div",
     {
       className: cn(
         "flex items-center gap-0.5",
-        "opacity-0 transition-opacity duration-150",
-        "group-hover/message:opacity-100",
+        "transition-opacity duration-150",
+        // Audio outlives the hover that started it, so an active or failed
+        // speaker pins the bar open — otherwise Stop would be unreachable.
+        isPlaying || isLoadingSpeech || speechFailed ? "opacity-100" : "opacity-0 group-hover/message:opacity-100",
         "focus-within:opacity-100",
         className
       ),
@@ -1327,7 +1502,41 @@ function MessageActionBar({
               children: /* @__PURE__ */ jsx(ThumbsDown, { size: 14, fill: currentRating === "down" ? "currentColor" : "none" })
             }
           )
-        ] })
+        ] }),
+        showSpeak && /* @__PURE__ */ jsx(
+          "button",
+          {
+            type: "button",
+            onClick: onSpeak,
+            disabled: isLoadingSpeech,
+            className: cn(
+              "flex h-7 w-7 items-center justify-center",
+              "rounded-[var(--cxc-radius-sm)]",
+              "transition-colors duration-100",
+              "focus-visible:outline-none focus-visible:ring-2",
+              "focus-visible:ring-[var(--cxc-border-focus)]",
+              "disabled:cursor-progress"
+            ),
+            style: {
+              color: isPlaying ? "var(--cxc-text)" : speechFailed ? "var(--cxc-error)" : "var(--cxc-text-muted)"
+            },
+            onMouseOver: (e) => {
+              if (isPlaying || speechFailed) return;
+              e.currentTarget.style.backgroundColor = "var(--cxc-bg-muted)";
+              e.currentTarget.style.color = "var(--cxc-text-secondary)";
+            },
+            onMouseOut: (e) => {
+              if (isPlaying || speechFailed) return;
+              e.currentTarget.style.backgroundColor = "transparent";
+              e.currentTarget.style.color = "var(--cxc-text-muted)";
+            },
+            "aria-label": speakLabel,
+            "aria-pressed": isPlaying,
+            title: speechFailed ? speechError ?? "Could not play this message" : speakLabel,
+            children: isLoadingSpeech ? /* @__PURE__ */ jsx(Loader2, { size: 14, className: "cxc-spin", "aria-hidden": "true" }) : isPlaying ? /* @__PURE__ */ jsx(Square, { size: 12, fill: "currentColor", "aria-hidden": "true" }) : /* @__PURE__ */ jsx(Volume2, { size: 14, "aria-hidden": "true" })
+          }
+        ),
+        showSpeak && speechFailed && /* @__PURE__ */ jsx("span", { className: "ml-1 text-[12px]", style: { color: "var(--cxc-error)" }, role: "alert", children: speechError ?? "Could not play this message" })
       ]
     }
   ) });
@@ -2941,7 +3150,7 @@ function ChatMessage({
   onRetry,
   className
 }) {
-  const { config, send, selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast } = useChatContext();
+  const { config, send, selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast, speech, toggleSpeech } = useChatContext();
   const [reasoningOpen, setReasoningOpen] = useState(isStreaming);
   const reasoningRef = useRef(null);
   const [reasoningHeight, setReasoningHeight] = useState(0);
@@ -2983,6 +3192,8 @@ function ChatMessage({
   const enableEdit = isUser && isLast && config.enableRegenerate === true;
   const enableRegenButton = isAssistant && isLast && config.enableRegenerate === true && !isStreaming;
   const feedbackEnabled = isAssistant && Boolean(config.feedback) && Boolean(message.backendMessageId) && !isStreaming;
+  const voiceEnabled = isAssistant && Boolean(config.voice) && Boolean(message.backendMessageId) && !isStreaming;
+  const speechStatus = speech.messageId === message.id ? speech.status : "idle";
   const handleEditSubmit = useCallback(() => {
     const trimmed = editText.trim();
     if (!trimmed) return;
@@ -3008,6 +3219,9 @@ function ChatMessage({
     },
     [message.feedback?.rating, message.id, submitFeedback, removeFeedback]
   );
+  const handleSpeakClick = useCallback(() => {
+    toggleSpeech(message.id);
+  }, [toggleSpeech, message.id]);
   return /* @__PURE__ */ jsx(
     motion.div,
     {
@@ -3219,7 +3433,10 @@ function ChatMessage({
                 content: message.content,
                 onRetry: message.error ? onRetry : enableRegenButton ? regenerateLast : void 0,
                 feedback: feedbackEnabled ? message.feedback : null,
-                onFeedback: feedbackEnabled ? handleFeedbackClick : void 0
+                onFeedback: feedbackEnabled ? handleFeedbackClick : void 0,
+                speechStatus,
+                speechError: speechStatus === "error" ? speech.error : void 0,
+                onSpeak: voiceEnabled ? handleSpeakClick : void 0
               }
             ),
             feedbackOpen && feedbackEnabled && /* @__PURE__ */ jsx(
@@ -3466,6 +3683,282 @@ var MessageList = forwardRef(
     );
   }
 );
+
+// src/utils/wav.ts
+var TARGET_SAMPLE_RATE = 16e3;
+var WAV_CONTENT_TYPE = "audio/wav";
+var DECODE_SAMPLE_RATE = 44100;
+var WAV_HEADER_BYTES = 44;
+var BYTES_PER_SAMPLE = 2;
+var PCM_FORMAT = 1;
+var MONO = 1;
+function encodeWav(samples, sampleRate) {
+  const dataBytes = samples.length * BYTES_PER_SAMPLE;
+  const buffer = new ArrayBuffer(WAV_HEADER_BYTES + dataBytes);
+  const view = new DataView(buffer);
+  const writeAscii = (offset2, text) => {
+    for (let i = 0; i < text.length; i++) view.setUint8(offset2 + i, text.charCodeAt(i));
+  };
+  writeAscii(0, "RIFF");
+  view.setUint32(4, WAV_HEADER_BYTES - 8 + dataBytes, true);
+  writeAscii(8, "WAVE");
+  writeAscii(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, PCM_FORMAT, true);
+  view.setUint16(22, MONO, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * MONO * BYTES_PER_SAMPLE, true);
+  view.setUint16(32, MONO * BYTES_PER_SAMPLE, true);
+  view.setUint16(34, BYTES_PER_SAMPLE * 8, true);
+  writeAscii(36, "data");
+  view.setUint32(40, dataBytes, true);
+  let offset = WAV_HEADER_BYTES;
+  for (let i = 0; i < samples.length; i++) {
+    const sample = Math.max(-1, Math.min(1, samples[i] ?? 0));
+    view.setInt16(offset, sample < 0 ? sample * 32768 : sample * 32767, true);
+    offset += BYTES_PER_SAMPLE;
+  }
+  return buffer;
+}
+function canConvertToWav() {
+  return typeof OfflineAudioContext !== "undefined";
+}
+async function blobToWav(blob) {
+  const arrayBuffer = await blob.arrayBuffer();
+  const decodeContext = new OfflineAudioContext(MONO, 1, DECODE_SAMPLE_RATE);
+  const decoded = await decodeContext.decodeAudioData(arrayBuffer);
+  const frameCount = Math.max(1, Math.ceil(decoded.duration * TARGET_SAMPLE_RATE));
+  const renderContext = new OfflineAudioContext(MONO, frameCount, TARGET_SAMPLE_RATE);
+  const source = renderContext.createBufferSource();
+  source.buffer = decoded;
+  source.connect(renderContext.destination);
+  source.start();
+  const rendered = await renderContext.startRendering();
+  return new Blob([encodeWav(rendered.getChannelData(0), TARGET_SAMPLE_RATE)], {
+    type: WAV_CONTENT_TYPE
+  });
+}
+
+// src/hooks/use-voice-recorder.ts
+async function convertForUpload(clip) {
+  if (!canConvertToWav()) return clip;
+  try {
+    return await blobToWav(clip);
+  } catch {
+    return clip;
+  }
+}
+function useVoiceRecorder({ onClip }) {
+  const [status, setStatus] = useState("idle");
+  const [error, setError] = useState(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [limitReached, setLimitReached] = useState(false);
+  const recorderRef = useRef(null);
+  const streamRef = useRef(null);
+  const chunksRef = useRef([]);
+  const mountedRef = useRef(true);
+  const onClipRef = useRef(onClip);
+  useEffect(() => {
+    onClipRef.current = onClip;
+  }, [onClip]);
+  const releaseStream = useCallback(() => {
+    streamRef.current?.getTracks().forEach((track) => track.stop());
+    streamRef.current = null;
+    recorderRef.current = null;
+  }, []);
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+      releaseStream();
+    };
+  }, [releaseStream]);
+  useEffect(() => {
+    if (status !== "recording") return;
+    const startedAt = Date.now();
+    setElapsedSeconds(0);
+    const timer = setInterval(() => {
+      const elapsed = Math.floor((Date.now() - startedAt) / 1e3);
+      setElapsedSeconds(elapsed);
+      if (elapsed >= MAX_RECORDING_SECONDS) {
+        setLimitReached(true);
+        recorderRef.current?.stop();
+      }
+    }, 1e3);
+    return () => clearInterval(timer);
+  }, [status]);
+  const start = useCallback(async () => {
+    if (typeof navigator === "undefined" || !navigator.mediaDevices?.getUserMedia) {
+      setError("Recording is not supported in this browser");
+      setStatus("error");
+      return;
+    }
+    setError(null);
+    setLimitReached(false);
+    let stream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setError("Microphone unavailable. Check your browser permissions.");
+      setStatus("error");
+      return;
+    }
+    if (!mountedRef.current) {
+      stream.getTracks().forEach((track) => track.stop());
+      return;
+    }
+    const mimeType = pickMimeType(getMimeSupportProbe());
+    let recorder;
+    try {
+      recorder = new MediaRecorder(stream, mimeType ? { mimeType } : void 0);
+    } catch {
+      stream.getTracks().forEach((track) => track.stop());
+      setError("Recording is not supported in this browser");
+      setStatus("error");
+      return;
+    }
+    streamRef.current = stream;
+    recorderRef.current = recorder;
+    chunksRef.current = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size > 0) chunksRef.current.push(event.data);
+    };
+    recorder.onerror = () => {
+      releaseStream();
+      if (!mountedRef.current) return;
+      setError("Recording failed. Please try again.");
+      setStatus("error");
+    };
+    recorder.onstop = () => {
+      const chunks = chunksRef.current;
+      chunksRef.current = [];
+      const clip = new Blob(chunks, { type: recorder.mimeType || mimeType || "audio/webm" });
+      releaseStream();
+      if (!mountedRef.current) return;
+      if (clip.size === 0) {
+        setError("Nothing was recorded. Please try again.");
+        setStatus("error");
+        return;
+      }
+      setStatus("transcribing");
+      void convertForUpload(clip).then((upload) => onClipRef.current(upload)).then(() => {
+        if (mountedRef.current) setStatus("idle");
+      }).catch((err) => {
+        if (!mountedRef.current) return;
+        setError(err instanceof Error ? err.message : "Transcription failed");
+        setStatus("error");
+      });
+    };
+    recorder.start();
+    setStatus("recording");
+  }, [releaseStream]);
+  const toggle = useCallback(() => {
+    if (status === "recording") {
+      recorderRef.current?.stop();
+      return;
+    }
+    if (status === "transcribing") return;
+    void start();
+  }, [status, start]);
+  const dismissError = useCallback(() => {
+    setError(null);
+    setStatus("idle");
+  }, []);
+  return { status, error, elapsedSeconds, limitReached, toggle, dismissError };
+}
+var LIMIT_WARNING_SECONDS = 10;
+function VoiceRecordButton({ disabled, size = "md", className }) {
+  const { config, state, setInput } = useChatContext();
+  const voice = config.voice;
+  const inputValueRef = useRef(state.inputValue);
+  useEffect(() => {
+    inputValueRef.current = state.inputValue;
+  }, [state.inputValue]);
+  const handleClip = useCallback(
+    async (clip) => {
+      if (!voice) return;
+      const result = await voice.transcribe(clip);
+      const text = result.text.trim();
+      if (!text) return;
+      const existing = inputValueRef.current.trimEnd();
+      setInput(existing ? `${existing} ${text}` : text);
+    },
+    [voice, setInput]
+  );
+  const { status, error, elapsedSeconds, limitReached, toggle, dismissError } = useVoiceRecorder({
+    onClip: handleClip
+  });
+  if (!voice) return null;
+  const isRecording = status === "recording";
+  const isTranscribing = status === "transcribing";
+  const hasError = status === "error";
+  const dimension = size === "sm" ? "h-7 w-7" : "h-8 w-8";
+  const iconSize = size === "sm" ? 14 : 16;
+  const secondsLeft = remainingSeconds(elapsedSeconds);
+  const isNearLimit = isRecording && secondsLeft <= LIMIT_WARNING_SECONDS;
+  const label = isRecording ? "Stop recording" : isTranscribing ? "Transcribing" : "Record a voice message";
+  return /* @__PURE__ */ jsxs("div", { className: cn("flex items-center gap-1.5", className), children: [
+    /* @__PURE__ */ jsx(
+      "button",
+      {
+        type: "button",
+        onClick: hasError ? dismissError : toggle,
+        disabled: disabled || isTranscribing || state.isStreaming,
+        className: cn(
+          "flex shrink-0 items-center justify-center rounded-full",
+          dimension,
+          "transition-colors duration-100",
+          "focus-visible:outline-none focus-visible:ring-2",
+          "focus-visible:ring-[var(--cxc-border-focus)]",
+          "disabled:cursor-not-allowed disabled:opacity-40"
+        ),
+        style: {
+          color: isRecording ? "var(--cxc-error)" : hasError ? "var(--cxc-error)" : "var(--cxc-text-secondary)",
+          border: `1px solid ${isRecording ? "var(--cxc-error)" : "var(--cxc-border)"}`
+        },
+        onMouseOver: (e) => {
+          if (isRecording || hasError) return;
+          e.currentTarget.style.backgroundColor = "var(--cxc-bg-muted)";
+          e.currentTarget.style.color = "var(--cxc-text)";
+        },
+        onMouseOut: (e) => {
+          if (isRecording || hasError) return;
+          e.currentTarget.style.backgroundColor = "transparent";
+          e.currentTarget.style.color = "var(--cxc-text-secondary)";
+        },
+        "aria-label": hasError ? "Dismiss recording error" : label,
+        "aria-pressed": isRecording,
+        title: hasError ? error ?? "Recording failed" : label,
+        children: isTranscribing ? /* @__PURE__ */ jsx(Loader2, { size: iconSize, className: "cxc-spin", "aria-hidden": "true" }) : isRecording ? /* @__PURE__ */ jsx(Square, { size: iconSize - 4, fill: "currentColor", "aria-hidden": "true" }) : /* @__PURE__ */ jsx(Mic, { size: iconSize, strokeWidth: 1.8, "aria-hidden": "true" })
+      }
+    ),
+    isRecording && /* @__PURE__ */ jsxs(
+      "span",
+      {
+        className: "flex items-center gap-1.5 text-[12px] tabular-nums",
+        style: { color: isNearLimit ? "var(--cxc-error)" : "var(--cxc-text-secondary)" },
+        children: [
+          /* @__PURE__ */ jsx(
+            "span",
+            {
+              className: "inline-block h-1.5 w-1.5 rounded-full",
+              style: { backgroundColor: "var(--cxc-error)" },
+              "aria-hidden": "true"
+            }
+          ),
+          formatDuration(elapsedSeconds),
+          isNearLimit && /* @__PURE__ */ jsxs("span", { children: [
+            secondsLeft,
+            "s left"
+          ] })
+        ]
+      }
+    ),
+    isTranscribing && /* @__PURE__ */ jsx("span", { className: "text-[12px]", style: { color: "var(--cxc-text-muted)" }, children: limitReached ? "Recording limit reached \u2014 transcribing..." : "Transcribing..." }),
+    hasError && error && /* @__PURE__ */ jsx("span", { className: "text-[12px]", style: { color: "var(--cxc-error)" }, role: "alert", children: error })
+  ] });
+}
 var fileIdCounter = 0;
 function createFileAttachment(file) {
   return {
@@ -3774,6 +4267,7 @@ function PromptInput({
                       children: /* @__PURE__ */ jsx(Plus, { size: 16, strokeWidth: 1.8 })
                     }
                   ),
+                  /* @__PURE__ */ jsx(VoiceRecordButton, { disabled: isDisabled }),
                   addonSlot && /* @__PURE__ */ jsx("div", { className: "flex items-center gap-1", children: addonSlot }),
                   allowAttachments && /* @__PURE__ */ jsx(
                     "input",
@@ -4965,6 +5459,7 @@ function ChatInput({
             },
             children: [
               addonSlot && /* @__PURE__ */ jsx("div", { className: "flex shrink-0 items-center pb-0.5", children: addonSlot }),
+              /* @__PURE__ */ jsx("div", { className: "flex shrink-0 items-center pb-0.5", children: /* @__PURE__ */ jsx(VoiceRecordButton, { disabled: isDisabled, size: "sm" }) }),
               /* @__PURE__ */ jsx(
                 "textarea",
                 {
@@ -5761,6 +6256,6 @@ function useSessionManager(adapter) {
   };
 }
 
-export { ActionIndicator, AuiView, ChainOfThought, ChatContainer, ChatInput, ChatMessage, ChatProvider, ChatWidget, CodeBlock, EmptyState, FeedbackPopover, FollowupsCard, MessageActionBar, MessageList, ModeSwitch, PromptInput, SessionList, SessionSelector, StreamingText, TextShimmer, ThinkingIndicator, cn, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText };
+export { ActionIndicator, AuiView, ChainOfThought, ChatContainer, ChatInput, ChatMessage, ChatProvider, ChatWidget, CodeBlock, EmptyState, FeedbackPopover, FollowupsCard, MAX_RECORDING_SECONDS, MessageActionBar, MessageList, ModeSwitch, PromptInput, SessionList, SessionSelector, StreamingText, TARGET_SAMPLE_RATE, TextShimmer, ThinkingIndicator, VoiceRecordButton, WAV_CONTENT_TYPE, blobToWav, canConvertToWav, cn, encodeWav, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText, useVoiceRecorder };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map

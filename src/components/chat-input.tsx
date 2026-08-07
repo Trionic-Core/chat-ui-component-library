@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'motion/react'
 import { ArrowUp, Square } from 'lucide-react'
 import { cn } from '../utils/cn'
 import { useChatContext } from '../context/chat-context'
+import { VoiceRecordButton } from './voice-record-button'
 import type { ChatInputProps } from '../types'
 
 /**
@@ -123,6 +124,11 @@ export function ChatInput({
             {addonSlot}
           </div>
         )}
+
+        {/* Mic — self-hiding when ChatConfig.voice is absent. */}
+        <div className="flex shrink-0 items-center pb-0.5">
+          <VoiceRecordButton disabled={isDisabled} size="sm" />
+        </div>
 
         {/* Textarea */}
         <textarea

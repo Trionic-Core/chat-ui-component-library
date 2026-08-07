@@ -141,6 +141,84 @@ interface FeedbackHandler {
     /** Remove the user's feedback for a message. */
     remove: (backendMessageId: string) => Promise<void>;
 }
+interface VoiceTranscription {
+    text: string;
+    language: string;
+    language_code: string;
+    /**
+     * How the language was determined. `autodetect` means the backend chose from
+     * its candidate locales; `forced` means a single language was used — either
+     * because the caller passed one, or because the install's region only
+     * supports single-language transcription.
+     */
+    mode?: 'autodetect' | 'forced';
+}
+/**
+ * Shape of `GET /v1/enterprise/voice`. The library never fetches this — the
+ * consumer does, to decide whether to pass a VoiceHandler at all — but the
+ * type ships so consumers don't hand-roll it.
+ */
+interface VoiceStatus {
+    enabled: boolean;
+    locales?: VoiceLocale[];
+    autodetect_candidates?: string[];
+    /**
+     * Whether this install's region supports multi-language auto-detection.
+     * `null` means the install has not determined it yet. When `false`, every
+     * transcription is single-language, so a consumer serving multilingual users
+     * may want to render a language picker and pass `language` to `transcribe`.
+     */
+    stt_autodetect_available?: boolean | null;
+}
+interface VoiceLocale {
+    locale: string;
+    locale_name: string;
+    language_code: string;
+    default_voice: string;
+    alt_voice?: string;
+}
+/**
+ * Optional handler the consumer wires to a backend voice endpoint.
+ * Provide via ChatConfig.voice to enable the speaker button on assistant
+ * messages (TTS) and the microphone button in the input (STT).
+ *
+ * Voice is a per-install feature on the CypherX side, so the consumer should
+ * probe its own backend first (`GET /v1/enterprise/voice` returns
+ * `{ enabled }`) and only pass `voice` when the install has it turned on —
+ * the library renders the buttons whenever the handler is present.
+ *
+ * Both calls run consumer-side, so auth headers (X-API-Key) and CORS stay in
+ * the consumer's fetch. Audio is fetched as a Blob rather than assigned to an
+ * `<audio src>` precisely because an element load cannot carry those headers.
+ */
+interface VoiceHandler {
+    /** Synthesize spoken audio for a persisted assistant message. Return the audio blob (audio/mpeg). */
+    synthesize: (backendMessageId: string) => Promise<Blob>;
+    /**
+     * Transcribe a recorded audio clip.
+     *
+     * The library's own mic converts recordings to 16 kHz mono WAV
+     * (`audio/wav`) before calling this, because which containers the backend
+     * accepts depends on the install's Azure region — regions without fast
+     * transcription take only WAV or OGG. Upload the blob you are given as-is;
+     * its `type` is authoritative.
+     *
+     * `language` is an optional BCP-47 locale that forces single-language
+     * transcription. Leave it unset for auto-detection. Installs whose region
+     * reports `stt_autodetect_available: false` are single-language regardless,
+     * so consumers serving multilingual users may want to offer a picker there.
+     */
+    transcribe: (file: Blob, language?: string) => Promise<VoiceTranscription>;
+}
+/** Playback status of the provider's shared audio element for one message. */
+type SpeechStatus = 'idle' | 'loading' | 'playing' | 'error';
+interface SpeechState {
+    /** Local id of the message this status refers to; null when nothing is active. */
+    messageId: string | null;
+    status: SpeechStatus;
+    /** Human-readable failure reason. Only set when status is 'error'. */
+    error?: string;
+}
 interface ChatAction {
     id: string;
     type: string;
@@ -250,6 +328,16 @@ interface ChatConfig {
      */
     feedback?: FeedbackHandler;
     /**
+     * Optional voice handler. When provided, a speaker button appears in the
+     * action bar of persisted assistant messages (synthesize-on-click, never
+     * autoplay) and a microphone button appears in the input, whose transcript
+     * lands in the input for review rather than sending automatically.
+     *
+     * Voice ships dark per install, so gate this yourself: probe
+     * `GET /v1/enterprise/voice` and pass `voice` only when `enabled` is true.
+     */
+    voice?: VoiceHandler;
+    /**
      * When true, the LAST user message renders an Edit affordance and the LAST
      * assistant message renders a Regenerate affordance. Both submit via
      * `send(text, { regenerate: true })` so the backend trims the tail. Default: false.
@@ -339,6 +427,12 @@ interface MessageActionBarProps {
     feedback?: FeedbackData | null;
     /** Submit handler for like/dislike. Omit to hide feedback buttons. */
     onFeedback?: (rating: FeedbackRating) => void;
+    /** Playback status of THIS message. Omit (or 'idle') for the resting state. */
+    speechStatus?: SpeechStatus;
+    /** Failure reason to surface next to the speaker button when status is 'error'. */
+    speechError?: string;
+    /** Toggle handler for the speaker button. Omit to hide it. */
+    onSpeak?: () => void;
     /** Additional class names. */
     className?: string;
 }
@@ -538,6 +632,13 @@ interface ChatContextValue {
     editAndRegenerate: (newContent: string) => void;
     /** Regenerate the last assistant message using the same prompt + regenerate=true. */
     regenerateLast: () => void;
+    /** Which message (if any) the shared audio element is currently loading or playing. */
+    speech: SpeechState;
+    /**
+     * Play the spoken form of an assistant message, or stop it if it is already
+     * playing. Starting one message stops any other. Requires ChatConfig.voice.
+     */
+    toggleSpeech: (messageId: string) => void;
 }
 
 interface ChatProviderProps extends ChatConfig {
@@ -550,7 +651,7 @@ interface ChatProviderProps extends ChatConfig {
  * consumption loop for streaming messages. Supports cancellation via
  * generator.return().
  */
-declare function ChatProvider({ children, onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, enableRegenerate, }: ChatProviderProps): react_jsx_runtime.JSX.Element;
+declare function ChatProvider({ children, onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, enableRegenerate, }: ChatProviderProps): react_jsx_runtime.JSX.Element;
 
 /**
  * ChatContainer v0.2.0 — main layout shell.
@@ -763,7 +864,7 @@ declare function TextShimmer({ children, as, duration, spread, className, }: Tex
  *
  * The parent ChatMessage must have `group/message` class for this to work.
  */
-declare function MessageActionBar({ content, actions, onCopy, onRetry, onEdit, feedback, onFeedback, className, }: MessageActionBarProps): react_jsx_runtime.JSX.Element | null;
+declare function MessageActionBar({ content, actions, onCopy, onRetry, onEdit, feedback, onFeedback, speechStatus, speechError, onSpeak, className, }: MessageActionBarProps): react_jsx_runtime.JSX.Element | null;
 
 /**
  * ChainOfThought — CypherX collapsible accordion with timeline.
@@ -859,6 +960,25 @@ declare function FollowupsCard({ followups, lockedSelection, onSelect, className
  * panel, not the trigger.
  */
 declare function FeedbackPopover({ rating: _rating, onSubmit, onDismiss, className, }: FeedbackPopoverProps): react_jsx_runtime.JSX.Element;
+
+interface VoiceRecordButtonProps {
+    /** Whether the surrounding input is disabled. */
+    disabled?: boolean;
+    /** Diameter of the button. PromptInput's row uses 32px, ChatInput's uses 28px. */
+    size?: 'sm' | 'md';
+    className?: string;
+}
+/**
+ * Microphone button — tap to record, tap to stop, transcript lands in the input.
+ *
+ * The transcript is inserted rather than sent: speech recognition is fallible
+ * and the user reviews before committing, which also keeps the send path
+ * identical to typing.
+ *
+ * Renders nothing without a ChatConfig.voice handler, so the whole feature
+ * stays dark on installs that haven't enabled voice.
+ */
+declare function VoiceRecordButton({ disabled, size, className }: VoiceRecordButtonProps): react_jsx_runtime.JSX.Element | null;
 
 interface AuiViewProps {
     spec: ViewSpec;
@@ -968,6 +1088,26 @@ interface UseSessionManagerReturn {
  */
 declare function useSessionManager(adapter?: SessionAdapter): UseSessionManagerReturn;
 
+type RecorderStatus = 'idle' | 'recording' | 'transcribing' | 'error';
+interface UseVoiceRecorderOptions {
+    /** Called with the recorded clip once the user stops. */
+    onClip: (clip: Blob) => Promise<void>;
+}
+interface UseVoiceRecorderResult {
+    status: RecorderStatus;
+    /** Failure reason to surface inline. Only set when status is 'error'. */
+    error: string | null;
+    /** Whole seconds elapsed in the current recording. */
+    elapsedSeconds: number;
+    /** True when the last recording ended by hitting the duration cap. */
+    limitReached: boolean;
+    /** Start recording, or stop and transcribe if already recording. */
+    toggle: () => void;
+    /** Clear an error back to the resting state. */
+    dismissError: () => void;
+}
+declare function useVoiceRecorder({ onClip }: UseVoiceRecorderOptions): UseVoiceRecorderResult;
+
 declare function cn(...inputs: ClassValue[]): string;
 
 /**
@@ -996,4 +1136,61 @@ declare function formatRelativeTime(date: Date): string;
  */
 declare function renderMarkdown(markdown: string): string;
 
-export { ActionIndicator, type ActionIndicatorProps, type ActionItem, type ActionsBlock, AuiView, type AuiViewProps, type Block, type BlockType, type CellValue, ChainOfThought, type ChainOfThoughtProps, type ChartBlock, type ChartBlockOptions, type ChartFieldRef, type ChartType, type ChatAction, type ChatConfig, ChatContainer, type ChatContainerProps, type ChatContextValue, type ChatEvent, ChatInput, type ChatInputProps, ChatMessage, type ChatMessage$1 as ChatMessageData, type ChatMessageProps, ChatProvider, type ChatSendFn, type ChatSession, ChatWidget, type ChatWidgetProps, CodeBlock, type CodeBlockProps, type DataRow, EmptyState, type EmptyStateProps, type FeedbackData, type FeedbackHandler, FeedbackPopover, type FeedbackPopoverProps, type FeedbackRating, type FeedbackReasonCategory, type FileAttachment, FollowupsCard, type FollowupsCardProps, type FollowupsData, MessageActionBar, type MessageActionBarProps, type MessageActionItem, MessageList, type MessageListProps, type Metric, type MetricDelta, type MetricGroupBlock, ModeSwitch, type ModeSwitchOption$1 as ModeSwitchOption, type ModeSwitchProps$1 as ModeSwitchProps, PromptInput, type PromptInputProps, type SSEStreamConfig, type SessionAdapter, SessionList, type SessionListProps, SessionSelector, type SessionSelectorProps, StreamingText, type StreamingTextProps, type TableBlock, type TableColumn, type TextBlock, TextShimmer, type TextShimmerProps, ThinkingIndicator, type ThinkingIndicatorProps, type ValueFormat, type ViewSpec, cn, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText };
+/**
+ * 16 kHz mono WAV encoding for voice input.
+ *
+ * WHY: the CypherX backend has two speech-to-text transports and they do not
+ * accept the same containers. Fast transcription takes the WebM/Opus a browser
+ * records natively, but it is not offered in every Azure region; installs in
+ * the other regions fall back to the short-audio API, which accepts only WAV
+ * and OGG. No MediaRecorder format is available in every browser AND accepted
+ * by that fallback (Chrome records only WebM, Safari only MP4), so a recording
+ * uploaded as-is fails outright on those installs.
+ *
+ * Converting every recording to 16 kHz mono PCM removes the guess: both
+ * transports accept it from every browser, and it is exactly what the
+ * short-audio transport declares it wants. Dictation is seconds long, so the
+ * size cost against Opus is bounded.
+ *
+ * `encodeWav` is deliberately free of Web Audio types so it can be tested
+ * against known bytes under the node-environment vitest config; the decoding
+ * and resampling that genuinely need a browser live in `blobToWav`.
+ */
+/** Sample rate the short-audio transport expects. */
+declare const TARGET_SAMPLE_RATE = 16000;
+/** Content type to upload converted audio under. */
+declare const WAV_CONTENT_TYPE = "audio/wav";
+/**
+ * Encode mono float samples (-1..1) as a 16-bit PCM WAV.
+ *
+ * Samples are clamped before scaling: a value outside -1..1 would otherwise
+ * wrap around the 16-bit range and turn a loud passage into noise.
+ */
+declare function encodeWav(samples: Float32Array, sampleRate: number): ArrayBuffer;
+/** Whether this browser can run the conversion at all. */
+declare function canConvertToWav(): boolean;
+/**
+ * Decode a recorded blob and re-encode it as 16 kHz mono WAV.
+ *
+ * Decoding uses the same browser that produced the recording, so its own
+ * container is always decodable. Resampling and the downmix to mono are done
+ * by an OfflineAudioContext — which, unlike a live AudioContext, needs no user
+ * gesture, so it is safe to run after the awaits in the recorder's stop handler.
+ *
+ * Throws if the browser cannot decode the clip. Callers should fall back to
+ * uploading the original blob: fast-transcription installs still accept WebM,
+ * making a decode failure degraded rather than broken.
+ */
+declare function blobToWav(blob: Blob): Promise<Blob>;
+
+/**
+ * Hard cap on a single recording, in seconds.
+ *
+ * The backend's short-audio STT transport — used on installs whose Azure
+ * region has no fast transcription — rejects anything over 60 s outright, so
+ * we stop just under it. Losing the last couple of seconds beats losing the
+ * whole take.
+ */
+declare const MAX_RECORDING_SECONDS = 58;
+
+export { ActionIndicator, type ActionIndicatorProps, type ActionItem, type ActionsBlock, AuiView, type AuiViewProps, type Block, type BlockType, type CellValue, ChainOfThought, type ChainOfThoughtProps, type ChartBlock, type ChartBlockOptions, type ChartFieldRef, type ChartType, type ChatAction, type ChatConfig, ChatContainer, type ChatContainerProps, type ChatContextValue, type ChatEvent, ChatInput, type ChatInputProps, ChatMessage, type ChatMessage$1 as ChatMessageData, type ChatMessageProps, ChatProvider, type ChatSendFn, type ChatSession, ChatWidget, type ChatWidgetProps, CodeBlock, type CodeBlockProps, type DataRow, EmptyState, type EmptyStateProps, type FeedbackData, type FeedbackHandler, FeedbackPopover, type FeedbackPopoverProps, type FeedbackRating, type FeedbackReasonCategory, type FileAttachment, FollowupsCard, type FollowupsCardProps, type FollowupsData, MAX_RECORDING_SECONDS, MessageActionBar, type MessageActionBarProps, type MessageActionItem, MessageList, type MessageListProps, type Metric, type MetricDelta, type MetricGroupBlock, ModeSwitch, type ModeSwitchOption$1 as ModeSwitchOption, type ModeSwitchProps$1 as ModeSwitchProps, PromptInput, type PromptInputProps, type SSEStreamConfig, type SessionAdapter, SessionList, type SessionListProps, SessionSelector, type SessionSelectorProps, type SpeechState, type SpeechStatus, StreamingText, type StreamingTextProps, TARGET_SAMPLE_RATE, type TableBlock, type TableColumn, type TextBlock, TextShimmer, type TextShimmerProps, ThinkingIndicator, type ThinkingIndicatorProps, type ValueFormat, type ViewSpec, type VoiceHandler, type VoiceLocale, VoiceRecordButton, type VoiceStatus, type VoiceTranscription, WAV_CONTENT_TYPE, blobToWav, canConvertToWav, cn, encodeWav, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText, useVoiceRecorder };

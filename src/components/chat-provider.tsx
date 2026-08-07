@@ -1,7 +1,8 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef } from 'react'
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react'
 import { ChatContext } from '../context/chat-context'
 import { chatReducer, initialChatState } from '../context/chat-reducer'
-import type { ChatConfig, ChatContextValue, ChatEvent, ChatMessage, FeedbackData } from '../types'
+import { ObjectUrlCache } from '../utils/voice'
+import type { ChatConfig, ChatContextValue, ChatEvent, ChatMessage, FeedbackData, SpeechState } from '../types'
 
 interface ChatProviderProps extends ChatConfig {
   children: React.ReactNode
@@ -31,6 +32,7 @@ export function ChatProvider({
   autoFocus = true,
   actionLabels,
   feedback,
+  voice,
   enableRegenerate = false,
 }: ChatProviderProps) {
   const [state, dispatch] = useReducer(chatReducer, {
@@ -53,9 +55,10 @@ export function ChatProvider({
       autoFocus,
       actionLabels,
       feedback,
+      voice,
       enableRegenerate,
     }),
-    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, enableRegenerate]
+    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, enableRegenerate]
   )
 
   const send = useCallback(
@@ -365,6 +368,131 @@ export function ChatProvider({
     [feedback, state.messages]
   )
 
+  // --- Voice playback -------------------------------------------------------
+  // One audio element and one object-URL cache for the whole chat: playing a
+  // second message must interrupt the first, and re-clicking a message it has
+  // already spoken must not re-hit the backend.
+
+  const [speech, setSpeech] = useState<SpeechState>({ messageId: null, status: 'idle' })
+  const audioRef = useRef<HTMLAudioElement | null>(null)
+  const audioUrlsRef = useRef<ObjectUrlCache | null>(null)
+  // Which message the latest toggle intended to play. A synthesize() that
+  // resolves after the user moved on must not hijack playback.
+  const speechRequestRef = useRef<string | null>(null)
+
+  const getAudioElement = useCallback((): HTMLAudioElement | null => {
+    if (typeof Audio === 'undefined') return null
+    if (!audioRef.current) {
+      const audio = new Audio()
+      audio.onended = () => setSpeech({ messageId: null, status: 'idle' })
+      audio.onerror = () => {
+        // Teardown and stop also fire error events; only report one when a
+        // message is actually waiting on playback.
+        const pending = speechRequestRef.current
+        if (!pending) return
+        setSpeech({ messageId: pending, status: 'error', error: 'Playback failed' })
+      }
+      audioRef.current = audio
+    }
+    return audioRef.current
+  }, [])
+
+  const stopSpeech = useCallback(() => {
+    speechRequestRef.current = null
+    const audio = audioRef.current
+    if (audio) {
+      audio.pause()
+      audio.currentTime = 0
+    }
+    setSpeech({ messageId: null, status: 'idle' })
+  }, [])
+
+  // Release the audio element and every cached blob URL on unmount. Without the
+  // revoke loop each synthesized clip would stay resident for the page's life.
+  useEffect(() => {
+    return () => {
+      const audio = audioRef.current
+      if (audio) {
+        audio.pause()
+        audio.onended = null
+        audio.onerror = null
+        audio.removeAttribute('src')
+        audioRef.current = null
+      }
+      audioUrlsRef.current?.clear()
+      audioUrlsRef.current = null
+    }
+  }, [])
+
+  const toggleSpeech = useCallback(
+    (messageId: string) => {
+      if (!voice) return
+
+      // Clicking the message that is currently loading or playing stops it.
+      if (speech.messageId === messageId && (speech.status === 'playing' || speech.status === 'loading')) {
+        stopSpeech()
+        return
+      }
+
+      const msg = state.messages.find((m) => m.id === messageId)
+      const backendId = msg?.backendMessageId
+      if (!backendId) return
+
+      const audio = getAudioElement()
+      if (!audio) {
+        setSpeech({ messageId, status: 'error', error: 'Audio playback is unavailable' })
+        return
+      }
+
+      // Starting one message always interrupts whatever else was speaking.
+      audio.pause()
+      speechRequestRef.current = messageId
+
+      const play = (url: string) => {
+        audio.src = url
+        void audio
+          .play()
+          .then(() => {
+            if (speechRequestRef.current !== messageId) return
+            setSpeech({ messageId, status: 'playing' })
+          })
+          .catch(() => {
+            if (speechRequestRef.current !== messageId) return
+            setSpeech({ messageId, status: 'error', error: 'Playback failed' })
+          })
+      }
+
+      if (!audioUrlsRef.current) audioUrlsRef.current = new ObjectUrlCache()
+      const cached = audioUrlsRef.current.get(backendId)
+      if (cached) {
+        setSpeech({ messageId, status: 'playing' })
+        play(cached)
+        return
+      }
+
+      setSpeech({ messageId, status: 'loading' })
+      void voice
+        .synthesize(backendId)
+        .then((blob) => {
+          // The cache is keyed by backend id, so store the URL even if the user
+          // has since cancelled — the bytes are already paid for.
+          const url = URL.createObjectURL(blob)
+          audioUrlsRef.current?.set(backendId, url)
+          if (speechRequestRef.current !== messageId) return
+          play(url)
+        })
+        .catch((err: unknown) => {
+          if (speechRequestRef.current !== messageId) return
+          setSpeech({
+            messageId,
+            status: 'error',
+            error: err instanceof Error ? err.message : 'Could not play this message',
+          })
+        })
+    },
+    [voice, speech.messageId, speech.status, state.messages, getAudioElement, stopSpeech]
+  )
+
   const editAndRegenerate = useCallback(
     (newContent: string) => {
       const trimmed = newContent.trim()
@@ -404,11 +532,14 @@ export function ChatProvider({
       removeFeedback,
       editAndRegenerate,
       regenerateLast,
+      speech,
+      toggleSpeech,
     }),
     [
       state, config, send, stop, retry, setInput, clearMessages, setMessages,
       loadSession, deleteSession, newConversation, refreshSessions,
       selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast,
+      speech, toggleSpeech,
     ]
   )
 

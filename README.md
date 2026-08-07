@@ -18,6 +18,7 @@ CypherX's client renderer: streaming chat UI + **Agentic UI** (KPI cards, charts
 - **Chain of Thought** -- Collapsible accordion with timeline steps
 - **Text Shimmer** -- Gradient sweep animation for thinking states
 - **Message Actions** -- Hover-reveal copy/retry/edit bar on messages
+- **Voice** -- Speaker button reads assistant answers aloud, mic button dictates into the input (opt-in, consumer-supplied handlers)
 - **Prompt Input** -- ChatGPT-style two-row input with file attachments and suggestion chips
 - **Chat Widget** -- Floating FAB + modal for embedding in any page
 - **Session management** -- Built-in sidebar with CRUD, or bring your own
@@ -169,6 +170,56 @@ Root context provider. Wraps the entire chat UI.
 | `placeholder` | `string` | `'Send a message...'` | Input placeholder text |
 | `autoFocus` | `boolean` | `true` | Auto-focus input on mount |
 | `actionLabels` | `Record<string, { active; completed }>` | `undefined` | Custom labels for action types |
+| `feedback` | `FeedbackHandler` | `undefined` | Enables thumbs-up / thumbs-down on assistant messages |
+| `voice` | `VoiceHandler` | `undefined` | Enables the speaker button on assistant messages and the mic in the input |
+| `enableRegenerate` | `boolean` | `false` | Edit affordance on the last user message, Regenerate on the last assistant message |
+
+### Voice (v0.5.0)
+
+Passing a `voice` handler turns on two independent affordances:
+
+- **Speaker** — appears in the action bar of assistant messages that have a `backendMessageId` and are no longer streaming. Click synthesizes on demand (never autoplay), click again stops. The provider owns a single `HTMLAudioElement`, so starting one message interrupts any other, and caches the object URL per backend message id so a replay costs nothing.
+- **Microphone** — appears in `<PromptInput>` and `<ChatInput>`. Tap to record, tap to stop; the transcript is **inserted into the input for review** rather than sent, so the user always confirms before committing. Recording auto-stops at 58 seconds.
+
+```tsx
+import type { VoiceHandler } from '@cypherx/chat-ui'
+
+const voice: VoiceHandler = {
+  async synthesize(backendMessageId) {
+    const res = await fetch(
+      `${API_BASE}/v1/enterprise/chat/messages/${backendMessageId}/speech`,
+      { method: 'POST', headers: { 'Content-Type': 'application/json', ...headers }, body: '{}' },
+    )
+    if (!res.ok) throw new Error(`Speech failed: HTTP ${res.status}`)
+    return res.blob() // audio/mpeg
+  },
+  async transcribe(file, language) {
+    // `file` arrives as 16 kHz mono WAV — upload it as-is (see note below).
+    const form = new FormData()
+    form.append('file', file, 'recording.wav')
+    if (language) form.append('language', language)
+    const res = await fetch(`${API_BASE}/v1/enterprise/voice/transcriptions`, {
+      method: 'POST', headers, body: form,
+    })
+    if (!res.ok) throw new Error(`Transcription failed: HTTP ${res.status}`)
+    return res.json() // { text, language, language_code }
+  },
+}
+
+<ChatProvider onSend={send} voice={voiceEnabled ? voice : undefined}>
+```
+
+The library renders the voice UI whenever the handler is present, so **gate it yourself**: voice ships dark per install, and `GET /v1/enterprise/voice` returns `{ enabled }` (plus the configured `locales`). Probe it on mount and pass `voice` only when `enabled` is true — otherwise the buttons appear and every click returns 403.
+
+Auth stays consumer-side. Audio is fetched as a `Blob` rather than assigned to an `<audio src>` specifically because an element load cannot carry an `X-API-Key` header. The mic needs browser microphone permission and a secure origin (HTTPS or localhost); a denial surfaces inline and leaves the button in place to retry.
+
+#### Audio format and the 58-second cap
+
+Recordings reach `transcribe` as **16 kHz mono WAV**, converted by the library — upload the blob as-is rather than re-wrapping it. This is not cosmetic: the backend picks its speech-to-text transport from the install's Azure region, and regions without fast transcription fall back to an API that accepts only WAV or OGG and caps clips at 60 seconds. No single MediaRecorder format is both universally recordable and universally accepted (Chrome records WebM, Safari MP4), so the library converts and auto-stops recording at 58 seconds. If a browser cannot decode its own recording, the original blob is sent instead — still fine on fast-transcription installs.
+
+#### Multilingual installs
+
+`GET /v1/enterprise/voice` also reports `stt_autodetect_available`. When it is `false`, that install's region transcribes one language at a time; `null` means it hasn't been determined yet. If you serve multilingual users, offer a language picker there and pass the locale as `transcribe(file, language)`. The returned `mode` field says which path was taken (`'autodetect'` or `'forced'`).
 
 ### `<ChatContainer>`
 
@@ -524,6 +575,9 @@ import type {
   SessionAdapter,       // Session CRUD adapter interface
   SSEStreamConfig,      // SSE hook configuration
   ChatConfig,           // Provider configuration
+  FeedbackHandler,      // Consumer-supplied like/dislike endpoints
+  VoiceHandler,         // Consumer-supplied TTS + STT endpoints
+  VoiceTranscription,   // { text, language, language_code }
   ChatContainerProps,
   ChatMessageProps,
   ChatInputProps,
