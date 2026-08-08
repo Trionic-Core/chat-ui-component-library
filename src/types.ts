@@ -121,6 +121,46 @@ export interface VoiceLocale {
 }
 
 /**
+ * Precomputed search forms for one dictation language. Built once per option
+ * rather than per keystroke — filtering 153 rows would otherwise re-fold ~600
+ * strings on every character typed.
+ */
+export interface LanguageSearchIndex {
+  locale: string
+  code: string
+  english: string
+  native: string
+}
+
+/** One selectable dictation locale, ready to render in the LanguagePicker. */
+export interface LanguageOption {
+  /** BCP-47 locale sent to `VoiceHandler.transcribe`, e.g. `gu-IN`. */
+  locale: string
+  /** Base language subtag, lowercased, e.g. `gu`. */
+  languageCode: string
+  /** The catalog's English label, e.g. `Gujarati (India)`. */
+  englishName: string
+  /** Endonym from `Intl.DisplayNames`, e.g. `ગુજરાતી`. Falls back to `englishName`. */
+  nativeName: string
+  /** Internal detail — see {@link LanguageSearchIndex}. */
+  search: LanguageSearchIndex
+}
+
+/** What the microphone will do on the next recording. */
+export interface DictationState {
+  /** Locale to force, or `null` to let the backend auto-detect. */
+  language: string | null
+  /** Whether "Auto-detect" is still worth offering on this install. */
+  autodetectAvailable: boolean
+  /**
+   * True once the user picked from the panel. Keeps a late-arriving
+   * `voiceStatus` — the consumer fetches it after mount — from overwriting a
+   * choice that was already made.
+   */
+  explicit: boolean
+}
+
+/**
  * Optional handler the consumer wires to a backend voice endpoint.
  * Provide via ChatConfig.voice to enable the speaker button on assistant
  * messages (TTS) and the microphone button in the input (STT).
@@ -294,6 +334,22 @@ export interface ChatConfig {
    * `GET /v1/enterprise/voice` and pass `voice` only when `enabled` is true.
    */
   voice?: VoiceHandler
+
+  /**
+   * The full `GET /v1/enterprise/voice` payload you already fetched to decide
+   * whether to pass `voice`. Supplying it mounts a dictation language picker
+   * beside the mic, built from the install's own catalog and configured
+   * candidates.
+   *
+   * Omit it (or pass one with no `locales`) and no picker renders — the mic
+   * keeps auto-detecting exactly as before.
+   *
+   * This is not cosmetic on every install: regions without fast transcription
+   * transcribe one language at a time and fall back to the first configured
+   * locale, so on those, explicit selection is the only way to dictate in
+   * anything else.
+   */
+  voiceStatus?: VoiceStatus
 
   /**
    * When true, the LAST user message renders an Edit affordance and the LAST
@@ -497,6 +553,15 @@ export interface ChatInputProps {
   className?: string
 }
 
+export interface LanguagePickerProps {
+  /** Whether the surrounding input is disabled. */
+  disabled?: boolean
+  /** Trigger height. PromptInput's row uses 32px ('md'), ChatInput's uses 28px ('sm'). */
+  size?: 'sm' | 'md'
+  /** Additional class names. */
+  className?: string
+}
+
 export interface CodeBlockProps {
   /** The code string to render. */
   code: string
@@ -666,4 +731,17 @@ export interface ChatContextValue {
    * playing. Starting one message stops any other. Requires ChatConfig.voice.
    */
   toggleSpeech: (messageId: string) => void
+  /** Which language the mic will dictate in. Inert without ChatConfig.voiceStatus. */
+  dictation: DictationState
+  /** The install's selectable dictation locales, built once from ChatConfig.voiceStatus. */
+  dictationOptions: LanguageOption[]
+  /** Choose a dictation locale, or `null` to auto-detect. */
+  setDictationLanguage: (language: string | null) => void
+  /**
+   * Transcribe a recording with the selected language applied, and learn from
+   * the reply whether this install can auto-detect at all. The mic calls this
+   * rather than `ChatConfig.voice.transcribe` so the language rules live in one
+   * place. Requires ChatConfig.voice.
+   */
+  dictate: (clip: Blob) => Promise<VoiceTranscription>
 }

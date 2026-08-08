@@ -18,7 +18,7 @@ CypherX's client renderer: streaming chat UI + **Agentic UI** (KPI cards, charts
 - **Chain of Thought** -- Collapsible accordion with timeline steps
 - **Text Shimmer** -- Gradient sweep animation for thinking states
 - **Message Actions** -- Hover-reveal copy/retry/edit bar on messages
-- **Voice** -- Speaker button reads assistant answers aloud, mic button dictates into the input (opt-in, consumer-supplied handlers)
+- **Voice** -- Speaker button reads assistant answers aloud, mic button dictates into the input, searchable picker for the dictation language (opt-in, consumer-supplied handlers)
 - **Prompt Input** -- ChatGPT-style two-row input with file attachments and suggestion chips
 - **Chat Widget** -- Floating FAB + modal for embedding in any page
 - **Session management** -- Built-in sidebar with CRUD, or bring your own
@@ -172,6 +172,7 @@ Root context provider. Wraps the entire chat UI.
 | `actionLabels` | `Record<string, { active; completed }>` | `undefined` | Custom labels for action types |
 | `feedback` | `FeedbackHandler` | `undefined` | Enables thumbs-up / thumbs-down on assistant messages |
 | `voice` | `VoiceHandler` | `undefined` | Enables the speaker button on assistant messages and the mic in the input |
+| `voiceStatus` | `VoiceStatus` | `undefined` | The `GET /v1/enterprise/voice` payload. Adds a dictation language picker beside the mic |
 | `enableRegenerate` | `boolean` | `false` | Edit affordance on the last user message, Regenerate on the last assistant message |
 
 ### Voice (v0.5.0)
@@ -179,7 +180,21 @@ Root context provider. Wraps the entire chat UI.
 Passing a `voice` handler turns on two independent affordances:
 
 - **Speaker** — appears in the action bar of assistant messages that have a `backendMessageId` and are no longer streaming. Click synthesizes on demand (never autoplay), click again stops. The provider owns a single `HTMLAudioElement`, so starting one message interrupts any other, and caches the object URL per backend message id so a replay costs nothing.
-- **Microphone** — appears in `<PromptInput>` and `<ChatInput>`. Tap to record, tap to stop; the transcript is **inserted into the input for review** rather than sent, so the user always confirms before committing. Recording auto-stops at 58 seconds.
+- **Microphone** — tap to record, tap to stop; the transcript is **inserted into the input for review** rather than sent, so the user always confirms before committing. Recording auto-stops at 58 seconds. In `<PromptInput>` the mic occupies the send position (see below); in `<ChatInput>` it sits to the left of the text field.
+
+> **Behaviour change in 0.6.0 — `<PromptInput>` only.** The mic no longer sits in the left button cluster. It now holds the **send position**, and swaps to Send as soon as there is text — the ChatGPT pattern: speak, review the transcript, send with the same button. An install upgrading from 0.5.0 will see the input bar rearrange, so this is a deliberate visual change rather than a silent one.
+>
+> The right cluster is `[language chip] [mic ⇄ send]`. Precisely:
+> - empty input + voice configured → **mic**
+> - any text → **send** (identical to 0.5.0's send button)
+> - streaming → **stop**, as before
+> - voice not configured → **send**, disabled when empty, exactly as before
+>
+> The swap is suppressed while the mic is recording or transcribing, even once a transcript lands in the box — the recorder lives inside the button, so swapping it out mid-capture would stop the microphone and discard the clip. It resolves to Send the moment recording ends. Suggestion chips are hidden while the mic is busy for the same reason (clicking one sends). Pressing Enter still sends at any time, so a long transcription never leaves the user without a way out.
+>
+> The language chip does **not** come and go with the swap — a control that appeared and vanished on every keystroke would be worse than one that stays put. `aria-label` follows the button's current role, so a screen reader is never told "send" while it is a mic, and the swap animation collapses to zero duration under `prefers-reduced-motion`.
+>
+> `<ChatInput>` (legacy) keeps its 0.5.0 arrangement. Its mic, text field and send button share one row, so a recording timer appearing between them would squeeze the field as you speak — a worse trade than the inconsistency.
 
 ```tsx
 import type { VoiceHandler } from '@cypherx/chat-ui'
@@ -217,9 +232,33 @@ Auth stays consumer-side. Audio is fetched as a `Blob` rather than assigned to a
 
 Recordings reach `transcribe` as **16 kHz mono WAV**, converted by the library — upload the blob as-is rather than re-wrapping it. This is not cosmetic: the backend picks its speech-to-text transport from the install's Azure region, and regions without fast transcription fall back to an API that accepts only WAV or OGG and caps clips at 60 seconds. No single MediaRecorder format is both universally recordable and universally accepted (Chrome records WebM, Safari MP4), so the library converts and auto-stops recording at 58 seconds. If a browser cannot decode its own recording, the original blob is sent instead — still fine on fast-transcription installs.
 
-#### Multilingual installs
+#### Dictation language (v0.6.0)
 
-`GET /v1/enterprise/voice` also reports `stt_autodetect_available`. When it is `false`, that install's region transcribes one language at a time; `null` means it hasn't been determined yet. If you serve multilingual users, offer a language picker there and pass the locale as `transcribe(file, language)`. The returned `mode` field says which path was taken (`'autodetect'` or `'forced'`).
+You already fetch `GET /v1/enterprise/voice` to decide whether to pass `voice`. Pass the whole payload as `voiceStatus` and the library mounts a language picker next to the mic, built from that install's own catalog:
+
+```tsx
+const status = await fetch(`${API_BASE}/v1/enterprise/voice`, { headers }).then((r) => r.json())
+
+<ChatProvider
+  onSend={send}
+  voice={status.enabled ? voice : undefined}
+  voiceStatus={status.enabled ? status : undefined}
+>
+```
+
+Omit `voiceStatus` (or pass one with no `locales`) and no picker renders — the mic auto-detects exactly as it does today. Nothing else about the existing voice setup changes.
+
+Why it matters: an Azure region **without** fast transcription can only transcribe one language at a time, and falls back to the first configured locale when the caller names none — which is how an English sentence comes back written in Gujarati script. On those installs, picking a language explicitly is the only way to reach the other 152 locales.
+
+The panel offers, in order:
+
+- **Auto-detect**, shown only while it is actually possible. It disappears when `stt_autodetect_available` is `false` — and also the moment a request sent *without* a language comes back with `mode: 'forced'`, which proves the region has no auto-detect transport whatever the status endpoint last claimed. That reply is the more reliable signal, since the backend's own flag is per-process and resets on restart.
+- **Frequent** — the locales in `autodetect_candidates`, i.e. the ones this install was configured with. Derived, never a hardcoded language list.
+- **Search** across all 153, matching the endonym, the English name, the language subtag and the locale code — `guj`, `ગુ`, `gu-IN` and `Gujarati` all reach the same row.
+
+Selection is passed straight through as `transcribe(file, language)`; "Auto-detect" passes `undefined`. When auto-detect is unavailable the picker pre-selects the first configured candidate, which is what the backend would have used anyway. Language names render via `Intl.DisplayNames`, so the endonyms cost nothing in bundle size and fall back to the catalog's English name on older browsers.
+
+The picker is mounted inside `<PromptInput>` (immediately left of the mic/send button) and `<ChatInput>` (beside the mic); `<LanguagePicker>` is also exported for consumers composing their own input surface. It stays put while the mic/send button swaps.
 
 ### `<ChatContainer>`
 
@@ -256,7 +295,7 @@ Individual message renderer (user or assistant).
 
 ### `<PromptInput>` (v0.2.0)
 
-ChatGPT-style two-row input: textarea on top, action bar on bottom.
+ChatGPT-style two-row input: textarea on top, action bar on bottom. The action bar puts attachments and `addonSlot` on the left, and the dictation language chip plus one circular control on the right — mic while there is nothing to send, otherwise send/stop. See [Voice](#voice-v050) for the swap rules.
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|
@@ -577,7 +616,10 @@ import type {
   ChatConfig,           // Provider configuration
   FeedbackHandler,      // Consumer-supplied like/dislike endpoints
   VoiceHandler,         // Consumer-supplied TTS + STT endpoints
-  VoiceTranscription,   // { text, language, language_code }
+  VoiceTranscription,   // { text, language, language_code, mode }
+  VoiceStatus,          // GET /v1/enterprise/voice payload -> ChatConfig.voiceStatus
+  LanguageOption,       // One selectable dictation locale
+  DictationState,       // { language, autodetectAvailable, explicit }
   ChatContainerProps,
   ChatMessageProps,
   ChatInputProps,

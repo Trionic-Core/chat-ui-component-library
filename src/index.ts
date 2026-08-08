@@ -48,6 +48,11 @@ export type {
   VoiceLocale,
   SpeechStatus,
   SpeechState,
+  // v0.6.0 types — dictation language picker
+  LanguagePickerProps,
+  LanguageOption,
+  LanguageSearchIndex,
+  DictationState,
 } from './types'
 
 // Export the ChatMessage interface under an alias to avoid collision
@@ -84,6 +89,10 @@ export { FeedbackPopover } from './components/feedback-popover'
 // ChatInput; exported for consumers composing their own input surface.
 export { VoiceRecordButton } from './components/voice-record-button'
 
+// v0.6.0 components — dictation language. Mounted beside the mic in PromptInput
+// and ChatInput; exported for the same reason.
+export { LanguagePicker } from './components/language-picker'
+
 // AUI (Agentic UI) — renders ui_block ViewSpecs below assistant messages
 export { AuiView } from './aui'
 export { isValidViewSpec, isValidBlock } from './aui'
@@ -119,6 +128,8 @@ export { useChatScroll } from './hooks/use-chat-scroll'
 export { useStreamingText } from './hooks/use-streaming-text'
 export { useSessionManager } from './hooks/use-session-manager'
 export { useVoiceRecorder } from './hooks/use-voice-recorder'
+// Surfaced because VoiceRecordButton reports it through onStatusChange.
+export type { RecorderStatus } from './hooks/use-voice-recorder'
 
 // Utilities
 export { cn } from './utils/cn'

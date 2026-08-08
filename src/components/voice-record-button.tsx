@@ -2,17 +2,39 @@ import { useCallback, useEffect, useRef } from 'react'
 import { Mic, Square, Loader2 } from 'lucide-react'
 import { cn } from '../utils/cn'
 import { useChatContext } from '../context/chat-context'
-import { useVoiceRecorder } from '../hooks/use-voice-recorder'
+import { useVoiceRecorder, type RecorderStatus } from '../hooks/use-voice-recorder'
 import { formatDuration, remainingSeconds } from '../utils/voice'
 
 /** How close to the cap the countdown starts warning. */
 const LIMIT_WARNING_SECONDS = 10
 
+/** Button geometry per size. `lg` matches PromptInput's send button. */
+const SIZES = {
+  sm: { box: 'h-7 w-7', icon: 14 },
+  md: { box: 'h-8 w-8', icon: 16 },
+  lg: { box: 'h-9 w-9', icon: 18 },
+} as const
+
+/** Keeps the recording timer from crowding out the rest of the action row. */
+const STATUS_MAX_WIDTH = 132
+
 interface VoiceRecordButtonProps {
   /** Whether the surrounding input is disabled. */
   disabled?: boolean
-  /** Diameter of the button. PromptInput's row uses 32px, ChatInput's uses 28px. */
-  size?: 'sm' | 'md'
+  /** Diameter of the button. ChatInput's row uses 28px, PromptInput's 36px. */
+  size?: 'sm' | 'md' | 'lg'
+  /**
+   * `outline` is a secondary control sitting among other buttons. `solid` fills
+   * the button the way PromptInput's send button is filled, for when the mic
+   * occupies the send position and has to read as the primary action.
+   */
+  appearance?: 'outline' | 'solid'
+  /**
+   * Fires whenever recording starts, ends or fails. A parent that swaps this
+   * button for another one needs it: unmounting mid-recording would stop the
+   * capture and silently discard the clip.
+   */
+  onStatusChange?: (status: RecorderStatus) => void
   className?: string
 }
 
@@ -26,8 +48,14 @@ interface VoiceRecordButtonProps {
  * Renders nothing without a ChatConfig.voice handler, so the whole feature
  * stays dark on installs that haven't enabled voice.
  */
-export function VoiceRecordButton({ disabled, size = 'md', className }: VoiceRecordButtonProps) {
-  const { config, state, setInput } = useChatContext()
+export function VoiceRecordButton({
+  disabled,
+  size = 'md',
+  appearance = 'outline',
+  onStatusChange,
+  className,
+}: VoiceRecordButtonProps) {
+  const { config, state, setInput, dictate } = useChatContext()
   const voice = config.voice
 
   // Transcription takes seconds, during which the user may keep typing. The
@@ -41,7 +69,10 @@ export function VoiceRecordButton({ disabled, size = 'md', className }: VoiceRec
   const handleClip = useCallback(
     async (clip: Blob) => {
       if (!voice) return
-      const result = await voice.transcribe(clip)
+      // Via the provider rather than voice.transcribe directly, so the selected
+      // dictation language is applied and the reply teaches us whether this
+      // install can auto-detect at all — in one place, not per input surface.
+      const result = await dictate(clip)
       const text = result.text.trim()
       if (!text) return
       // Append to whatever is already typed rather than replacing it, so a
@@ -49,20 +80,36 @@ export function VoiceRecordButton({ disabled, size = 'md', className }: VoiceRec
       const existing = inputValueRef.current.trimEnd()
       setInput(existing ? `${existing} ${text}` : text)
     },
-    [voice, setInput]
+    [voice, dictate, setInput]
   )
 
   const { status, error, elapsedSeconds, limitReached, toggle, dismissError } = useVoiceRecorder({
     onClip: handleClip,
   })
 
+  // Through a ref so an unmemoized callback does not re-fire the report every
+  // render, and so the unmount reset below can stay a mount-once effect.
+  const onStatusChangeRef = useRef(onStatusChange)
+  useEffect(() => {
+    onStatusChangeRef.current = onStatusChange
+  })
+
+  useEffect(() => {
+    onStatusChangeRef.current?.(status)
+  }, [status])
+
+  // A parent that swaps this button away reads the reported status to know when
+  // that is safe. If we vanished while it still believed we were busy, it would
+  // wait forever for an end that can no longer come.
+  useEffect(() => () => onStatusChangeRef.current?.('idle'), [])
+
   if (!voice) return null
 
   const isRecording = status === 'recording'
   const isTranscribing = status === 'transcribing'
   const hasError = status === 'error'
-  const dimension = size === 'sm' ? 'h-7 w-7' : 'h-8 w-8'
-  const iconSize = size === 'sm' ? 14 : 16
+  const isSolid = appearance === 'solid'
+  const { box: dimension, icon: iconSize } = SIZES[size]
   const secondsLeft = remainingSeconds(elapsedSeconds)
   const isNearLimit = isRecording && secondsLeft <= LIMIT_WARNING_SECONDS
 
@@ -72,8 +119,20 @@ export function VoiceRecordButton({ disabled, size = 'md', className }: VoiceRec
       ? 'Transcribing'
       : 'Record a voice message'
 
+  // Alert red covers both recording and a failed attempt; the icon is what
+  // tells them apart (a stop square versus a mic to retry).
+  const alerting = isRecording || hasError
+
   return (
-    <div className={cn('flex items-center gap-1.5', className)}>
+    <div
+      className={cn(
+        'flex items-center gap-1.5',
+        // Solid means this button is in the send position at the right edge, so
+        // the timer has to sit to its LEFT or it runs out of the container.
+        isSolid && 'flex-row-reverse',
+        className
+      )}
+    >
       <button
         type="button"
         onClick={hasError ? dismissError : toggle}
@@ -81,26 +140,32 @@ export function VoiceRecordButton({ disabled, size = 'md', className }: VoiceRec
         className={cn(
           'flex shrink-0 items-center justify-center rounded-full',
           dimension,
-          'transition-colors duration-100',
+          isSolid ? 'transition-all duration-150 active:scale-[0.96]' : 'transition-colors duration-100',
           'focus-visible:outline-none focus-visible:ring-2',
           'focus-visible:ring-[var(--cxc-border-focus)]',
-          'disabled:cursor-not-allowed disabled:opacity-40'
+          'disabled:cursor-not-allowed',
+          isSolid ? 'disabled:opacity-30' : 'disabled:opacity-40'
         )}
-        style={{
-          color: isRecording
-            ? 'var(--cxc-error)'
-            : hasError
-              ? 'var(--cxc-error)'
-              : 'var(--cxc-text-secondary)',
-          border: `1px solid ${isRecording ? 'var(--cxc-error)' : 'var(--cxc-border)'}`,
-        }}
+        style={
+          isSolid
+            ? {
+                backgroundColor: alerting ? 'var(--cxc-error)' : 'var(--cxc-text)',
+                color: 'var(--cxc-text-inverse)',
+              }
+            : {
+                color: alerting ? 'var(--cxc-error)' : 'var(--cxc-text-secondary)',
+                border: `1px solid ${isRecording ? 'var(--cxc-error)' : 'var(--cxc-border)'}`,
+              }
+        }
         onMouseOver={(e) => {
-          if (isRecording || hasError) return
+          // The solid button is already the loudest thing in the row; the send
+          // button it stands in for has no hover tint either.
+          if (isSolid || alerting) return
           e.currentTarget.style.backgroundColor = 'var(--cxc-bg-muted)'
           e.currentTarget.style.color = 'var(--cxc-text)'
         }}
         onMouseOut={(e) => {
-          if (isRecording || hasError) return
+          if (isSolid || alerting) return
           e.currentTarget.style.backgroundColor = 'transparent'
           e.currentTarget.style.color = 'var(--cxc-text-secondary)'
         }}
@@ -135,13 +200,22 @@ export function VoiceRecordButton({ disabled, size = 'md', className }: VoiceRec
       )}
 
       {isTranscribing && (
-        <span className="text-[12px]" style={{ color: 'var(--cxc-text-muted)' }}>
+        <span
+          className="truncate text-[12px]"
+          style={{ color: 'var(--cxc-text-muted)', maxWidth: STATUS_MAX_WIDTH }}
+          title={limitReached ? 'Recording limit reached — transcribing...' : undefined}
+        >
           {limitReached ? 'Recording limit reached — transcribing...' : 'Transcribing...'}
         </span>
       )}
 
       {hasError && error && (
-        <span className="text-[12px]" style={{ color: 'var(--cxc-error)' }} role="alert">
+        <span
+          className="truncate text-[12px]"
+          style={{ color: 'var(--cxc-error)', maxWidth: STATUS_MAX_WIDTH }}
+          role="alert"
+          title={error}
+        >
           {error}
         </span>
       )}

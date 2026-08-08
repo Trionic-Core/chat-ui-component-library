@@ -1,7 +1,7 @@
 import { createContext, forwardRef, useCallback, useContext, useRef, useState, useEffect, useMemo, Component, useId, useReducer } from 'react';
 import { jsx, jsxs, Fragment } from 'react/jsx-runtime';
-import { AnimatePresence, motion } from 'motion/react';
-import { ArrowDown, Sparkles, ChevronDown, ThumbsUp, ThumbsDown, Loader2, Square, Volume2, CheckCircle2, AlertCircle, Lock, Check, X, Circle, Clock, Copy, RotateCcw, Pencil, Mic, Paperclip, Plus, ArrowUp, MessageSquare, Trash2, PanelLeftClose, PanelLeftOpen, MessageCircle, Minimize2, Maximize2 } from 'lucide-react';
+import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
+import { ArrowDown, Sparkles, ChevronDown, ThumbsUp, ThumbsDown, Loader2, Square, Volume2, CheckCircle2, AlertCircle, Lock, Check, X, Circle, Clock, Copy, RotateCcw, Pencil, Mic, Globe, Search, Paperclip, Plus, ArrowUp, MessageSquare, Trash2, PanelLeftClose, PanelLeftOpen, MessageCircle, Minimize2, Maximize2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { ResponsiveContainer, ScatterChart as ScatterChart$1, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Scatter, PieChart as PieChart$1, Pie, Cell, AreaChart as AreaChart$1, Area, LineChart, Line, BarChart as BarChart$1, Bar } from 'recharts';
@@ -284,6 +284,145 @@ function defaultRevoke(url) {
     URL.revokeObjectURL(url);
   }
 }
+
+// src/utils/language.ts
+var MAX_COMPACT_LABEL_CHARS = 8;
+function foldForSearch(value) {
+  return value.normalize("NFD").replace(/\p{Diacritic}/gu, "").toLowerCase();
+}
+var nativeNameCache = /* @__PURE__ */ new Map();
+function nativeLanguageName(locale, languageCode) {
+  const key = `${locale}|${languageCode}`;
+  const cached = nativeNameCache.get(key);
+  if (cached !== void 0) return cached;
+  let resolved = null;
+  if (typeof Intl !== "undefined" && typeof Intl.DisplayNames === "function") {
+    try {
+      const name = new Intl.DisplayNames([locale], { type: "language" }).of(languageCode);
+      if (name && name.toLowerCase() !== languageCode.toLowerCase()) resolved = name;
+    } catch {
+      resolved = null;
+    }
+  }
+  nativeNameCache.set(key, resolved);
+  return resolved;
+}
+function buildLanguageOptions(locales) {
+  const options = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const entry of locales ?? []) {
+    const locale = typeof entry?.locale === "string" ? entry.locale.trim() : "";
+    if (!locale) continue;
+    const key = locale.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    const declaredCode = typeof entry.language_code === "string" ? entry.language_code.trim() : "";
+    const languageCode = (declaredCode || locale.split("-", 1)[0]).toLowerCase();
+    const declaredName = typeof entry.locale_name === "string" ? entry.locale_name.trim() : "";
+    const englishName = declaredName || locale;
+    const nativeName = nativeLanguageName(locale, languageCode) ?? englishName;
+    options.push({
+      locale,
+      languageCode,
+      englishName,
+      nativeName,
+      search: {
+        locale: foldForSearch(locale),
+        code: foldForSearch(languageCode),
+        english: foldForSearch(englishName),
+        native: foldForSearch(nativeName)
+      }
+    });
+  }
+  return options;
+}
+function findOption(options, locale) {
+  if (!locale) return void 0;
+  const wanted = locale.trim().toLowerCase();
+  if (!wanted) return void 0;
+  return options.find((option) => option.locale.toLowerCase() === wanted);
+}
+function scoreOption(option, needle) {
+  const { locale, code, english, native } = option.search;
+  if (locale === needle || code === needle) return 4;
+  if (locale.startsWith(needle) || code.startsWith(needle)) return 3;
+  if (native.startsWith(needle) || english.startsWith(needle)) return 2;
+  if (native.includes(needle) || english.includes(needle) || locale.includes(needle)) return 1;
+  return 0;
+}
+function filterLanguages(options, query) {
+  const needle = foldForSearch(query.trim());
+  if (!needle) return [...options];
+  return options.map((option, index) => ({ option, index, score: scoreOption(option, needle) })).filter((entry) => entry.score > 0).sort((a, b) => b.score - a.score || a.index - b.index).map((entry) => entry.option);
+}
+function matchesAutodetect(query) {
+  const needle = foldForSearch(query.trim());
+  if (!needle) return true;
+  return "auto-detect automatic detect".includes(needle);
+}
+function frequentOptions(options, candidates) {
+  const picked = [];
+  const seen = /* @__PURE__ */ new Set();
+  for (const candidate of candidates ?? []) {
+    const option = findOption(options, candidate);
+    if (!option || seen.has(option.locale)) continue;
+    seen.add(option.locale);
+    picked.push(option);
+  }
+  return picked;
+}
+function defaultLanguage(candidates, options) {
+  for (const candidate of candidates ?? []) {
+    const option = findOption(options, candidate);
+    if (option) return option.locale;
+  }
+  const raw = (candidates ?? []).find(
+    (candidate) => typeof candidate === "string" && candidate.trim().length > 0
+  );
+  if (raw) return raw.trim();
+  return options[0]?.locale ?? null;
+}
+var RESTING_DICTATION = {
+  language: null,
+  autodetectAvailable: true,
+  explicit: false
+};
+function syncWithStatus(state, status, options) {
+  const autodetectAvailable = state.autodetectAvailable && status?.stt_autodetect_available !== false;
+  const keepsChoice = state.explicit && (state.language !== null || autodetectAvailable);
+  const language = keepsChoice ? state.language : autodetectAvailable ? null : defaultLanguage(status?.autodetect_candidates, options);
+  if (language === state.language && autodetectAvailable === state.autodetectAvailable) {
+    return state;
+  }
+  return { language, autodetectAvailable, explicit: state.explicit };
+}
+function initialDictationState(status, options) {
+  return syncWithStatus(RESTING_DICTATION, status, options);
+}
+function selectLanguage(state, language) {
+  if (state.language === language && state.explicit) return state;
+  return { ...state, language, explicit: true };
+}
+function learnFromTranscription(state, sentLanguage, result, options, candidates) {
+  if (sentLanguage !== null) return state;
+  if (result?.mode !== "forced") return state;
+  if (!state.autodetectAvailable) return state;
+  const used = findOption(options, result.language);
+  return {
+    language: used?.locale ?? defaultLanguage(candidates, options),
+    autodetectAvailable: false,
+    explicit: state.explicit
+  };
+}
+function compactLabel(option) {
+  return option.nativeName.length <= MAX_COMPACT_LABEL_CHARS ? option.nativeName : option.languageCode.toUpperCase();
+}
+function secondaryLabel(option) {
+  const { englishName, nativeName } = option;
+  if (!englishName.startsWith(nativeName)) return englishName;
+  const remainder = englishName.slice(nativeName.length).trim();
+  return remainder.replace(/^\(|\)$/g, "").trim();
+}
 var messageCounter = 0;
 function generateId() {
   messageCounter += 1;
@@ -301,6 +440,7 @@ function ChatProvider({
   actionLabels,
   feedback,
   voice,
+  voiceStatus,
   enableRegenerate = false
 }) {
   const [state, dispatch] = useReducer(chatReducer, {
@@ -322,9 +462,10 @@ function ChatProvider({
       actionLabels,
       feedback,
       voice,
+      voiceStatus,
       enableRegenerate
     }),
-    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, enableRegenerate]
+    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, enableRegenerate]
   );
   const send = useCallback(
     (message, metadata) => {
@@ -657,6 +798,31 @@ function ChatProvider({
     },
     [voice, speech.messageId, speech.status, state.messages, getAudioElement, stopSpeech]
   );
+  const dictationOptions = useMemo(
+    () => buildLanguageOptions(voiceStatus?.locales),
+    [voiceStatus?.locales]
+  );
+  const [dictation, setDictation] = useState(
+    () => initialDictationState(voiceStatus, dictationOptions)
+  );
+  useEffect(() => {
+    setDictation((prev) => syncWithStatus(prev, voiceStatus, dictationOptions));
+  }, [voiceStatus, dictationOptions]);
+  const setDictationLanguage = useCallback((language) => {
+    setDictation((prev) => selectLanguage(prev, language));
+  }, []);
+  const dictate = useCallback(
+    async (clip) => {
+      if (!voice) throw new Error("Voice is not configured on this chat");
+      const sent = dictation.language;
+      const result = await voice.transcribe(clip, sent ?? void 0);
+      setDictation(
+        (prev) => learnFromTranscription(prev, sent, result, dictationOptions, voiceStatus?.autodetect_candidates)
+      );
+      return result;
+    },
+    [voice, dictation.language, dictationOptions, voiceStatus?.autodetect_candidates]
+  );
   const editAndRegenerate = useCallback(
     (newContent) => {
       const trimmed = newContent.trim();
@@ -692,7 +858,11 @@ function ChatProvider({
       editAndRegenerate,
       regenerateLast,
       speech,
-      toggleSpeech
+      toggleSpeech,
+      dictation,
+      dictationOptions,
+      setDictationLanguage,
+      dictate
     }),
     [
       state,
@@ -713,7 +883,11 @@ function ChatProvider({
       editAndRegenerate,
       regenerateLast,
       speech,
-      toggleSpeech
+      toggleSpeech,
+      dictation,
+      dictationOptions,
+      setDictationLanguage,
+      dictate
     ]
   );
   return /* @__PURE__ */ jsx(ChatContext.Provider, { value: contextValue, children });
@@ -3868,8 +4042,20 @@ function useVoiceRecorder({ onClip }) {
   return { status, error, elapsedSeconds, limitReached, toggle, dismissError };
 }
 var LIMIT_WARNING_SECONDS = 10;
-function VoiceRecordButton({ disabled, size = "md", className }) {
-  const { config, state, setInput } = useChatContext();
+var SIZES = {
+  sm: { box: "h-7 w-7", icon: 14 },
+  md: { box: "h-8 w-8", icon: 16 },
+  lg: { box: "h-9 w-9", icon: 18 }
+};
+var STATUS_MAX_WIDTH = 132;
+function VoiceRecordButton({
+  disabled,
+  size = "md",
+  appearance = "outline",
+  onStatusChange,
+  className
+}) {
+  const { config, state, setInput, dictate } = useChatContext();
   const voice = config.voice;
   const inputValueRef = useRef(state.inputValue);
   useEffect(() => {
@@ -3878,85 +4064,464 @@ function VoiceRecordButton({ disabled, size = "md", className }) {
   const handleClip = useCallback(
     async (clip) => {
       if (!voice) return;
-      const result = await voice.transcribe(clip);
+      const result = await dictate(clip);
       const text = result.text.trim();
       if (!text) return;
       const existing = inputValueRef.current.trimEnd();
       setInput(existing ? `${existing} ${text}` : text);
     },
-    [voice, setInput]
+    [voice, dictate, setInput]
   );
   const { status, error, elapsedSeconds, limitReached, toggle, dismissError } = useVoiceRecorder({
     onClip: handleClip
   });
+  const onStatusChangeRef = useRef(onStatusChange);
+  useEffect(() => {
+    onStatusChangeRef.current = onStatusChange;
+  });
+  useEffect(() => {
+    onStatusChangeRef.current?.(status);
+  }, [status]);
+  useEffect(() => () => onStatusChangeRef.current?.("idle"), []);
   if (!voice) return null;
   const isRecording = status === "recording";
   const isTranscribing = status === "transcribing";
   const hasError = status === "error";
-  const dimension = size === "sm" ? "h-7 w-7" : "h-8 w-8";
-  const iconSize = size === "sm" ? 14 : 16;
+  const isSolid = appearance === "solid";
+  const { box: dimension, icon: iconSize } = SIZES[size];
   const secondsLeft = remainingSeconds(elapsedSeconds);
   const isNearLimit = isRecording && secondsLeft <= LIMIT_WARNING_SECONDS;
   const label = isRecording ? "Stop recording" : isTranscribing ? "Transcribing" : "Record a voice message";
-  return /* @__PURE__ */ jsxs("div", { className: cn("flex items-center gap-1.5", className), children: [
-    /* @__PURE__ */ jsx(
+  const alerting = isRecording || hasError;
+  return /* @__PURE__ */ jsxs(
+    "div",
+    {
+      className: cn(
+        "flex items-center gap-1.5",
+        // Solid means this button is in the send position at the right edge, so
+        // the timer has to sit to its LEFT or it runs out of the container.
+        isSolid && "flex-row-reverse",
+        className
+      ),
+      children: [
+        /* @__PURE__ */ jsx(
+          "button",
+          {
+            type: "button",
+            onClick: hasError ? dismissError : toggle,
+            disabled: disabled || isTranscribing || state.isStreaming,
+            className: cn(
+              "flex shrink-0 items-center justify-center rounded-full",
+              dimension,
+              isSolid ? "transition-all duration-150 active:scale-[0.96]" : "transition-colors duration-100",
+              "focus-visible:outline-none focus-visible:ring-2",
+              "focus-visible:ring-[var(--cxc-border-focus)]",
+              "disabled:cursor-not-allowed",
+              isSolid ? "disabled:opacity-30" : "disabled:opacity-40"
+            ),
+            style: isSolid ? {
+              backgroundColor: alerting ? "var(--cxc-error)" : "var(--cxc-text)",
+              color: "var(--cxc-text-inverse)"
+            } : {
+              color: alerting ? "var(--cxc-error)" : "var(--cxc-text-secondary)",
+              border: `1px solid ${isRecording ? "var(--cxc-error)" : "var(--cxc-border)"}`
+            },
+            onMouseOver: (e) => {
+              if (isSolid || alerting) return;
+              e.currentTarget.style.backgroundColor = "var(--cxc-bg-muted)";
+              e.currentTarget.style.color = "var(--cxc-text)";
+            },
+            onMouseOut: (e) => {
+              if (isSolid || alerting) return;
+              e.currentTarget.style.backgroundColor = "transparent";
+              e.currentTarget.style.color = "var(--cxc-text-secondary)";
+            },
+            "aria-label": hasError ? "Dismiss recording error" : label,
+            "aria-pressed": isRecording,
+            title: hasError ? error ?? "Recording failed" : label,
+            children: isTranscribing ? /* @__PURE__ */ jsx(Loader2, { size: iconSize, className: "cxc-spin", "aria-hidden": "true" }) : isRecording ? /* @__PURE__ */ jsx(Square, { size: iconSize - 4, fill: "currentColor", "aria-hidden": "true" }) : /* @__PURE__ */ jsx(Mic, { size: iconSize, strokeWidth: 1.8, "aria-hidden": "true" })
+          }
+        ),
+        isRecording && /* @__PURE__ */ jsxs(
+          "span",
+          {
+            className: "flex items-center gap-1.5 text-[12px] tabular-nums",
+            style: { color: isNearLimit ? "var(--cxc-error)" : "var(--cxc-text-secondary)" },
+            children: [
+              /* @__PURE__ */ jsx(
+                "span",
+                {
+                  className: "inline-block h-1.5 w-1.5 rounded-full",
+                  style: { backgroundColor: "var(--cxc-error)" },
+                  "aria-hidden": "true"
+                }
+              ),
+              formatDuration(elapsedSeconds),
+              isNearLimit && /* @__PURE__ */ jsxs("span", { children: [
+                secondsLeft,
+                "s left"
+              ] })
+            ]
+          }
+        ),
+        isTranscribing && /* @__PURE__ */ jsx(
+          "span",
+          {
+            className: "truncate text-[12px]",
+            style: { color: "var(--cxc-text-muted)", maxWidth: STATUS_MAX_WIDTH },
+            title: limitReached ? "Recording limit reached \u2014 transcribing..." : void 0,
+            children: limitReached ? "Recording limit reached \u2014 transcribing..." : "Transcribing..."
+          }
+        ),
+        hasError && error && /* @__PURE__ */ jsx(
+          "span",
+          {
+            className: "truncate text-[12px]",
+            style: { color: "var(--cxc-error)", maxWidth: STATUS_MAX_WIDTH },
+            role: "alert",
+            title: error,
+            children: error
+          }
+        )
+      ]
+    }
+  );
+}
+var PANEL_WIDTH = 280;
+var PANEL_MAX_HEIGHT = 320;
+var PANEL_EDGE_GAP = 8;
+function LanguagePicker({ disabled, size = "md", className }) {
+  const { config, dictation, dictationOptions, setDictationLanguage } = useChatContext();
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  const [activeIndex, setActiveIndex] = useState(0);
+  const [shift, setShift] = useState(null);
+  const rootRef = useRef(null);
+  const triggerRef = useRef(null);
+  const searchRef = useRef(null);
+  const listRef = useRef(null);
+  const panelRef = useRef(null);
+  const baseId = useId();
+  const listboxId = `${baseId}-listbox`;
+  const reduceMotion = useReducedMotion();
+  const candidates = config.voiceStatus?.autodetect_candidates;
+  const selected = findOption(dictationOptions, dictation.language);
+  const showAutodetect = dictation.autodetectAvailable;
+  const sections = useMemo(() => {
+    let index = 0;
+    const row = (prefix, option) => ({
+      key: `${prefix}-${option?.locale ?? "auto"}`,
+      locale: option?.locale ?? null,
+      option,
+      index: index++
+    });
+    const autoRows = showAutodetect && matchesAutodetect(query) ? [row("auto")] : [];
+    const trimmed = query.trim();
+    if (trimmed) {
+      const matches = filterLanguages(dictationOptions, trimmed);
+      return [{ key: "results", rows: [...autoRows, ...matches.map((option) => row("r", option))] }];
+    }
+    const frequent = frequentOptions(dictationOptions, candidates);
+    const browsing = [];
+    if (autoRows.length) browsing.push({ key: "auto", rows: autoRows });
+    const grouped = frequent.length > 0 && frequent.length < dictationOptions.length;
+    if (grouped) {
+      browsing.push({ key: "frequent", label: "Frequent", rows: frequent.map((option) => row("f", option)) });
+    }
+    browsing.push({
+      key: "all",
+      label: grouped ? "All languages" : void 0,
+      rows: dictationOptions.map((option) => row("a", option))
+    });
+    return browsing;
+  }, [dictationOptions, candidates, query, showAutodetect]);
+  const rows = useMemo(() => sections.flatMap((section) => section.rows), [sections]);
+  const activeRow = rows[activeIndex];
+  const activeOptionId = activeRow ? `${baseId}-${activeRow.key}` : void 0;
+  const close = useCallback((refocus) => {
+    setOpen(false);
+    setQuery("");
+    if (refocus) triggerRef.current?.focus();
+  }, []);
+  const choose = useCallback(
+    (locale) => {
+      setDictationLanguage(locale);
+      close(true);
+    },
+    [setDictationLanguage, close]
+  );
+  const openPanel = useCallback(() => {
+    const current = rows.findIndex((row) => row.locale === dictation.language);
+    setActiveIndex(current >= 0 ? current : 0);
+    setOpen(true);
+  }, [rows, dictation.language]);
+  const handleQueryChange = useCallback((value) => {
+    setQuery(value);
+    setActiveIndex(0);
+  }, []);
+  useEffect(() => {
+    if (open) searchRef.current?.focus();
+  }, [open]);
+  useEffect(() => {
+    if (!open) {
+      setShift(null);
+      return;
+    }
+    const panel = panelRef.current;
+    if (!panel) return;
+    const bounds = rootRef.current?.closest(".cxc-root")?.getBoundingClientRect();
+    const rect = panel.getBoundingClientRect();
+    const right = bounds ? bounds.right : window.innerWidth;
+    const left = bounds ? bounds.left : 0;
+    const overflow = rect.right - (right - PANEL_EDGE_GAP);
+    const room = Math.max(0, rect.left - (left + PANEL_EDGE_GAP));
+    setShift(overflow > 0 ? -Math.min(overflow, room) : 0);
+  }, [open]);
+  useEffect(() => {
+    if (!open) return;
+    const handler = (event) => {
+      if (rootRef.current && !rootRef.current.contains(event.target)) close(false);
+    };
+    const timer = setTimeout(() => document.addEventListener("mousedown", handler), 0);
+    return () => {
+      clearTimeout(timer);
+      document.removeEventListener("mousedown", handler);
+    };
+  }, [open, close]);
+  useEffect(() => {
+    const list = listRef.current;
+    if (!open || !list) return;
+    const row = list.querySelector('[data-active="true"]');
+    if (!row) return;
+    if (row.offsetTop < list.scrollTop) {
+      list.scrollTop = row.offsetTop;
+    } else if (row.offsetTop + row.offsetHeight > list.scrollTop + list.clientHeight) {
+      list.scrollTop = row.offsetTop + row.offsetHeight - list.clientHeight;
+    }
+  }, [open, activeIndex, rows]);
+  const handleSearchKeyDown = useCallback(
+    (event) => {
+      switch (event.key) {
+        case "ArrowDown":
+          event.preventDefault();
+          if (rows.length) setActiveIndex((index) => (index + 1) % rows.length);
+          break;
+        case "ArrowUp":
+          event.preventDefault();
+          if (rows.length) setActiveIndex((index) => (index - 1 + rows.length) % rows.length);
+          break;
+        case "Home":
+          event.preventDefault();
+          setActiveIndex(0);
+          break;
+        case "End":
+          event.preventDefault();
+          setActiveIndex(Math.max(0, rows.length - 1));
+          break;
+        case "Enter":
+          event.preventDefault();
+          if (activeRow) choose(activeRow.locale);
+          break;
+        case "Escape":
+          event.preventDefault();
+          event.stopPropagation();
+          close(true);
+          break;
+        case "Tab":
+          close(true);
+          break;
+      }
+    },
+    [rows.length, activeRow, choose, close]
+  );
+  const selectableCount = dictationOptions.length + (showAutodetect ? 1 : 0);
+  if (!config.voice || dictationOptions.length === 0 || selectableCount < 2) return null;
+  const triggerLabel = selected ? compactLabel(selected) : "Auto";
+  const triggerTitle = selected ? `Dictation language: ${selected.englishName}` : "Dictation language: auto-detect";
+  const dimension = size === "sm" ? "h-7" : "h-8";
+  const iconSize = size === "sm" ? 13 : 14;
+  return /* @__PURE__ */ jsxs("div", { ref: rootRef, className: cn("relative flex items-center", className), children: [
+    /* @__PURE__ */ jsxs(
       "button",
       {
+        ref: triggerRef,
         type: "button",
-        onClick: hasError ? dismissError : toggle,
-        disabled: disabled || isTranscribing || state.isStreaming,
+        onClick: () => open ? close(false) : openPanel(),
+        disabled,
         className: cn(
-          "flex shrink-0 items-center justify-center rounded-full",
+          "flex shrink-0 items-center gap-1 rounded-full px-2",
           dimension,
+          "text-[12px] leading-none",
           "transition-colors duration-100",
           "focus-visible:outline-none focus-visible:ring-2",
           "focus-visible:ring-[var(--cxc-border-focus)]",
           "disabled:cursor-not-allowed disabled:opacity-40"
         ),
         style: {
-          color: isRecording ? "var(--cxc-error)" : hasError ? "var(--cxc-error)" : "var(--cxc-text-secondary)",
-          border: `1px solid ${isRecording ? "var(--cxc-error)" : "var(--cxc-border)"}`
+          color: open ? "var(--cxc-text)" : "var(--cxc-text-secondary)",
+          border: "1px solid var(--cxc-border)",
+          backgroundColor: open ? "var(--cxc-bg-muted)" : "transparent"
         },
         onMouseOver: (e) => {
-          if (isRecording || hasError) return;
+          if (open) return;
           e.currentTarget.style.backgroundColor = "var(--cxc-bg-muted)";
           e.currentTarget.style.color = "var(--cxc-text)";
         },
         onMouseOut: (e) => {
-          if (isRecording || hasError) return;
+          if (open) return;
           e.currentTarget.style.backgroundColor = "transparent";
           e.currentTarget.style.color = "var(--cxc-text-secondary)";
         },
-        "aria-label": hasError ? "Dismiss recording error" : label,
-        "aria-pressed": isRecording,
-        title: hasError ? error ?? "Recording failed" : label,
-        children: isTranscribing ? /* @__PURE__ */ jsx(Loader2, { size: iconSize, className: "cxc-spin", "aria-hidden": "true" }) : isRecording ? /* @__PURE__ */ jsx(Square, { size: iconSize - 4, fill: "currentColor", "aria-hidden": "true" }) : /* @__PURE__ */ jsx(Mic, { size: iconSize, strokeWidth: 1.8, "aria-hidden": "true" })
-      }
-    ),
-    isRecording && /* @__PURE__ */ jsxs(
-      "span",
-      {
-        className: "flex items-center gap-1.5 text-[12px] tabular-nums",
-        style: { color: isNearLimit ? "var(--cxc-error)" : "var(--cxc-text-secondary)" },
+        "aria-haspopup": "listbox",
+        "aria-expanded": open,
+        "aria-label": triggerTitle,
+        title: triggerTitle,
         children: [
-          /* @__PURE__ */ jsx(
-            "span",
-            {
-              className: "inline-block h-1.5 w-1.5 rounded-full",
-              style: { backgroundColor: "var(--cxc-error)" },
-              "aria-hidden": "true"
-            }
-          ),
-          formatDuration(elapsedSeconds),
-          isNearLimit && /* @__PURE__ */ jsxs("span", { children: [
-            secondsLeft,
-            "s left"
-          ] })
+          /* @__PURE__ */ jsx(Globe, { size: iconSize, strokeWidth: 1.8, "aria-hidden": "true" }),
+          /* @__PURE__ */ jsx("span", { className: "max-w-[72px] truncate", children: triggerLabel })
         ]
       }
     ),
-    isTranscribing && /* @__PURE__ */ jsx("span", { className: "text-[12px]", style: { color: "var(--cxc-text-muted)" }, children: limitReached ? "Recording limit reached \u2014 transcribing..." : "Transcribing..." }),
-    hasError && error && /* @__PURE__ */ jsx("span", { className: "text-[12px]", style: { color: "var(--cxc-error)" }, role: "alert", children: error })
+    /* @__PURE__ */ jsx(AnimatePresence, { children: open && /* @__PURE__ */ jsxs(
+      motion.div,
+      {
+        ref: panelRef,
+        initial: reduceMotion ? false : { opacity: 0, y: 4, scale: 0.98 },
+        animate: { opacity: 1, y: 0, scale: 1 },
+        exit: reduceMotion ? { opacity: 0 } : { opacity: 0, y: 4, scale: 0.98 },
+        transition: { duration: reduceMotion ? 0 : 0.14, ease: [0.25, 0.1, 0.25, 1] },
+        onKeyDown: (e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            close(true);
+          }
+        },
+        className: "absolute bottom-full z-50 mb-2 flex flex-col overflow-hidden rounded-[var(--cxc-radius-lg)] shadow-lg",
+        style: {
+          // Opens upward: the input sits at the bottom of the widget, so a
+          // downward panel would spill straight out of the container.
+          left: shift ?? 0,
+          // Hidden for the one frame before the nudge is measured, so the
+          // panel never appears in the wrong place — including for readers
+          // who have animation turned off.
+          visibility: shift === null ? "hidden" : "visible",
+          width: `min(${PANEL_WIDTH}px, calc(100vw - 2rem))`,
+          maxHeight: PANEL_MAX_HEIGHT,
+          backgroundColor: "var(--cxc-bg)",
+          border: "1px solid var(--cxc-border)"
+        },
+        children: [
+          /* @__PURE__ */ jsxs(
+            "div",
+            {
+              className: "flex shrink-0 items-center gap-2 px-3 py-2",
+              style: { borderBottom: "1px solid var(--cxc-border-subtle)" },
+              children: [
+                /* @__PURE__ */ jsx(Search, { size: 14, strokeWidth: 1.8, style: { color: "var(--cxc-text-muted)" }, "aria-hidden": "true" }),
+                /* @__PURE__ */ jsx(
+                  "input",
+                  {
+                    ref: searchRef,
+                    type: "text",
+                    role: "combobox",
+                    value: query,
+                    onChange: (e) => handleQueryChange(e.target.value),
+                    onKeyDown: handleSearchKeyDown,
+                    placeholder: "Search languages",
+                    autoComplete: "off",
+                    spellCheck: false,
+                    "aria-label": "Search dictation languages",
+                    "aria-expanded": true,
+                    "aria-controls": listboxId,
+                    "aria-autocomplete": "list",
+                    "aria-activedescendant": activeOptionId,
+                    className: cn(
+                      "w-full bg-transparent text-[13px] leading-5 outline-none",
+                      "placeholder:text-[var(--cxc-text-muted)]"
+                    ),
+                    style: { color: "var(--cxc-text)" }
+                  }
+                )
+              ]
+            }
+          ),
+          /* @__PURE__ */ jsxs(
+            "div",
+            {
+              ref: listRef,
+              id: listboxId,
+              role: "listbox",
+              "aria-label": "Dictation language",
+              className: "relative min-h-0 flex-1 overflow-y-auto overscroll-contain py-1",
+              children: [
+                rows.length === 0 && /* @__PURE__ */ jsx("p", { className: "px-3 py-4 text-center text-[12px]", style: { color: "var(--cxc-text-muted)" }, children: "No languages match" }),
+                sections.map((section) => /* @__PURE__ */ jsxs("div", { children: [
+                  section.label && /* @__PURE__ */ jsx(
+                    "p",
+                    {
+                      className: "px-3 pb-1 pt-2 text-[10px] font-medium uppercase tracking-wide",
+                      style: { color: "var(--cxc-text-muted)" },
+                      "aria-hidden": "true",
+                      children: section.label
+                    }
+                  ),
+                  section.rows.map((row) => {
+                    const isActive = row.index === activeIndex;
+                    const isSelected = row.locale === dictation.language;
+                    const secondary = row.option ? secondaryLabel(row.option) : "";
+                    return /* @__PURE__ */ jsxs(
+                      "div",
+                      {
+                        id: `${baseId}-${row.key}`,
+                        role: "option",
+                        "aria-selected": isSelected,
+                        "aria-label": row.option ? `${row.option.nativeName} \u2014 ${row.option.englishName}` : void 0,
+                        "data-active": isActive,
+                        onClick: () => choose(row.locale),
+                        onMouseMove: () => {
+                          if (row.index !== activeIndex) setActiveIndex(row.index);
+                        },
+                        className: "flex cursor-pointer items-baseline gap-1.5 px-3 py-1.5",
+                        style: { backgroundColor: isActive ? "var(--cxc-bg-muted)" : "transparent" },
+                        children: [
+                          /* @__PURE__ */ jsx(
+                            "span",
+                            {
+                              className: "max-w-[60%] shrink-0 truncate text-[13px]",
+                              style: { color: "var(--cxc-text)" },
+                              children: row.option ? row.option.nativeName : "Auto-detect"
+                            }
+                          ),
+                          secondary && /* @__PURE__ */ jsx(
+                            "span",
+                            {
+                              className: "min-w-0 flex-1 truncate text-[11px]",
+                              style: { color: "var(--cxc-text-muted)" },
+                              children: secondary
+                            }
+                          ),
+                          isSelected && /* @__PURE__ */ jsx(
+                            Check,
+                            {
+                              size: 13,
+                              strokeWidth: 2.2,
+                              className: "ml-auto shrink-0 self-center",
+                              style: { color: "var(--cxc-text)" },
+                              "aria-hidden": "true"
+                            }
+                          )
+                        ]
+                      },
+                      row.key
+                    );
+                  })
+                ] }, section.key))
+              ]
+            }
+          )
+        ]
+      }
+    ) })
   ] });
 }
 var fileIdCounter = 0;
@@ -3987,16 +4552,30 @@ function PromptInput({
   const fileInputRef = useRef(null);
   const [attachments, setAttachments] = useState([]);
   const [isDragging, setIsDragging] = useState(false);
+  const [recorderStatus, setRecorderStatus] = useState("idle");
   const dragCounter = useRef(0);
+  const reduceMotion = useReducedMotion();
   const resolvedPlaceholder = placeholder ?? config.placeholder ?? "Message...";
   const maxLength = config.maxInputLength ?? 1e4;
   const isStreaming = state.isStreaming;
   const inputValue = state.inputValue;
   const isDisabled = disabled || false;
-  const canSend = inputValue.trim().length > 0 && !isStreaming && !isDisabled;
+  const hasText = inputValue.trim().length > 0;
+  const canSend = hasText && !isStreaming && !isDisabled;
   const showCharCount = inputValue.length > maxLength * 0.9;
   const isOverLimit = inputValue.length > maxLength;
-  const showSuggestions = suggestions && suggestions.length > 0 && !inputValue && !isStreaming;
+  const isRecorderBusy = recorderStatus !== "idle";
+  const showMic = Boolean(config.voice) && !isStreaming && (isRecorderBusy || !hasText);
+  const showSuggestions = suggestions && suggestions.length > 0 && !inputValue && !isStreaming && !isRecorderBusy;
+  const swap = useMemo(
+    () => ({
+      initial: { scale: 0.85, opacity: 0 },
+      animate: { scale: 1, opacity: 1 },
+      exit: { scale: 0.85, opacity: 0 },
+      transition: { duration: reduceMotion ? 0 : 0.12, ease: "easeOut" }
+    }),
+    [reduceMotion]
+  );
   const adjustHeight = useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -4237,8 +4816,8 @@ function PromptInput({
                   )
                 }
               ),
-              /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between px-3 pb-3 pt-1", children: [
-                /* @__PURE__ */ jsxs("div", { className: "flex items-center gap-1", children: [
+              /* @__PURE__ */ jsxs("div", { className: "flex items-center justify-between gap-2 px-3 pb-3 pt-1", children: [
+                /* @__PURE__ */ jsxs("div", { className: "flex min-w-0 items-center gap-1", children: [
                   allowAttachments && /* @__PURE__ */ jsx(
                     "button",
                     {
@@ -4267,7 +4846,6 @@ function PromptInput({
                       children: /* @__PURE__ */ jsx(Plus, { size: 16, strokeWidth: 1.8 })
                     }
                   ),
-                  /* @__PURE__ */ jsx(VoiceRecordButton, { disabled: isDisabled }),
                   addonSlot && /* @__PURE__ */ jsx("div", { className: "flex items-center gap-1", children: addonSlot }),
                   allowAttachments && /* @__PURE__ */ jsx(
                     "input",
@@ -4282,30 +4860,38 @@ function PromptInput({
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsx(AnimatePresence, { mode: "wait", children: /* @__PURE__ */ jsx(
-                  motion.button,
-                  {
-                    initial: { scale: 0.85, opacity: 0 },
-                    animate: { scale: 1, opacity: 1 },
-                    exit: { scale: 0.85, opacity: 0 },
-                    transition: { duration: 0.12, ease: "easeOut" },
-                    onClick: handleSendClick,
-                    disabled: !isStreaming && !canSend,
-                    "aria-label": isStreaming ? "Stop generating" : "Send message",
-                    className: cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-                      "transition-all duration-150",
-                      "active:scale-[0.96]",
-                      "disabled:cursor-not-allowed disabled:opacity-30"
-                    ),
-                    style: {
-                      backgroundColor: isStreaming || canSend ? "var(--cxc-text)" : "var(--cxc-border)",
-                      color: "var(--cxc-text-inverse)"
+                /* @__PURE__ */ jsxs("div", { className: "flex shrink-0 items-center gap-1.5", children: [
+                  /* @__PURE__ */ jsx(LanguagePicker, { disabled: isDisabled }),
+                  /* @__PURE__ */ jsx("div", { className: "relative flex min-h-9 min-w-9 items-center justify-end", children: /* @__PURE__ */ jsx(AnimatePresence, { mode: "wait", initial: false, children: showMic ? /* @__PURE__ */ jsx(motion.div, { ...swap, children: /* @__PURE__ */ jsx(
+                    VoiceRecordButton,
+                    {
+                      disabled: isDisabled,
+                      size: "lg",
+                      appearance: "solid",
+                      onStatusChange: setRecorderStatus
+                    }
+                  ) }, "mic") : /* @__PURE__ */ jsx(
+                    motion.button,
+                    {
+                      ...swap,
+                      onClick: handleSendClick,
+                      disabled: !isStreaming && !canSend,
+                      "aria-label": isStreaming ? "Stop generating" : "Send message",
+                      className: cn(
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                        "transition-all duration-150",
+                        "active:scale-[0.96]",
+                        "disabled:cursor-not-allowed disabled:opacity-30"
+                      ),
+                      style: {
+                        backgroundColor: isStreaming || canSend ? "var(--cxc-text)" : "var(--cxc-border)",
+                        color: "var(--cxc-text-inverse)"
+                      },
+                      children: isStreaming ? /* @__PURE__ */ jsx(Square, { size: 12, fill: "currentColor" }) : /* @__PURE__ */ jsx(ArrowUp, { size: 18, strokeWidth: 2.5 })
                     },
-                    children: isStreaming ? /* @__PURE__ */ jsx(Square, { size: 12, fill: "currentColor" }) : /* @__PURE__ */ jsx(ArrowUp, { size: 18, strokeWidth: 2.5 })
-                  },
-                  isStreaming ? "stop" : "send"
-                ) })
+                    isStreaming ? "stop" : "send"
+                  ) }) })
+                ] })
               ] })
             ]
           }
@@ -5459,7 +6045,10 @@ function ChatInput({
             },
             children: [
               addonSlot && /* @__PURE__ */ jsx("div", { className: "flex shrink-0 items-center pb-0.5", children: addonSlot }),
-              /* @__PURE__ */ jsx("div", { className: "flex shrink-0 items-center pb-0.5", children: /* @__PURE__ */ jsx(VoiceRecordButton, { disabled: isDisabled, size: "sm" }) }),
+              /* @__PURE__ */ jsxs("div", { className: "flex shrink-0 items-center gap-1 pb-0.5", children: [
+                /* @__PURE__ */ jsx(VoiceRecordButton, { disabled: isDisabled, size: "sm" }),
+                /* @__PURE__ */ jsx(LanguagePicker, { disabled: isDisabled, size: "sm" })
+              ] }),
               /* @__PURE__ */ jsx(
                 "textarea",
                 {
@@ -6256,6 +6845,6 @@ function useSessionManager(adapter) {
   };
 }
 
-export { ActionIndicator, AuiView, ChainOfThought, ChatContainer, ChatInput, ChatMessage, ChatProvider, ChatWidget, CodeBlock, EmptyState, FeedbackPopover, FollowupsCard, MAX_RECORDING_SECONDS, MessageActionBar, MessageList, ModeSwitch, PromptInput, SessionList, SessionSelector, StreamingText, TARGET_SAMPLE_RATE, TextShimmer, ThinkingIndicator, VoiceRecordButton, WAV_CONTENT_TYPE, blobToWav, canConvertToWav, cn, encodeWav, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText, useVoiceRecorder };
+export { ActionIndicator, AuiView, ChainOfThought, ChatContainer, ChatInput, ChatMessage, ChatProvider, ChatWidget, CodeBlock, EmptyState, FeedbackPopover, FollowupsCard, LanguagePicker, MAX_RECORDING_SECONDS, MessageActionBar, MessageList, ModeSwitch, PromptInput, SessionList, SessionSelector, StreamingText, TARGET_SAMPLE_RATE, TextShimmer, ThinkingIndicator, VoiceRecordButton, WAV_CONTENT_TYPE, blobToWav, canConvertToWav, cn, encodeWav, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText, useVoiceRecorder };
 //# sourceMappingURL=index.js.map
 //# sourceMappingURL=index.js.map

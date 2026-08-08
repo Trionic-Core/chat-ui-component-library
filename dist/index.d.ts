@@ -178,6 +178,43 @@ interface VoiceLocale {
     alt_voice?: string;
 }
 /**
+ * Precomputed search forms for one dictation language. Built once per option
+ * rather than per keystroke — filtering 153 rows would otherwise re-fold ~600
+ * strings on every character typed.
+ */
+interface LanguageSearchIndex {
+    locale: string;
+    code: string;
+    english: string;
+    native: string;
+}
+/** One selectable dictation locale, ready to render in the LanguagePicker. */
+interface LanguageOption {
+    /** BCP-47 locale sent to `VoiceHandler.transcribe`, e.g. `gu-IN`. */
+    locale: string;
+    /** Base language subtag, lowercased, e.g. `gu`. */
+    languageCode: string;
+    /** The catalog's English label, e.g. `Gujarati (India)`. */
+    englishName: string;
+    /** Endonym from `Intl.DisplayNames`, e.g. `ગુજરાતી`. Falls back to `englishName`. */
+    nativeName: string;
+    /** Internal detail — see {@link LanguageSearchIndex}. */
+    search: LanguageSearchIndex;
+}
+/** What the microphone will do on the next recording. */
+interface DictationState {
+    /** Locale to force, or `null` to let the backend auto-detect. */
+    language: string | null;
+    /** Whether "Auto-detect" is still worth offering on this install. */
+    autodetectAvailable: boolean;
+    /**
+     * True once the user picked from the panel. Keeps a late-arriving
+     * `voiceStatus` — the consumer fetches it after mount — from overwriting a
+     * choice that was already made.
+     */
+    explicit: boolean;
+}
+/**
  * Optional handler the consumer wires to a backend voice endpoint.
  * Provide via ChatConfig.voice to enable the speaker button on assistant
  * messages (TTS) and the microphone button in the input (STT).
@@ -337,6 +374,21 @@ interface ChatConfig {
      * `GET /v1/enterprise/voice` and pass `voice` only when `enabled` is true.
      */
     voice?: VoiceHandler;
+    /**
+     * The full `GET /v1/enterprise/voice` payload you already fetched to decide
+     * whether to pass `voice`. Supplying it mounts a dictation language picker
+     * beside the mic, built from the install's own catalog and configured
+     * candidates.
+     *
+     * Omit it (or pass one with no `locales`) and no picker renders — the mic
+     * keeps auto-detecting exactly as before.
+     *
+     * This is not cosmetic on every install: regions without fast transcription
+     * transcribe one language at a time and fall back to the first configured
+     * locale, so on those, explicit selection is the only way to dictate in
+     * anything else.
+     */
+    voiceStatus?: VoiceStatus;
     /**
      * When true, the LAST user message renders an Edit affordance and the LAST
      * assistant message renders a Regenerate affordance. Both submit via
@@ -518,6 +570,14 @@ interface ChatInputProps {
     /** Additional class names. */
     className?: string;
 }
+interface LanguagePickerProps {
+    /** Whether the surrounding input is disabled. */
+    disabled?: boolean;
+    /** Trigger height. PromptInput's row uses 32px ('md'), ChatInput's uses 28px ('sm'). */
+    size?: 'sm' | 'md';
+    /** Additional class names. */
+    className?: string;
+}
 interface CodeBlockProps {
     /** The code string to render. */
     code: string;
@@ -639,6 +699,19 @@ interface ChatContextValue {
      * playing. Starting one message stops any other. Requires ChatConfig.voice.
      */
     toggleSpeech: (messageId: string) => void;
+    /** Which language the mic will dictate in. Inert without ChatConfig.voiceStatus. */
+    dictation: DictationState;
+    /** The install's selectable dictation locales, built once from ChatConfig.voiceStatus. */
+    dictationOptions: LanguageOption[];
+    /** Choose a dictation locale, or `null` to auto-detect. */
+    setDictationLanguage: (language: string | null) => void;
+    /**
+     * Transcribe a recording with the selected language applied, and learn from
+     * the reply whether this install can auto-detect at all. The mic calls this
+     * rather than `ChatConfig.voice.transcribe` so the language rules live in one
+     * place. Requires ChatConfig.voice.
+     */
+    dictate: (clip: Blob) => Promise<VoiceTranscription>;
 }
 
 interface ChatProviderProps extends ChatConfig {
@@ -651,7 +724,7 @@ interface ChatProviderProps extends ChatConfig {
  * consumption loop for streaming messages. Supports cancellation via
  * generator.return().
  */
-declare function ChatProvider({ children, onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, enableRegenerate, }: ChatProviderProps): react_jsx_runtime.JSX.Element;
+declare function ChatProvider({ children, onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, enableRegenerate, }: ChatProviderProps): react_jsx_runtime.JSX.Element;
 
 /**
  * ChatContainer v0.2.0 — main layout shell.
@@ -882,17 +955,21 @@ declare function MessageActionBar({ content, actions, onCopy, onRetry, onEdit, f
 declare function ChainOfThought({ actions, isActive, thinkingLabel, className, }: ChainOfThoughtProps): react_jsx_runtime.JSX.Element | null;
 
 /**
- * PromptInput v0.2.0 — ChatGPT/PromptKit-style two-row input.
+ * PromptInput — ChatGPT/PromptKit-style two-row input.
  *
  * Layout:
- * ┌────────────────────────────────────────────┐
- * │  [textarea - full width]                    │
- * │                                             │
- * │  [+] [addon slots]  ·············  [send]   │
- * └────────────────────────────────────────────┘
+ * ┌──────────────────────────────────────────────────┐
+ * │  [textarea - full width]                          │
+ * │                                                   │
+ * │  [+] [addon slots]  ·······  [language] [mic|send]│
+ * └──────────────────────────────────────────────────┘
  *
  * - Textarea on top, takes full width.
- * - Action bar on bottom: attach (+), addon buttons on left, send on right.
+ * - Action bar on bottom: attach (+) and addon buttons on the left; the
+ *   dictation language chip and one circular control on the right.
+ * - That control is the mic while there is nothing to send and voice is
+ *   configured, and send/stop otherwise — one position, one primary action, as
+ *   in ChatGPT. Speak, review the transcript, then send the same button.
  * - Rounded container with subtle border + shadow.
  * - File attachment previews between textarea and action bar.
  * - Suggestion chips rendered above the container.
@@ -961,11 +1038,43 @@ declare function FollowupsCard({ followups, lockedSelection, onSelect, className
  */
 declare function FeedbackPopover({ rating: _rating, onSubmit, onDismiss, className, }: FeedbackPopoverProps): react_jsx_runtime.JSX.Element;
 
+type RecorderStatus = 'idle' | 'recording' | 'transcribing' | 'error';
+interface UseVoiceRecorderOptions {
+    /** Called with the recorded clip once the user stops. */
+    onClip: (clip: Blob) => Promise<void>;
+}
+interface UseVoiceRecorderResult {
+    status: RecorderStatus;
+    /** Failure reason to surface inline. Only set when status is 'error'. */
+    error: string | null;
+    /** Whole seconds elapsed in the current recording. */
+    elapsedSeconds: number;
+    /** True when the last recording ended by hitting the duration cap. */
+    limitReached: boolean;
+    /** Start recording, or stop and transcribe if already recording. */
+    toggle: () => void;
+    /** Clear an error back to the resting state. */
+    dismissError: () => void;
+}
+declare function useVoiceRecorder({ onClip }: UseVoiceRecorderOptions): UseVoiceRecorderResult;
+
 interface VoiceRecordButtonProps {
     /** Whether the surrounding input is disabled. */
     disabled?: boolean;
-    /** Diameter of the button. PromptInput's row uses 32px, ChatInput's uses 28px. */
-    size?: 'sm' | 'md';
+    /** Diameter of the button. ChatInput's row uses 28px, PromptInput's 36px. */
+    size?: 'sm' | 'md' | 'lg';
+    /**
+     * `outline` is a secondary control sitting among other buttons. `solid` fills
+     * the button the way PromptInput's send button is filled, for when the mic
+     * occupies the send position and has to read as the primary action.
+     */
+    appearance?: 'outline' | 'solid';
+    /**
+     * Fires whenever recording starts, ends or fails. A parent that swaps this
+     * button for another one needs it: unmounting mid-recording would stop the
+     * capture and silently discard the clip.
+     */
+    onStatusChange?: (status: RecorderStatus) => void;
     className?: string;
 }
 /**
@@ -978,7 +1087,24 @@ interface VoiceRecordButtonProps {
  * Renders nothing without a ChatConfig.voice handler, so the whole feature
  * stays dark on installs that haven't enabled voice.
  */
-declare function VoiceRecordButton({ disabled, size, className }: VoiceRecordButtonProps): react_jsx_runtime.JSX.Element | null;
+declare function VoiceRecordButton({ disabled, size, appearance, onStatusChange, className, }: VoiceRecordButtonProps): react_jsx_runtime.JSX.Element | null;
+
+/**
+ * Dictation language picker — a compact trigger beside the mic that opens a
+ * searchable list of the install's speech locales.
+ *
+ * This is a feature, not a workaround, but it does have a hard job on some
+ * installs: an Azure region without fast transcription can only transcribe one
+ * language at a time, and falls back to the first configured locale when the
+ * caller names none — which is how an English sentence comes back written in
+ * Gujarati script. There, picking a language is the only way to be understood.
+ *
+ * Renders nothing unless ChatConfig.voiceStatus supplies locales and there is
+ * more than one thing to choose between, so installs that never configured
+ * voice — and single-locale installs, which have no choice to offer — see
+ * exactly what they see today.
+ */
+declare function LanguagePicker({ disabled, size, className }: LanguagePickerProps): react_jsx_runtime.JSX.Element | null;
 
 interface AuiViewProps {
     spec: ViewSpec;
@@ -1088,26 +1214,6 @@ interface UseSessionManagerReturn {
  */
 declare function useSessionManager(adapter?: SessionAdapter): UseSessionManagerReturn;
 
-type RecorderStatus = 'idle' | 'recording' | 'transcribing' | 'error';
-interface UseVoiceRecorderOptions {
-    /** Called with the recorded clip once the user stops. */
-    onClip: (clip: Blob) => Promise<void>;
-}
-interface UseVoiceRecorderResult {
-    status: RecorderStatus;
-    /** Failure reason to surface inline. Only set when status is 'error'. */
-    error: string | null;
-    /** Whole seconds elapsed in the current recording. */
-    elapsedSeconds: number;
-    /** True when the last recording ended by hitting the duration cap. */
-    limitReached: boolean;
-    /** Start recording, or stop and transcribe if already recording. */
-    toggle: () => void;
-    /** Clear an error back to the resting state. */
-    dismissError: () => void;
-}
-declare function useVoiceRecorder({ onClip }: UseVoiceRecorderOptions): UseVoiceRecorderResult;
-
 declare function cn(...inputs: ClassValue[]): string;
 
 /**
@@ -1193,4 +1299,4 @@ declare function blobToWav(blob: Blob): Promise<Blob>;
  */
 declare const MAX_RECORDING_SECONDS = 58;
 
-export { ActionIndicator, type ActionIndicatorProps, type ActionItem, type ActionsBlock, AuiView, type AuiViewProps, type Block, type BlockType, type CellValue, ChainOfThought, type ChainOfThoughtProps, type ChartBlock, type ChartBlockOptions, type ChartFieldRef, type ChartType, type ChatAction, type ChatConfig, ChatContainer, type ChatContainerProps, type ChatContextValue, type ChatEvent, ChatInput, type ChatInputProps, ChatMessage, type ChatMessage$1 as ChatMessageData, type ChatMessageProps, ChatProvider, type ChatSendFn, type ChatSession, ChatWidget, type ChatWidgetProps, CodeBlock, type CodeBlockProps, type DataRow, EmptyState, type EmptyStateProps, type FeedbackData, type FeedbackHandler, FeedbackPopover, type FeedbackPopoverProps, type FeedbackRating, type FeedbackReasonCategory, type FileAttachment, FollowupsCard, type FollowupsCardProps, type FollowupsData, MAX_RECORDING_SECONDS, MessageActionBar, type MessageActionBarProps, type MessageActionItem, MessageList, type MessageListProps, type Metric, type MetricDelta, type MetricGroupBlock, ModeSwitch, type ModeSwitchOption$1 as ModeSwitchOption, type ModeSwitchProps$1 as ModeSwitchProps, PromptInput, type PromptInputProps, type SSEStreamConfig, type SessionAdapter, SessionList, type SessionListProps, SessionSelector, type SessionSelectorProps, type SpeechState, type SpeechStatus, StreamingText, type StreamingTextProps, TARGET_SAMPLE_RATE, type TableBlock, type TableColumn, type TextBlock, TextShimmer, type TextShimmerProps, ThinkingIndicator, type ThinkingIndicatorProps, type ValueFormat, type ViewSpec, type VoiceHandler, type VoiceLocale, VoiceRecordButton, type VoiceStatus, type VoiceTranscription, WAV_CONTENT_TYPE, blobToWav, canConvertToWav, cn, encodeWav, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText, useVoiceRecorder };
+export { ActionIndicator, type ActionIndicatorProps, type ActionItem, type ActionsBlock, AuiView, type AuiViewProps, type Block, type BlockType, type CellValue, ChainOfThought, type ChainOfThoughtProps, type ChartBlock, type ChartBlockOptions, type ChartFieldRef, type ChartType, type ChatAction, type ChatConfig, ChatContainer, type ChatContainerProps, type ChatContextValue, type ChatEvent, ChatInput, type ChatInputProps, ChatMessage, type ChatMessage$1 as ChatMessageData, type ChatMessageProps, ChatProvider, type ChatSendFn, type ChatSession, ChatWidget, type ChatWidgetProps, CodeBlock, type CodeBlockProps, type DataRow, type DictationState, EmptyState, type EmptyStateProps, type FeedbackData, type FeedbackHandler, FeedbackPopover, type FeedbackPopoverProps, type FeedbackRating, type FeedbackReasonCategory, type FileAttachment, FollowupsCard, type FollowupsCardProps, type FollowupsData, type LanguageOption, LanguagePicker, type LanguagePickerProps, type LanguageSearchIndex, MAX_RECORDING_SECONDS, MessageActionBar, type MessageActionBarProps, type MessageActionItem, MessageList, type MessageListProps, type Metric, type MetricDelta, type MetricGroupBlock, ModeSwitch, type ModeSwitchOption$1 as ModeSwitchOption, type ModeSwitchProps$1 as ModeSwitchProps, PromptInput, type PromptInputProps, type RecorderStatus, type SSEStreamConfig, type SessionAdapter, SessionList, type SessionListProps, SessionSelector, type SessionSelectorProps, type SpeechState, type SpeechStatus, StreamingText, type StreamingTextProps, TARGET_SAMPLE_RATE, type TableBlock, type TableColumn, type TextBlock, TextShimmer, type TextShimmerProps, ThinkingIndicator, type ThinkingIndicatorProps, type ValueFormat, type ViewSpec, type VoiceHandler, type VoiceLocale, VoiceRecordButton, type VoiceStatus, type VoiceTranscription, WAV_CONTENT_TYPE, blobToWav, canConvertToWav, cn, encodeWav, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText, useVoiceRecorder };

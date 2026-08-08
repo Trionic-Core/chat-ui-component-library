@@ -2,7 +2,23 @@ import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'r
 import { ChatContext } from '../context/chat-context'
 import { chatReducer, initialChatState } from '../context/chat-reducer'
 import { ObjectUrlCache } from '../utils/voice'
-import type { ChatConfig, ChatContextValue, ChatEvent, ChatMessage, FeedbackData, SpeechState } from '../types'
+import {
+  buildLanguageOptions,
+  initialDictationState,
+  learnFromTranscription,
+  selectLanguage,
+  syncWithStatus,
+} from '../utils/language'
+import type {
+  ChatConfig,
+  ChatContextValue,
+  ChatEvent,
+  ChatMessage,
+  DictationState,
+  FeedbackData,
+  SpeechState,
+  VoiceTranscription,
+} from '../types'
 
 interface ChatProviderProps extends ChatConfig {
   children: React.ReactNode
@@ -33,6 +49,7 @@ export function ChatProvider({
   actionLabels,
   feedback,
   voice,
+  voiceStatus,
   enableRegenerate = false,
 }: ChatProviderProps) {
   const [state, dispatch] = useReducer(chatReducer, {
@@ -56,9 +73,10 @@ export function ChatProvider({
       actionLabels,
       feedback,
       voice,
+      voiceStatus,
       enableRegenerate,
     }),
-    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, enableRegenerate]
+    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, enableRegenerate]
   )
 
   const send = useCallback(
@@ -493,6 +511,47 @@ export function ChatProvider({
     [voice, speech.messageId, speech.status, state.messages, getAudioElement, stopSpeech]
   )
 
+  // --- Dictation language ---------------------------------------------------
+  // Which language the mic records in, and what this install has proved it can
+  // actually do. Inert until the consumer passes voiceStatus.
+
+  const dictationOptions = useMemo(
+    () => buildLanguageOptions(voiceStatus?.locales),
+    [voiceStatus?.locales]
+  )
+
+  const [dictation, setDictation] = useState<DictationState>(() =>
+    initialDictationState(voiceStatus, dictationOptions)
+  )
+
+  // The consumer fetches voiceStatus, so the first render never has it. Folding
+  // it in later must not clobber a choice the user already made — syncWithStatus
+  // owns that rule, and returns the same object when nothing changed so this
+  // settles in one pass instead of looping.
+  useEffect(() => {
+    setDictation((prev) => syncWithStatus(prev, voiceStatus, dictationOptions))
+  }, [voiceStatus, dictationOptions])
+
+  const setDictationLanguage = useCallback((language: string | null) => {
+    setDictation((prev) => selectLanguage(prev, language))
+  }, [])
+
+  const dictate = useCallback(
+    async (clip: Blob): Promise<VoiceTranscription> => {
+      if (!voice) throw new Error('Voice is not configured on this chat')
+
+      // Read the selection once: the reply is what we judge against it, and the
+      // user may well change languages while transcription is in flight.
+      const sent = dictation.language
+      const result = await voice.transcribe(clip, sent ?? undefined)
+      setDictation((prev) =>
+        learnFromTranscription(prev, sent, result, dictationOptions, voiceStatus?.autodetect_candidates)
+      )
+      return result
+    },
+    [voice, dictation.language, dictationOptions, voiceStatus?.autodetect_candidates]
+  )
+
   const editAndRegenerate = useCallback(
     (newContent: string) => {
       const trimmed = newContent.trim()
@@ -534,12 +593,16 @@ export function ChatProvider({
       regenerateLast,
       speech,
       toggleSpeech,
+      dictation,
+      dictationOptions,
+      setDictationLanguage,
+      dictate,
     }),
     [
       state, config, send, stop, retry, setInput, clearMessages, setMessages,
       loadSession, deleteSession, newConversation, refreshSessions,
       selectFollowup, submitFeedback, removeFeedback, editAndRegenerate, regenerateLast,
-      speech, toggleSpeech,
+      speech, toggleSpeech, dictation, dictationOptions, setDictationLanguage, dictate,
     ]
   )
 
