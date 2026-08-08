@@ -17,6 +17,8 @@ import type { LanguageOption, LanguagePickerProps } from '../types'
 const PANEL_WIDTH = 280
 /** Panel cap. Leaves the input and a slice of transcript visible in a 620px widget. */
 const PANEL_MAX_HEIGHT = 320
+/** Breathing room kept between the panel and the edge of its container. */
+const PANEL_EDGE_GAP = 8
 
 /** A keyboard-reachable line in the panel. `locale: null` is the auto-detect row. */
 interface PickerRow {
@@ -55,10 +57,14 @@ export function LanguagePicker({ disabled, size = 'md', className }: LanguagePic
   const [query, setQuery] = useState('')
   const [activeIndex, setActiveIndex] = useState(0)
 
+  // null until measured — see the nudge effect below.
+  const [shift, setShift] = useState<number | null>(null)
+
   const rootRef = useRef<HTMLDivElement>(null)
   const triggerRef = useRef<HTMLButtonElement>(null)
   const searchRef = useRef<HTMLInputElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
 
   const baseId = useId()
   const listboxId = `${baseId}-listbox`
@@ -145,6 +151,30 @@ export function LanguagePicker({ disabled, size = 'md', className }: LanguagePic
     if (open) searchRef.current?.focus()
   }, [open])
 
+  // Nudge the panel back inside its container if anchoring it to the trigger
+  // would push it past the right edge. ChatWidget and ChatContainer both clip
+  // overflow to keep their rounded corners, so a panel that spills is not
+  // merely ugly — it is invisible. Measured rather than assumed, because the
+  // widget is sized by the consumer.
+  useEffect(() => {
+    if (!open) {
+      setShift(null)
+      return
+    }
+    const panel = panelRef.current
+    if (!panel) return
+
+    const bounds = rootRef.current?.closest('.cxc-root')?.getBoundingClientRect()
+    const rect = panel.getBoundingClientRect()
+    const right = bounds ? bounds.right : window.innerWidth
+    const left = bounds ? bounds.left : 0
+
+    const overflow = rect.right - (right - PANEL_EDGE_GAP)
+    // Never trade a right-edge overflow for a left-edge one.
+    const room = Math.max(0, rect.left - (left + PANEL_EDGE_GAP))
+    setShift(overflow > 0 ? -Math.min(overflow, room) : 0)
+  }, [open])
+
   // Close on outside click, deferred a tick so the click that opened the panel
   // does not immediately close it.
   useEffect(() => {
@@ -205,8 +235,11 @@ export function LanguagePicker({ disabled, size = 'md', className }: LanguagePic
           close(true)
           break
         case 'Tab':
-          // Let focus leave naturally; the panel just gets out of the way.
-          close(false)
+          // Focus the trigger synchronously and let the default Tab run from
+          // there, so the user lands on the next control in the input row. Left
+          // to itself, Tab would advance from an input that is about to unmount
+          // and drop focus on the body.
+          close(true)
           break
       }
     },
@@ -268,6 +301,7 @@ export function LanguagePicker({ disabled, size = 'md', className }: LanguagePic
       <AnimatePresence>
         {open && (
           <motion.div
+            ref={panelRef}
             initial={reduceMotion ? false : { opacity: 0, y: 4, scale: 0.98 }}
             animate={{ opacity: 1, y: 0, scale: 1 }}
             exit={reduceMotion ? { opacity: 0 } : { opacity: 0, y: 4, scale: 0.98 }}
@@ -280,10 +314,15 @@ export function LanguagePicker({ disabled, size = 'md', className }: LanguagePic
                 close(true)
               }
             }}
-            className="absolute bottom-full left-0 z-50 mb-2 flex flex-col overflow-hidden rounded-[var(--cxc-radius-lg)] shadow-lg"
+            className="absolute bottom-full z-50 mb-2 flex flex-col overflow-hidden rounded-[var(--cxc-radius-lg)] shadow-lg"
             style={{
               // Opens upward: the input sits at the bottom of the widget, so a
               // downward panel would spill straight out of the container.
+              left: shift ?? 0,
+              // Hidden for the one frame before the nudge is measured, so the
+              // panel never appears in the wrong place — including for readers
+              // who have animation turned off.
+              visibility: shift === null ? 'hidden' : 'visible',
               width: `min(${PANEL_WIDTH}px, calc(100vw - 2rem))`,
               maxHeight: PANEL_MAX_HEIGHT,
               backgroundColor: 'var(--cxc-bg)',

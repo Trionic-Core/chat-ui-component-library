@@ -4135,15 +4135,18 @@ function VoiceRecordButton({ disabled, size = "md", className }) {
 }
 var PANEL_WIDTH = 280;
 var PANEL_MAX_HEIGHT = 320;
+var PANEL_EDGE_GAP = 8;
 function LanguagePicker({ disabled, size = "md", className }) {
   const { config, dictation, dictationOptions, setDictationLanguage } = useChatContext();
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
   const [activeIndex, setActiveIndex] = useState(0);
+  const [shift, setShift] = useState(null);
   const rootRef = useRef(null);
   const triggerRef = useRef(null);
   const searchRef = useRef(null);
   const listRef = useRef(null);
+  const panelRef = useRef(null);
   const baseId = useId();
   const listboxId = `${baseId}-listbox`;
   const reduceMotion = useReducedMotion();
@@ -4165,18 +4168,18 @@ function LanguagePicker({ disabled, size = "md", className }) {
       return [{ key: "results", rows: [...autoRows, ...matches.map((option) => row("r", option))] }];
     }
     const frequent = frequentOptions(dictationOptions, candidates);
-    const sections2 = [];
-    if (autoRows.length) sections2.push({ key: "auto", rows: autoRows });
+    const browsing = [];
+    if (autoRows.length) browsing.push({ key: "auto", rows: autoRows });
     const grouped = frequent.length > 0 && frequent.length < dictationOptions.length;
     if (grouped) {
-      sections2.push({ key: "frequent", label: "Frequent", rows: frequent.map((option) => row("f", option)) });
+      browsing.push({ key: "frequent", label: "Frequent", rows: frequent.map((option) => row("f", option)) });
     }
-    sections2.push({
+    browsing.push({
       key: "all",
       label: grouped ? "All languages" : void 0,
       rows: dictationOptions.map((option) => row("a", option))
     });
-    return sections2;
+    return browsing;
   }, [dictationOptions, candidates, query, showAutodetect]);
   const rows = useMemo(() => sections.flatMap((section) => section.rows), [sections]);
   const activeRow = rows[activeIndex];
@@ -4198,11 +4201,27 @@ function LanguagePicker({ disabled, size = "md", className }) {
     setActiveIndex(current >= 0 ? current : 0);
     setOpen(true);
   }, [rows, dictation.language]);
-  useEffect(() => {
-    if (open) setActiveIndex(0);
-  }, [query, open]);
+  const handleQueryChange = useCallback((value) => {
+    setQuery(value);
+    setActiveIndex(0);
+  }, []);
   useEffect(() => {
     if (open) searchRef.current?.focus();
+  }, [open]);
+  useEffect(() => {
+    if (!open) {
+      setShift(null);
+      return;
+    }
+    const panel = panelRef.current;
+    if (!panel) return;
+    const bounds = rootRef.current?.closest(".cxc-root")?.getBoundingClientRect();
+    const rect = panel.getBoundingClientRect();
+    const right = bounds ? bounds.right : window.innerWidth;
+    const left = bounds ? bounds.left : 0;
+    const overflow = rect.right - (right - PANEL_EDGE_GAP);
+    const room = Math.max(0, rect.left - (left + PANEL_EDGE_GAP));
+    setShift(overflow > 0 ? -Math.min(overflow, room) : 0);
   }, [open]);
   useEffect(() => {
     if (!open) return;
@@ -4251,10 +4270,11 @@ function LanguagePicker({ disabled, size = "md", className }) {
           break;
         case "Escape":
           event.preventDefault();
+          event.stopPropagation();
           close(true);
           break;
         case "Tab":
-          close(false);
+          close(true);
           break;
       }
     },
@@ -4311,14 +4331,26 @@ function LanguagePicker({ disabled, size = "md", className }) {
     /* @__PURE__ */ jsx(AnimatePresence, { children: open && /* @__PURE__ */ jsxs(
       motion.div,
       {
+        ref: panelRef,
         initial: reduceMotion ? false : { opacity: 0, y: 4, scale: 0.98 },
         animate: { opacity: 1, y: 0, scale: 1 },
         exit: reduceMotion ? { opacity: 0 } : { opacity: 0, y: 4, scale: 0.98 },
         transition: { duration: reduceMotion ? 0 : 0.14, ease: [0.25, 0.1, 0.25, 1] },
-        className: "absolute bottom-full left-0 z-50 mb-2 flex flex-col overflow-hidden rounded-[var(--cxc-radius-lg)] shadow-lg",
+        onKeyDown: (e) => {
+          if (e.key === "Escape") {
+            e.stopPropagation();
+            close(true);
+          }
+        },
+        className: "absolute bottom-full z-50 mb-2 flex flex-col overflow-hidden rounded-[var(--cxc-radius-lg)] shadow-lg",
         style: {
           // Opens upward: the input sits at the bottom of the widget, so a
           // downward panel would spill straight out of the container.
+          left: shift ?? 0,
+          // Hidden for the one frame before the nudge is measured, so the
+          // panel never appears in the wrong place — including for readers
+          // who have animation turned off.
+          visibility: shift === null ? "hidden" : "visible",
           width: `min(${PANEL_WIDTH}px, calc(100vw - 2rem))`,
           maxHeight: PANEL_MAX_HEIGHT,
           backgroundColor: "var(--cxc-bg)",
@@ -4339,7 +4371,7 @@ function LanguagePicker({ disabled, size = "md", className }) {
                     type: "text",
                     role: "combobox",
                     value: query,
-                    onChange: (e) => setQuery(e.target.value),
+                    onChange: (e) => handleQueryChange(e.target.value),
                     onKeyDown: handleSearchKeyDown,
                     placeholder: "Search languages",
                     autoComplete: "off",
