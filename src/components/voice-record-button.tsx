@@ -27,7 +27,7 @@ interface VoiceRecordButtonProps {
  * stays dark on installs that haven't enabled voice.
  */
 export function VoiceRecordButton({ disabled, size = 'md', className }: VoiceRecordButtonProps) {
-  const { config, state, setInput } = useChatContext()
+  const { config, state, setInput, dictate } = useChatContext()
   const voice = config.voice
 
   // Transcription takes seconds, during which the user may keep typing. The
@@ -41,7 +41,10 @@ export function VoiceRecordButton({ disabled, size = 'md', className }: VoiceRec
   const handleClip = useCallback(
     async (clip: Blob) => {
       if (!voice) return
-      const result = await voice.transcribe(clip)
+      // Via the provider rather than voice.transcribe directly, so the selected
+      // dictation language is applied and the reply teaches us whether this
+      // install can auto-detect at all — in one place, not per input surface.
+      const result = await dictate(clip)
       const text = result.text.trim()
       if (!text) return
       // Append to whatever is already typed rather than replacing it, so a
@@ -49,7 +52,7 @@ export function VoiceRecordButton({ disabled, size = 'md', className }: VoiceRec
       const existing = inputValueRef.current.trimEnd()
       setInput(existing ? `${existing} ${text}` : text)
     },
-    [voice, setInput]
+    [voice, dictate, setInput]
   )
 
   const { status, error, elapsedSeconds, limitReached, toggle, dismissError } = useVoiceRecorder({

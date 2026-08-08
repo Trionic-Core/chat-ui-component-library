@@ -48,6 +48,11 @@ export type {
   VoiceLocale,
   SpeechStatus,
   SpeechState,
+  // v0.6.0 types — dictation language picker
+  LanguagePickerProps,
+  LanguageOption,
+  LanguageSearchIndex,
+  DictationState,
 } from './types'
 
 // Export the ChatMessage interface under an alias to avoid collision
@@ -83,6 +88,10 @@ export { FeedbackPopover } from './components/feedback-popover'
 // v0.5.0 components — voice. The mic is already mounted inside PromptInput and
 // ChatInput; exported for consumers composing their own input surface.
 export { VoiceRecordButton } from './components/voice-record-button'
+
+// v0.6.0 components — dictation language. Mounted beside the mic in PromptInput
+// and ChatInput; exported for the same reason.
+export { LanguagePicker } from './components/language-picker'
 
 // AUI (Agentic UI) — renders ui_block ViewSpecs below assistant messages
 export { AuiView } from './aui'

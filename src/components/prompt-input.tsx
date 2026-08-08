@@ -12,6 +12,7 @@ import { ArrowUp, Square, Plus, Paperclip, X } from 'lucide-react'
 import { cn } from '../utils/cn'
 import { useChatContext } from '../context/chat-context'
 import { VoiceRecordButton } from './voice-record-button'
+import { LanguagePicker } from './language-picker'
 import type { PromptInputProps, FileAttachment } from '../types'
 
 let fileIdCounter = 0
@@ -377,6 +378,9 @@ export function PromptInput({
 
             {/* Mic — self-hiding when ChatConfig.voice is absent. */}
             <VoiceRecordButton disabled={isDisabled} />
+
+            {/* Dictation language — self-hiding without ChatConfig.voiceStatus. */}
+            <LanguagePicker disabled={isDisabled} />
 
             {/* Addon slot (custom action buttons) */}
             {addonSlot && (

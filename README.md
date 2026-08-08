@@ -18,7 +18,7 @@ CypherX's client renderer: streaming chat UI + **Agentic UI** (KPI cards, charts
 - **Chain of Thought** -- Collapsible accordion with timeline steps
 - **Text Shimmer** -- Gradient sweep animation for thinking states
 - **Message Actions** -- Hover-reveal copy/retry/edit bar on messages
-- **Voice** -- Speaker button reads assistant answers aloud, mic button dictates into the input (opt-in, consumer-supplied handlers)
+- **Voice** -- Speaker button reads assistant answers aloud, mic button dictates into the input, searchable picker for the dictation language (opt-in, consumer-supplied handlers)
 - **Prompt Input** -- ChatGPT-style two-row input with file attachments and suggestion chips
 - **Chat Widget** -- Floating FAB + modal for embedding in any page
 - **Session management** -- Built-in sidebar with CRUD, or bring your own
@@ -172,6 +172,7 @@ Root context provider. Wraps the entire chat UI.
 | `actionLabels` | `Record<string, { active; completed }>` | `undefined` | Custom labels for action types |
 | `feedback` | `FeedbackHandler` | `undefined` | Enables thumbs-up / thumbs-down on assistant messages |
 | `voice` | `VoiceHandler` | `undefined` | Enables the speaker button on assistant messages and the mic in the input |
+| `voiceStatus` | `VoiceStatus` | `undefined` | The `GET /v1/enterprise/voice` payload. Adds a dictation language picker beside the mic |
 | `enableRegenerate` | `boolean` | `false` | Edit affordance on the last user message, Regenerate on the last assistant message |
 
 ### Voice (v0.5.0)
@@ -217,9 +218,33 @@ Auth stays consumer-side. Audio is fetched as a `Blob` rather than assigned to a
 
 Recordings reach `transcribe` as **16 kHz mono WAV**, converted by the library — upload the blob as-is rather than re-wrapping it. This is not cosmetic: the backend picks its speech-to-text transport from the install's Azure region, and regions without fast transcription fall back to an API that accepts only WAV or OGG and caps clips at 60 seconds. No single MediaRecorder format is both universally recordable and universally accepted (Chrome records WebM, Safari MP4), so the library converts and auto-stops recording at 58 seconds. If a browser cannot decode its own recording, the original blob is sent instead — still fine on fast-transcription installs.
 
-#### Multilingual installs
+#### Dictation language (v0.6.0)
 
-`GET /v1/enterprise/voice` also reports `stt_autodetect_available`. When it is `false`, that install's region transcribes one language at a time; `null` means it hasn't been determined yet. If you serve multilingual users, offer a language picker there and pass the locale as `transcribe(file, language)`. The returned `mode` field says which path was taken (`'autodetect'` or `'forced'`).
+You already fetch `GET /v1/enterprise/voice` to decide whether to pass `voice`. Pass the whole payload as `voiceStatus` and the library mounts a language picker next to the mic, built from that install's own catalog:
+
+```tsx
+const status = await fetch(`${API_BASE}/v1/enterprise/voice`, { headers }).then((r) => r.json())
+
+<ChatProvider
+  onSend={send}
+  voice={status.enabled ? voice : undefined}
+  voiceStatus={status.enabled ? status : undefined}
+>
+```
+
+Omit `voiceStatus` (or pass one with no `locales`) and no picker renders — the mic auto-detects exactly as it does today. Nothing else about the existing voice setup changes.
+
+Why it matters: an Azure region **without** fast transcription can only transcribe one language at a time, and falls back to the first configured locale when the caller names none — which is how an English sentence comes back written in Gujarati script. On those installs, picking a language explicitly is the only way to reach the other 152 locales.
+
+The panel offers, in order:
+
+- **Auto-detect**, shown only while it is actually possible. It disappears when `stt_autodetect_available` is `false` — and also the moment a request sent *without* a language comes back with `mode: 'forced'`, which proves the region has no auto-detect transport whatever the status endpoint last claimed. That reply is the more reliable signal, since the backend's own flag is per-process and resets on restart.
+- **Frequent** — the locales in `autodetect_candidates`, i.e. the ones this install was configured with. Derived, never a hardcoded language list.
+- **Search** across all 153, matching the endonym, the English name, the language subtag and the locale code — `guj`, `ગુ`, `gu-IN` and `Gujarati` all reach the same row.
+
+Selection is passed straight through as `transcribe(file, language)`; "Auto-detect" passes `undefined`. When auto-detect is unavailable the picker pre-selects the first configured candidate, which is what the backend would have used anyway. Language names render via `Intl.DisplayNames`, so the endonyms cost nothing in bundle size and fall back to the catalog's English name on older browsers.
+
+The picker is mounted inside `<PromptInput>` and `<ChatInput>`; `<LanguagePicker>` is also exported for consumers composing their own input surface.
 
 ### `<ChatContainer>`
 
@@ -577,7 +602,10 @@ import type {
   ChatConfig,           // Provider configuration
   FeedbackHandler,      // Consumer-supplied like/dislike endpoints
   VoiceHandler,         // Consumer-supplied TTS + STT endpoints
-  VoiceTranscription,   // { text, language, language_code }
+  VoiceTranscription,   // { text, language, language_code, mode }
+  VoiceStatus,          // GET /v1/enterprise/voice payload -> ChatConfig.voiceStatus
+  LanguageOption,       // One selectable dictation locale
+  DictationState,       // { language, autodetectAvailable, explicit }
   ChatContainerProps,
   ChatMessageProps,
   ChatInputProps,
