@@ -180,7 +180,21 @@ Root context provider. Wraps the entire chat UI.
 Passing a `voice` handler turns on two independent affordances:
 
 - **Speaker** — appears in the action bar of assistant messages that have a `backendMessageId` and are no longer streaming. Click synthesizes on demand (never autoplay), click again stops. The provider owns a single `HTMLAudioElement`, so starting one message interrupts any other, and caches the object URL per backend message id so a replay costs nothing.
-- **Microphone** — appears in `<PromptInput>` and `<ChatInput>`. Tap to record, tap to stop; the transcript is **inserted into the input for review** rather than sent, so the user always confirms before committing. Recording auto-stops at 58 seconds.
+- **Microphone** — tap to record, tap to stop; the transcript is **inserted into the input for review** rather than sent, so the user always confirms before committing. Recording auto-stops at 58 seconds. In `<PromptInput>` the mic occupies the send position (see below); in `<ChatInput>` it sits to the left of the text field.
+
+> **Behaviour change in 0.6.0 — `<PromptInput>` only.** The mic no longer sits in the left button cluster. It now holds the **send position**, and swaps to Send as soon as there is text — the ChatGPT pattern: speak, review the transcript, send with the same button. An install upgrading from 0.5.0 will see the input bar rearrange, so this is a deliberate visual change rather than a silent one.
+>
+> The right cluster is `[language chip] [mic ⇄ send]`. Precisely:
+> - empty input + voice configured → **mic**
+> - any text → **send** (identical to 0.5.0's send button)
+> - streaming → **stop**, as before
+> - voice not configured → **send**, disabled when empty, exactly as before
+>
+> The swap is suppressed while the mic is recording or transcribing, even once a transcript lands in the box — the recorder lives inside the button, so swapping it out mid-capture would stop the microphone and discard the clip. It resolves to Send the moment recording ends. Suggestion chips are hidden while the mic is busy for the same reason (clicking one sends). Pressing Enter still sends at any time, so a long transcription never leaves the user without a way out.
+>
+> The language chip does **not** come and go with the swap — a control that appeared and vanished on every keystroke would be worse than one that stays put. `aria-label` follows the button's current role, so a screen reader is never told "send" while it is a mic, and the swap animation collapses to zero duration under `prefers-reduced-motion`.
+>
+> `<ChatInput>` (legacy) keeps its 0.5.0 arrangement. Its mic, text field and send button share one row, so a recording timer appearing between them would squeeze the field as you speak — a worse trade than the inconsistency.
 
 ```tsx
 import type { VoiceHandler } from '@cypherx/chat-ui'
@@ -244,7 +258,7 @@ The panel offers, in order:
 
 Selection is passed straight through as `transcribe(file, language)`; "Auto-detect" passes `undefined`. When auto-detect is unavailable the picker pre-selects the first configured candidate, which is what the backend would have used anyway. Language names render via `Intl.DisplayNames`, so the endonyms cost nothing in bundle size and fall back to the catalog's English name on older browsers.
 
-The picker is mounted inside `<PromptInput>` and `<ChatInput>`; `<LanguagePicker>` is also exported for consumers composing their own input surface.
+The picker is mounted inside `<PromptInput>` (immediately left of the mic/send button) and `<ChatInput>` (beside the mic); `<LanguagePicker>` is also exported for consumers composing their own input surface. It stays put while the mic/send button swaps.
 
 ### `<ChatContainer>`
 
@@ -281,7 +295,7 @@ Individual message renderer (user or assistant).
 
 ### `<PromptInput>` (v0.2.0)
 
-ChatGPT-style two-row input: textarea on top, action bar on bottom.
+ChatGPT-style two-row input: textarea on top, action bar on bottom. The action bar puts attachments and `addonSlot` on the left, and the dictation language chip plus one circular control on the right — mic while there is nothing to send, otherwise send/stop. See [Voice](#voice-v050) for the swap rules.
 
 | Prop | Type | Default | Description |
 |------|------|---------|-------------|

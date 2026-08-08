@@ -4044,7 +4044,19 @@ function useVoiceRecorder({ onClip }) {
   return { status, error, elapsedSeconds, limitReached, toggle, dismissError };
 }
 var LIMIT_WARNING_SECONDS = 10;
-function VoiceRecordButton({ disabled, size = "md", className }) {
+var SIZES = {
+  sm: { box: "h-7 w-7", icon: 14 },
+  md: { box: "h-8 w-8", icon: 16 },
+  lg: { box: "h-9 w-9", icon: 18 }
+};
+var STATUS_MAX_WIDTH = 132;
+function VoiceRecordButton({
+  disabled,
+  size = "md",
+  appearance = "outline",
+  onStatusChange,
+  className
+}) {
   const { config, state, setInput, dictate } = useChatContext();
   const voice = config.voice;
   const inputValueRef = react.useRef(state.inputValue);
@@ -4065,75 +4077,117 @@ function VoiceRecordButton({ disabled, size = "md", className }) {
   const { status, error, elapsedSeconds, limitReached, toggle, dismissError } = useVoiceRecorder({
     onClip: handleClip
   });
+  const onStatusChangeRef = react.useRef(onStatusChange);
+  react.useEffect(() => {
+    onStatusChangeRef.current = onStatusChange;
+  });
+  react.useEffect(() => {
+    onStatusChangeRef.current?.(status);
+  }, [status]);
+  react.useEffect(() => () => onStatusChangeRef.current?.("idle"), []);
   if (!voice) return null;
   const isRecording = status === "recording";
   const isTranscribing = status === "transcribing";
   const hasError = status === "error";
-  const dimension = size === "sm" ? "h-7 w-7" : "h-8 w-8";
-  const iconSize = size === "sm" ? 14 : 16;
+  const isSolid = appearance === "solid";
+  const { box: dimension, icon: iconSize } = SIZES[size];
   const secondsLeft = remainingSeconds(elapsedSeconds);
   const isNearLimit = isRecording && secondsLeft <= LIMIT_WARNING_SECONDS;
   const label = isRecording ? "Stop recording" : isTranscribing ? "Transcribing" : "Record a voice message";
-  return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: cn("flex items-center gap-1.5", className), children: [
-    /* @__PURE__ */ jsxRuntime.jsx(
-      "button",
-      {
-        type: "button",
-        onClick: hasError ? dismissError : toggle,
-        disabled: disabled || isTranscribing || state.isStreaming,
-        className: cn(
-          "flex shrink-0 items-center justify-center rounded-full",
-          dimension,
-          "transition-colors duration-100",
-          "focus-visible:outline-none focus-visible:ring-2",
-          "focus-visible:ring-[var(--cxc-border-focus)]",
-          "disabled:cursor-not-allowed disabled:opacity-40"
+  const alerting = isRecording || hasError;
+  return /* @__PURE__ */ jsxRuntime.jsxs(
+    "div",
+    {
+      className: cn(
+        "flex items-center gap-1.5",
+        // Solid means this button is in the send position at the right edge, so
+        // the timer has to sit to its LEFT or it runs out of the container.
+        isSolid && "flex-row-reverse",
+        className
+      ),
+      children: [
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "button",
+          {
+            type: "button",
+            onClick: hasError ? dismissError : toggle,
+            disabled: disabled || isTranscribing || state.isStreaming,
+            className: cn(
+              "flex shrink-0 items-center justify-center rounded-full",
+              dimension,
+              isSolid ? "transition-all duration-150 active:scale-[0.96]" : "transition-colors duration-100",
+              "focus-visible:outline-none focus-visible:ring-2",
+              "focus-visible:ring-[var(--cxc-border-focus)]",
+              "disabled:cursor-not-allowed",
+              isSolid ? "disabled:opacity-30" : "disabled:opacity-40"
+            ),
+            style: isSolid ? {
+              backgroundColor: alerting ? "var(--cxc-error)" : "var(--cxc-text)",
+              color: "var(--cxc-text-inverse)"
+            } : {
+              color: alerting ? "var(--cxc-error)" : "var(--cxc-text-secondary)",
+              border: `1px solid ${isRecording ? "var(--cxc-error)" : "var(--cxc-border)"}`
+            },
+            onMouseOver: (e) => {
+              if (isSolid || alerting) return;
+              e.currentTarget.style.backgroundColor = "var(--cxc-bg-muted)";
+              e.currentTarget.style.color = "var(--cxc-text)";
+            },
+            onMouseOut: (e) => {
+              if (isSolid || alerting) return;
+              e.currentTarget.style.backgroundColor = "transparent";
+              e.currentTarget.style.color = "var(--cxc-text-secondary)";
+            },
+            "aria-label": hasError ? "Dismiss recording error" : label,
+            "aria-pressed": isRecording,
+            title: hasError ? error ?? "Recording failed" : label,
+            children: isTranscribing ? /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Loader2, { size: iconSize, className: "cxc-spin", "aria-hidden": "true" }) : isRecording ? /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Square, { size: iconSize - 4, fill: "currentColor", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Mic, { size: iconSize, strokeWidth: 1.8, "aria-hidden": "true" })
+          }
         ),
-        style: {
-          color: isRecording ? "var(--cxc-error)" : hasError ? "var(--cxc-error)" : "var(--cxc-text-secondary)",
-          border: `1px solid ${isRecording ? "var(--cxc-error)" : "var(--cxc-border)"}`
-        },
-        onMouseOver: (e) => {
-          if (isRecording || hasError) return;
-          e.currentTarget.style.backgroundColor = "var(--cxc-bg-muted)";
-          e.currentTarget.style.color = "var(--cxc-text)";
-        },
-        onMouseOut: (e) => {
-          if (isRecording || hasError) return;
-          e.currentTarget.style.backgroundColor = "transparent";
-          e.currentTarget.style.color = "var(--cxc-text-secondary)";
-        },
-        "aria-label": hasError ? "Dismiss recording error" : label,
-        "aria-pressed": isRecording,
-        title: hasError ? error ?? "Recording failed" : label,
-        children: isTranscribing ? /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Loader2, { size: iconSize, className: "cxc-spin", "aria-hidden": "true" }) : isRecording ? /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Square, { size: iconSize - 4, fill: "currentColor", "aria-hidden": "true" }) : /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Mic, { size: iconSize, strokeWidth: 1.8, "aria-hidden": "true" })
-      }
-    ),
-    isRecording && /* @__PURE__ */ jsxRuntime.jsxs(
-      "span",
-      {
-        className: "flex items-center gap-1.5 text-[12px] tabular-nums",
-        style: { color: isNearLimit ? "var(--cxc-error)" : "var(--cxc-text-secondary)" },
-        children: [
-          /* @__PURE__ */ jsxRuntime.jsx(
-            "span",
-            {
-              className: "inline-block h-1.5 w-1.5 rounded-full",
-              style: { backgroundColor: "var(--cxc-error)" },
-              "aria-hidden": "true"
-            }
-          ),
-          formatDuration(elapsedSeconds),
-          isNearLimit && /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
-            secondsLeft,
-            "s left"
-          ] })
-        ]
-      }
-    ),
-    isTranscribing && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-[12px]", style: { color: "var(--cxc-text-muted)" }, children: limitReached ? "Recording limit reached \u2014 transcribing..." : "Transcribing..." }),
-    hasError && error && /* @__PURE__ */ jsxRuntime.jsx("span", { className: "text-[12px]", style: { color: "var(--cxc-error)" }, role: "alert", children: error })
-  ] });
+        isRecording && /* @__PURE__ */ jsxRuntime.jsxs(
+          "span",
+          {
+            className: "flex items-center gap-1.5 text-[12px] tabular-nums",
+            style: { color: isNearLimit ? "var(--cxc-error)" : "var(--cxc-text-secondary)" },
+            children: [
+              /* @__PURE__ */ jsxRuntime.jsx(
+                "span",
+                {
+                  className: "inline-block h-1.5 w-1.5 rounded-full",
+                  style: { backgroundColor: "var(--cxc-error)" },
+                  "aria-hidden": "true"
+                }
+              ),
+              formatDuration(elapsedSeconds),
+              isNearLimit && /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+                secondsLeft,
+                "s left"
+              ] })
+            ]
+          }
+        ),
+        isTranscribing && /* @__PURE__ */ jsxRuntime.jsx(
+          "span",
+          {
+            className: "truncate text-[12px]",
+            style: { color: "var(--cxc-text-muted)", maxWidth: STATUS_MAX_WIDTH },
+            title: limitReached ? "Recording limit reached \u2014 transcribing..." : void 0,
+            children: limitReached ? "Recording limit reached \u2014 transcribing..." : "Transcribing..."
+          }
+        ),
+        hasError && error && /* @__PURE__ */ jsxRuntime.jsx(
+          "span",
+          {
+            className: "truncate text-[12px]",
+            style: { color: "var(--cxc-error)", maxWidth: STATUS_MAX_WIDTH },
+            role: "alert",
+            title: error,
+            children: error
+          }
+        )
+      ]
+    }
+  );
 }
 var PANEL_WIDTH = 280;
 var PANEL_MAX_HEIGHT = 320;
@@ -4500,16 +4554,30 @@ function PromptInput({
   const fileInputRef = react.useRef(null);
   const [attachments, setAttachments] = react.useState([]);
   const [isDragging, setIsDragging] = react.useState(false);
+  const [recorderStatus, setRecorderStatus] = react.useState("idle");
   const dragCounter = react.useRef(0);
+  const reduceMotion = react$1.useReducedMotion();
   const resolvedPlaceholder = placeholder ?? config.placeholder ?? "Message...";
   const maxLength = config.maxInputLength ?? 1e4;
   const isStreaming = state.isStreaming;
   const inputValue = state.inputValue;
   const isDisabled = disabled || false;
-  const canSend = inputValue.trim().length > 0 && !isStreaming && !isDisabled;
+  const hasText = inputValue.trim().length > 0;
+  const canSend = hasText && !isStreaming && !isDisabled;
   const showCharCount = inputValue.length > maxLength * 0.9;
   const isOverLimit = inputValue.length > maxLength;
-  const showSuggestions = suggestions && suggestions.length > 0 && !inputValue && !isStreaming;
+  const isRecorderBusy = recorderStatus !== "idle";
+  const showMic = Boolean(config.voice) && !isStreaming && (isRecorderBusy || !hasText);
+  const showSuggestions = suggestions && suggestions.length > 0 && !inputValue && !isStreaming && !isRecorderBusy;
+  const swap = react.useMemo(
+    () => ({
+      initial: { scale: 0.85, opacity: 0 },
+      animate: { scale: 1, opacity: 1 },
+      exit: { scale: 0.85, opacity: 0 },
+      transition: { duration: reduceMotion ? 0 : 0.12, ease: "easeOut" }
+    }),
+    [reduceMotion]
+  );
   const adjustHeight = react.useCallback(() => {
     const textarea = textareaRef.current;
     if (!textarea) return;
@@ -4750,8 +4818,8 @@ function PromptInput({
                   )
                 }
               ),
-              /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex items-center justify-between px-3 pb-3 pt-1", children: [
-                /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex items-center gap-1", children: [
+              /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex items-center justify-between gap-2 px-3 pb-3 pt-1", children: [
+                /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-0 items-center gap-1", children: [
                   allowAttachments && /* @__PURE__ */ jsxRuntime.jsx(
                     "button",
                     {
@@ -4780,8 +4848,6 @@ function PromptInput({
                       children: /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Plus, { size: 16, strokeWidth: 1.8 })
                     }
                   ),
-                  /* @__PURE__ */ jsxRuntime.jsx(VoiceRecordButton, { disabled: isDisabled }),
-                  /* @__PURE__ */ jsxRuntime.jsx(LanguagePicker, { disabled: isDisabled }),
                   addonSlot && /* @__PURE__ */ jsxRuntime.jsx("div", { className: "flex items-center gap-1", children: addonSlot }),
                   allowAttachments && /* @__PURE__ */ jsxRuntime.jsx(
                     "input",
@@ -4796,30 +4862,38 @@ function PromptInput({
                     }
                   )
                 ] }),
-                /* @__PURE__ */ jsxRuntime.jsx(react$1.AnimatePresence, { mode: "wait", children: /* @__PURE__ */ jsxRuntime.jsx(
-                  react$1.motion.button,
-                  {
-                    initial: { scale: 0.85, opacity: 0 },
-                    animate: { scale: 1, opacity: 1 },
-                    exit: { scale: 0.85, opacity: 0 },
-                    transition: { duration: 0.12, ease: "easeOut" },
-                    onClick: handleSendClick,
-                    disabled: !isStreaming && !canSend,
-                    "aria-label": isStreaming ? "Stop generating" : "Send message",
-                    className: cn(
-                      "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
-                      "transition-all duration-150",
-                      "active:scale-[0.96]",
-                      "disabled:cursor-not-allowed disabled:opacity-30"
-                    ),
-                    style: {
-                      backgroundColor: isStreaming || canSend ? "var(--cxc-text)" : "var(--cxc-border)",
-                      color: "var(--cxc-text-inverse)"
+                /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex shrink-0 items-center gap-1.5", children: [
+                  /* @__PURE__ */ jsxRuntime.jsx(LanguagePicker, { disabled: isDisabled }),
+                  /* @__PURE__ */ jsxRuntime.jsx("div", { className: "relative flex min-h-9 min-w-9 items-center justify-end", children: /* @__PURE__ */ jsxRuntime.jsx(react$1.AnimatePresence, { mode: "wait", initial: false, children: showMic ? /* @__PURE__ */ jsxRuntime.jsx(react$1.motion.div, { ...swap, children: /* @__PURE__ */ jsxRuntime.jsx(
+                    VoiceRecordButton,
+                    {
+                      disabled: isDisabled,
+                      size: "lg",
+                      appearance: "solid",
+                      onStatusChange: setRecorderStatus
+                    }
+                  ) }, "mic") : /* @__PURE__ */ jsxRuntime.jsx(
+                    react$1.motion.button,
+                    {
+                      ...swap,
+                      onClick: handleSendClick,
+                      disabled: !isStreaming && !canSend,
+                      "aria-label": isStreaming ? "Stop generating" : "Send message",
+                      className: cn(
+                        "flex h-9 w-9 shrink-0 items-center justify-center rounded-full",
+                        "transition-all duration-150",
+                        "active:scale-[0.96]",
+                        "disabled:cursor-not-allowed disabled:opacity-30"
+                      ),
+                      style: {
+                        backgroundColor: isStreaming || canSend ? "var(--cxc-text)" : "var(--cxc-border)",
+                        color: "var(--cxc-text-inverse)"
+                      },
+                      children: isStreaming ? /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Square, { size: 12, fill: "currentColor" }) : /* @__PURE__ */ jsxRuntime.jsx(lucideReact.ArrowUp, { size: 18, strokeWidth: 2.5 })
                     },
-                    children: isStreaming ? /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Square, { size: 12, fill: "currentColor" }) : /* @__PURE__ */ jsxRuntime.jsx(lucideReact.ArrowUp, { size: 18, strokeWidth: 2.5 })
-                  },
-                  isStreaming ? "stop" : "send"
-                ) })
+                    isStreaming ? "stop" : "send"
+                  ) }) })
+                ] })
               ] })
             ]
           }

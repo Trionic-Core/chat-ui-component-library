@@ -1,18 +1,20 @@
 import {
   useCallback,
   useEffect,
+  useMemo,
   useRef,
   useState,
   type KeyboardEvent,
   type ChangeEvent,
   type DragEvent,
 } from 'react'
-import { motion, AnimatePresence } from 'motion/react'
+import { motion, AnimatePresence, useReducedMotion } from 'motion/react'
 import { ArrowUp, Square, Plus, Paperclip, X } from 'lucide-react'
 import { cn } from '../utils/cn'
 import { useChatContext } from '../context/chat-context'
 import { VoiceRecordButton } from './voice-record-button'
 import { LanguagePicker } from './language-picker'
+import type { RecorderStatus } from '../hooks/use-voice-recorder'
 import type { PromptInputProps, FileAttachment } from '../types'
 
 let fileIdCounter = 0
@@ -33,17 +35,21 @@ function formatFileSize(bytes: number): string {
 }
 
 /**
- * PromptInput v0.2.0 — ChatGPT/PromptKit-style two-row input.
+ * PromptInput — ChatGPT/PromptKit-style two-row input.
  *
  * Layout:
- * ┌────────────────────────────────────────────┐
- * │  [textarea - full width]                    │
- * │                                             │
- * │  [+] [addon slots]  ·············  [send]   │
- * └────────────────────────────────────────────┘
+ * ┌──────────────────────────────────────────────────┐
+ * │  [textarea - full width]                          │
+ * │                                                   │
+ * │  [+] [addon slots]  ·······  [language] [mic|send]│
+ * └──────────────────────────────────────────────────┘
  *
  * - Textarea on top, takes full width.
- * - Action bar on bottom: attach (+), addon buttons on left, send on right.
+ * - Action bar on bottom: attach (+) and addon buttons on the left; the
+ *   dictation language chip and one circular control on the right.
+ * - That control is the mic while there is nothing to send and voice is
+ *   configured, and send/stop otherwise — one position, one primary action, as
+ *   in ChatGPT. Speak, review the transcript, then send the same button.
  * - Rounded container with subtle border + shadow.
  * - File attachment previews between textarea and action bar.
  * - Suggestion chips rendered above the container.
@@ -66,17 +72,42 @@ export function PromptInput({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const [attachments, setAttachments] = useState<FileAttachment[]>([])
   const [isDragging, setIsDragging] = useState(false)
+  const [recorderStatus, setRecorderStatus] = useState<RecorderStatus>('idle')
   const dragCounter = useRef(0)
+  const reduceMotion = useReducedMotion()
 
   const resolvedPlaceholder = placeholder ?? config.placeholder ?? 'Message...'
   const maxLength = config.maxInputLength ?? 10000
   const isStreaming = state.isStreaming
   const inputValue = state.inputValue
   const isDisabled = disabled || false
-  const canSend = inputValue.trim().length > 0 && !isStreaming && !isDisabled
+  const hasText = inputValue.trim().length > 0
+  const canSend = hasText && !isStreaming && !isDisabled
   const showCharCount = inputValue.length > maxLength * 0.9
   const isOverLimit = inputValue.length > maxLength
-  const showSuggestions = suggestions && suggestions.length > 0 && !inputValue && !isStreaming
+
+  // The mic holds the send position while there is nothing to send, the way
+  // ChatGPT's does. Recording keeps it there even once a transcript lands: the
+  // recorder lives inside VoiceRecordButton, so swapping it out mid-capture
+  // would stop the microphone and drop the clip on the floor.
+  const isRecorderBusy = recorderStatus !== 'idle'
+  const showMic = Boolean(config.voice) && !isStreaming && (isRecorderBusy || !hasText)
+
+  // Suggestions are hidden while the mic is busy for the same reason: clicking
+  // one fills the input and sends, which would swap the recorder away mid-take.
+  const showSuggestions =
+    suggestions && suggestions.length > 0 && !inputValue && !isStreaming && !isRecorderBusy
+
+  // One shape for the swap, so mic, send and stop enter and leave identically.
+  const swap = useMemo(
+    () => ({
+      initial: { scale: 0.85, opacity: 0 },
+      animate: { scale: 1, opacity: 1 },
+      exit: { scale: 0.85, opacity: 0 },
+      transition: { duration: reduceMotion ? 0 : 0.12, ease: 'easeOut' as const },
+    }),
+    [reduceMotion]
+  )
 
   // Auto-resize textarea
   const adjustHeight = useCallback(() => {
@@ -342,10 +373,10 @@ export function PromptInput({
           />
         </div>
 
-        {/* Row 2: Action bar (buttons left, send right) */}
-        <div className="flex items-center justify-between px-3 pb-3 pt-1">
+        {/* Row 2: Action bar (attachments + addons left, one circular control right) */}
+        <div className="flex items-center justify-between gap-2 px-3 pb-3 pt-1">
           {/* Left side: action buttons */}
-          <div className="flex items-center gap-1">
+          <div className="flex min-w-0 items-center gap-1">
             {/* Attach button (+) */}
             {allowAttachments && (
               <button
@@ -376,12 +407,6 @@ export function PromptInput({
               </button>
             )}
 
-            {/* Mic — self-hiding when ChatConfig.voice is absent. */}
-            <VoiceRecordButton disabled={isDisabled} />
-
-            {/* Dictation language — self-hiding without ChatConfig.voiceStatus. */}
-            <LanguagePicker disabled={isDisabled} />
-
             {/* Addon slot (custom action buttons) */}
             {addonSlot && (
               <div className="flex items-center gap-1">
@@ -403,37 +428,60 @@ export function PromptInput({
             )}
           </div>
 
-          {/* Right side: send/stop button */}
-          <AnimatePresence mode="wait">
-            <motion.button
-              key={isStreaming ? 'stop' : 'send'}
-              initial={{ scale: 0.85, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.85, opacity: 0 }}
-              transition={{ duration: 0.12, ease: 'easeOut' }}
-              onClick={handleSendClick}
-              disabled={!isStreaming && !canSend}
-              aria-label={isStreaming ? 'Stop generating' : 'Send message'}
-              className={cn(
-                'flex h-9 w-9 shrink-0 items-center justify-center rounded-full',
-                'transition-all duration-150',
-                'active:scale-[0.96]',
-                'disabled:cursor-not-allowed disabled:opacity-30',
-              )}
-              style={{
-                backgroundColor: (isStreaming || canSend)
-                  ? 'var(--cxc-text)'
-                  : 'var(--cxc-border)',
-                color: 'var(--cxc-text-inverse)',
-              }}
-            >
-              {isStreaming ? (
-                <Square size={12} fill="currentColor" />
-              ) : (
-                <ArrowUp size={18} strokeWidth={2.5} />
-              )}
-            </motion.button>
-          </AnimatePresence>
+          {/* Right side: dictation language, then the one circular control —
+              mic while there is nothing to send, otherwise send/stop. The
+              picker deliberately does NOT come and go with it: a chip that
+              appeared and vanished on every keystroke would be worse than one
+              that simply stays put. */}
+          <div className="flex shrink-0 items-center gap-1.5">
+            <LanguagePicker disabled={isDisabled} />
+
+            {/* The outgoing control finishes leaving before the next one
+                arrives, so the slot holds its own size — otherwise the picker
+                beside it would jump sideways on the first keystroke and back
+                again. It still grows for the recording timer, which is a state
+                change the user asked for rather than jitter. */}
+            <div className="relative flex min-h-9 min-w-9 items-center justify-end">
+              <AnimatePresence mode="wait" initial={false}>
+                {showMic ? (
+                  <motion.div key="mic" {...swap}>
+                    <VoiceRecordButton
+                      disabled={isDisabled}
+                      size="lg"
+                      appearance="solid"
+                      onStatusChange={setRecorderStatus}
+                    />
+                  </motion.div>
+                ) : (
+                  <motion.button
+                    key={isStreaming ? 'stop' : 'send'}
+                    {...swap}
+                    onClick={handleSendClick}
+                    disabled={!isStreaming && !canSend}
+                    aria-label={isStreaming ? 'Stop generating' : 'Send message'}
+                    className={cn(
+                      'flex h-9 w-9 shrink-0 items-center justify-center rounded-full',
+                      'transition-all duration-150',
+                      'active:scale-[0.96]',
+                      'disabled:cursor-not-allowed disabled:opacity-30',
+                    )}
+                    style={{
+                      backgroundColor: (isStreaming || canSend)
+                        ? 'var(--cxc-text)'
+                        : 'var(--cxc-border)',
+                      color: 'var(--cxc-text-inverse)',
+                    }}
+                  >
+                    {isStreaming ? (
+                      <Square size={12} fill="currentColor" />
+                    ) : (
+                      <ArrowUp size={18} strokeWidth={2.5} />
+                    )}
+                  </motion.button>
+                )}
+              </AnimatePresence>
+            </div>
+          </div>
         </div>
       </div>
 

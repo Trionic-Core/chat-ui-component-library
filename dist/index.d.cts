@@ -955,17 +955,21 @@ declare function MessageActionBar({ content, actions, onCopy, onRetry, onEdit, f
 declare function ChainOfThought({ actions, isActive, thinkingLabel, className, }: ChainOfThoughtProps): react_jsx_runtime.JSX.Element | null;
 
 /**
- * PromptInput v0.2.0 — ChatGPT/PromptKit-style two-row input.
+ * PromptInput — ChatGPT/PromptKit-style two-row input.
  *
  * Layout:
- * ┌────────────────────────────────────────────┐
- * │  [textarea - full width]                    │
- * │                                             │
- * │  [+] [addon slots]  ·············  [send]   │
- * └────────────────────────────────────────────┘
+ * ┌──────────────────────────────────────────────────┐
+ * │  [textarea - full width]                          │
+ * │                                                   │
+ * │  [+] [addon slots]  ·······  [language] [mic|send]│
+ * └──────────────────────────────────────────────────┘
  *
  * - Textarea on top, takes full width.
- * - Action bar on bottom: attach (+), addon buttons on left, send on right.
+ * - Action bar on bottom: attach (+) and addon buttons on the left; the
+ *   dictation language chip and one circular control on the right.
+ * - That control is the mic while there is nothing to send and voice is
+ *   configured, and send/stop otherwise — one position, one primary action, as
+ *   in ChatGPT. Speak, review the transcript, then send the same button.
  * - Rounded container with subtle border + shadow.
  * - File attachment previews between textarea and action bar.
  * - Suggestion chips rendered above the container.
@@ -1034,11 +1038,43 @@ declare function FollowupsCard({ followups, lockedSelection, onSelect, className
  */
 declare function FeedbackPopover({ rating: _rating, onSubmit, onDismiss, className, }: FeedbackPopoverProps): react_jsx_runtime.JSX.Element;
 
+type RecorderStatus = 'idle' | 'recording' | 'transcribing' | 'error';
+interface UseVoiceRecorderOptions {
+    /** Called with the recorded clip once the user stops. */
+    onClip: (clip: Blob) => Promise<void>;
+}
+interface UseVoiceRecorderResult {
+    status: RecorderStatus;
+    /** Failure reason to surface inline. Only set when status is 'error'. */
+    error: string | null;
+    /** Whole seconds elapsed in the current recording. */
+    elapsedSeconds: number;
+    /** True when the last recording ended by hitting the duration cap. */
+    limitReached: boolean;
+    /** Start recording, or stop and transcribe if already recording. */
+    toggle: () => void;
+    /** Clear an error back to the resting state. */
+    dismissError: () => void;
+}
+declare function useVoiceRecorder({ onClip }: UseVoiceRecorderOptions): UseVoiceRecorderResult;
+
 interface VoiceRecordButtonProps {
     /** Whether the surrounding input is disabled. */
     disabled?: boolean;
-    /** Diameter of the button. PromptInput's row uses 32px, ChatInput's uses 28px. */
-    size?: 'sm' | 'md';
+    /** Diameter of the button. ChatInput's row uses 28px, PromptInput's 36px. */
+    size?: 'sm' | 'md' | 'lg';
+    /**
+     * `outline` is a secondary control sitting among other buttons. `solid` fills
+     * the button the way PromptInput's send button is filled, for when the mic
+     * occupies the send position and has to read as the primary action.
+     */
+    appearance?: 'outline' | 'solid';
+    /**
+     * Fires whenever recording starts, ends or fails. A parent that swaps this
+     * button for another one needs it: unmounting mid-recording would stop the
+     * capture and silently discard the clip.
+     */
+    onStatusChange?: (status: RecorderStatus) => void;
     className?: string;
 }
 /**
@@ -1051,7 +1087,7 @@ interface VoiceRecordButtonProps {
  * Renders nothing without a ChatConfig.voice handler, so the whole feature
  * stays dark on installs that haven't enabled voice.
  */
-declare function VoiceRecordButton({ disabled, size, className }: VoiceRecordButtonProps): react_jsx_runtime.JSX.Element | null;
+declare function VoiceRecordButton({ disabled, size, appearance, onStatusChange, className, }: VoiceRecordButtonProps): react_jsx_runtime.JSX.Element | null;
 
 /**
  * Dictation language picker — a compact trigger beside the mic that opens a
@@ -1178,26 +1214,6 @@ interface UseSessionManagerReturn {
  */
 declare function useSessionManager(adapter?: SessionAdapter): UseSessionManagerReturn;
 
-type RecorderStatus = 'idle' | 'recording' | 'transcribing' | 'error';
-interface UseVoiceRecorderOptions {
-    /** Called with the recorded clip once the user stops. */
-    onClip: (clip: Blob) => Promise<void>;
-}
-interface UseVoiceRecorderResult {
-    status: RecorderStatus;
-    /** Failure reason to surface inline. Only set when status is 'error'. */
-    error: string | null;
-    /** Whole seconds elapsed in the current recording. */
-    elapsedSeconds: number;
-    /** True when the last recording ended by hitting the duration cap. */
-    limitReached: boolean;
-    /** Start recording, or stop and transcribe if already recording. */
-    toggle: () => void;
-    /** Clear an error back to the resting state. */
-    dismissError: () => void;
-}
-declare function useVoiceRecorder({ onClip }: UseVoiceRecorderOptions): UseVoiceRecorderResult;
-
 declare function cn(...inputs: ClassValue[]): string;
 
 /**
@@ -1283,4 +1299,4 @@ declare function blobToWav(blob: Blob): Promise<Blob>;
  */
 declare const MAX_RECORDING_SECONDS = 58;
 
-export { ActionIndicator, type ActionIndicatorProps, type ActionItem, type ActionsBlock, AuiView, type AuiViewProps, type Block, type BlockType, type CellValue, ChainOfThought, type ChainOfThoughtProps, type ChartBlock, type ChartBlockOptions, type ChartFieldRef, type ChartType, type ChatAction, type ChatConfig, ChatContainer, type ChatContainerProps, type ChatContextValue, type ChatEvent, ChatInput, type ChatInputProps, ChatMessage, type ChatMessage$1 as ChatMessageData, type ChatMessageProps, ChatProvider, type ChatSendFn, type ChatSession, ChatWidget, type ChatWidgetProps, CodeBlock, type CodeBlockProps, type DataRow, type DictationState, EmptyState, type EmptyStateProps, type FeedbackData, type FeedbackHandler, FeedbackPopover, type FeedbackPopoverProps, type FeedbackRating, type FeedbackReasonCategory, type FileAttachment, FollowupsCard, type FollowupsCardProps, type FollowupsData, type LanguageOption, LanguagePicker, type LanguagePickerProps, type LanguageSearchIndex, MAX_RECORDING_SECONDS, MessageActionBar, type MessageActionBarProps, type MessageActionItem, MessageList, type MessageListProps, type Metric, type MetricDelta, type MetricGroupBlock, ModeSwitch, type ModeSwitchOption$1 as ModeSwitchOption, type ModeSwitchProps$1 as ModeSwitchProps, PromptInput, type PromptInputProps, type SSEStreamConfig, type SessionAdapter, SessionList, type SessionListProps, SessionSelector, type SessionSelectorProps, type SpeechState, type SpeechStatus, StreamingText, type StreamingTextProps, TARGET_SAMPLE_RATE, type TableBlock, type TableColumn, type TextBlock, TextShimmer, type TextShimmerProps, ThinkingIndicator, type ThinkingIndicatorProps, type ValueFormat, type ViewSpec, type VoiceHandler, type VoiceLocale, VoiceRecordButton, type VoiceStatus, type VoiceTranscription, WAV_CONTENT_TYPE, blobToWav, canConvertToWav, cn, encodeWav, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText, useVoiceRecorder };
+export { ActionIndicator, type ActionIndicatorProps, type ActionItem, type ActionsBlock, AuiView, type AuiViewProps, type Block, type BlockType, type CellValue, ChainOfThought, type ChainOfThoughtProps, type ChartBlock, type ChartBlockOptions, type ChartFieldRef, type ChartType, type ChatAction, type ChatConfig, ChatContainer, type ChatContainerProps, type ChatContextValue, type ChatEvent, ChatInput, type ChatInputProps, ChatMessage, type ChatMessage$1 as ChatMessageData, type ChatMessageProps, ChatProvider, type ChatSendFn, type ChatSession, ChatWidget, type ChatWidgetProps, CodeBlock, type CodeBlockProps, type DataRow, type DictationState, EmptyState, type EmptyStateProps, type FeedbackData, type FeedbackHandler, FeedbackPopover, type FeedbackPopoverProps, type FeedbackRating, type FeedbackReasonCategory, type FileAttachment, FollowupsCard, type FollowupsCardProps, type FollowupsData, type LanguageOption, LanguagePicker, type LanguagePickerProps, type LanguageSearchIndex, MAX_RECORDING_SECONDS, MessageActionBar, type MessageActionBarProps, type MessageActionItem, MessageList, type MessageListProps, type Metric, type MetricDelta, type MetricGroupBlock, ModeSwitch, type ModeSwitchOption$1 as ModeSwitchOption, type ModeSwitchProps$1 as ModeSwitchProps, PromptInput, type PromptInputProps, type RecorderStatus, type SSEStreamConfig, type SessionAdapter, SessionList, type SessionListProps, SessionSelector, type SessionSelectorProps, type SpeechState, type SpeechStatus, StreamingText, type StreamingTextProps, TARGET_SAMPLE_RATE, type TableBlock, type TableColumn, type TextBlock, TextShimmer, type TextShimmerProps, ThinkingIndicator, type ThinkingIndicatorProps, type ValueFormat, type ViewSpec, type VoiceHandler, type VoiceLocale, VoiceRecordButton, type VoiceStatus, type VoiceTranscription, WAV_CONTENT_TYPE, blobToWav, canConvertToWav, cn, encodeWav, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText, useVoiceRecorder };

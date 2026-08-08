@@ -128,6 +128,8 @@ export { useChatScroll } from './hooks/use-chat-scroll'
 export { useStreamingText } from './hooks/use-streaming-text'
 export { useSessionManager } from './hooks/use-session-manager'
 export { useVoiceRecorder } from './hooks/use-voice-recorder'
+// Surfaced because VoiceRecordButton reports it through onStatusChange.
+export type { RecorderStatus } from './hooks/use-voice-recorder'
 
 // Utilities
 export { cn } from './utils/cn'
