@@ -5,8 +5,14 @@ import { ClassValue } from 'clsx';
 
 /** Display/format hint shared by metrics and table columns. */
 type ValueFormat = 'number' | 'currency' | 'percent' | 'compact' | 'raw';
-/** Closed chart-type enum (mirrors the backend ChartSpec). */
-type ChartType = 'bar' | 'bar_horizontal' | 'bar_grouped' | 'bar_stacked' | 'line' | 'area' | 'area_stacked' | 'pie' | 'donut' | 'scatter';
+/**
+ * Closed chart-type enum (mirrors the backend ChartSpec).
+ *
+ * `box_plot` compares the distribution of one measure across categories: `x` is
+ * the category and `series` carries exactly the five keys q_min / q1 / median /
+ * q3 / q_max, matched BY NAME rather than by position.
+ */
+type ChartType = 'bar' | 'bar_horizontal' | 'bar_grouped' | 'bar_stacked' | 'line' | 'area' | 'area_stacked' | 'pie' | 'donut' | 'scatter' | 'box_plot';
 /** A scalar cell value as it travels on the wire. */
 type CellValue = string | number | null;
 /** A data row keyed by field name. */

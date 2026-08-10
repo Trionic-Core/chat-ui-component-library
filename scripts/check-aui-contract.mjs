@@ -34,6 +34,7 @@ const CANONICAL = {
   ChartType: [
     'bar', 'bar_horizontal', 'bar_grouped', 'bar_stacked',
     'line', 'area', 'area_stacked', 'pie', 'donut', 'scatter',
+    'box_plot',
   ],
   DeltaDirection: ['up', 'down', 'flat'],
   Align: ['left', 'right', 'center'],

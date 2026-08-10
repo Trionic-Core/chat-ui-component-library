@@ -9,18 +9,26 @@
 //
 // CHART_FALLBACKS are the SAME defaults as globals.css and are emitted as the
 // var() fallback, so charts still render with the default palette even if a
-// consumer forgets to import the library stylesheet.
+// consumer forgets to import the library stylesheet. They mirror the LIGHT
+// (:root) set: no stylesheet means no `.dark` block either, so light is the
+// only correct fallback. chart-colors.test.ts fails the build if they drift.
 // ---------------------------------------------------------------------------
 
-/** Default palette — must stay in sync with the --cxc-chart-* tokens in globals.css. */
+/**
+ * Default light palette — must stay in sync with the `:root` --cxc-chart-*
+ * tokens in globals.css (enforced by chart-colors.test.ts).
+ *
+ * Dark mode is a separate, independently-measured set under `.dark`; it is
+ * reached through the CSS variable, never through this array.
+ */
 export const CHART_FALLBACKS = [
-  '#E76E50', // 1 — warm coral / terracotta
+  '#E56C4E', // 1 — warm coral / terracotta
   '#2A9D8F', // 2 — teal
   '#E9C46A', // 3 — soft gold
-  '#264653', // 4 — dark teal
+  '#264653', // 4 — deep teal
   '#F4A261', // 5 — sandy orange
   '#7C3AED', // 6 — violet
-  '#059669', // 7 — emerald
+  '#00825A', // 7 — emerald
   '#E11D48', // 8 — rose
 ] as const
 

@@ -18,7 +18,14 @@ import {
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
-import { shortenLabel, shouldShowLegend, chartLegendProps } from './chart-helpers'
+import {
+  shortenLabel,
+  shouldShowLegend,
+  chartLegendProps,
+  formatAxisTick,
+  formatTooltipValue,
+  BAR_VALUE_DOMAIN,
+} from './chart-helpers'
 import { ChartEmpty } from './chart-empty'
 
 /**
@@ -27,6 +34,10 @@ import { ChartEmpty } from './chart-empty'
  * Each entry in `series` becomes one set of bars, indexed-colored.
  * `options.stacked` stacks them; `options.orientation = "vertical"`
  * renders horizontal bars (category on the Y axis).
+ *
+ * Whichever axis carries the values is drawn and anchored at zero
+ * (BAR_VALUE_DOMAIN): a bar reads as a length, so a floating baseline
+ * overstates small differences.
  */
 export function BarChart({ data, x, series, options }: ChartProps) {
   if (!data.length || !x.key || series.length === 0) {
@@ -49,7 +60,12 @@ export function BarChart({ data, x, series, options }: ChartProps) {
 
         {isVertical ? (
           <>
-            <XAxis {...CHART_X_AXIS} type="number" />
+            <XAxis
+              {...CHART_X_AXIS}
+              type="number"
+              domain={BAR_VALUE_DOMAIN}
+              tickFormatter={formatAxisTick}
+            />
             <YAxis
               {...CHART_Y_AXIS}
               dataKey={x.key}
@@ -59,10 +75,19 @@ export function BarChart({ data, x, series, options }: ChartProps) {
             />
           </>
         ) : (
-          <XAxis {...CHART_X_AXIS} dataKey={x.key} tickFormatter={shortenLabel} />
+          <>
+            <XAxis {...CHART_X_AXIS} dataKey={x.key} tickFormatter={shortenLabel} />
+            <YAxis
+              {...CHART_Y_AXIS}
+              type="number"
+              width="auto"
+              domain={BAR_VALUE_DOMAIN}
+              tickFormatter={formatAxisTick}
+            />
+          </>
         )}
 
-        <Tooltip cursor={false} contentStyle={CHART_TOOLTIP_STYLE} />
+        <Tooltip cursor={false} contentStyle={CHART_TOOLTIP_STYLE} formatter={formatTooltipValue} />
 
         {showLegend && <Legend {...chartLegendProps()} />}
 

@@ -16,7 +16,13 @@
 /** Display/format hint shared by metrics and table columns. */
 export type ValueFormat = 'number' | 'currency' | 'percent' | 'compact' | 'raw'
 
-/** Closed chart-type enum (mirrors the backend ChartSpec). */
+/**
+ * Closed chart-type enum (mirrors the backend ChartSpec).
+ *
+ * `box_plot` compares the distribution of one measure across categories: `x` is
+ * the category and `series` carries exactly the five keys q_min / q1 / median /
+ * q3 / q_max, matched BY NAME rather than by position.
+ */
 export type ChartType =
   | 'bar'
   | 'bar_horizontal'
@@ -28,6 +34,7 @@ export type ChartType =
   | 'pie'
   | 'donut'
   | 'scatter'
+  | 'box_plot'
 
 /** A scalar cell value as it travels on the wire. */
 export type CellValue = string | number | null

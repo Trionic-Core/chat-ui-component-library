@@ -18,7 +18,12 @@ import {
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
-import { shouldShowLegend, chartLegendProps } from './chart-helpers'
+import {
+  shouldShowLegend,
+  chartLegendProps,
+  formatAxisTick,
+  formatTooltipValue,
+} from './chart-helpers'
 import { ChartEmpty } from './chart-empty'
 
 /**
@@ -44,10 +49,20 @@ export function ScatterChart({ data, x, series, options }: ChartProps) {
         aria-label={`Scatter chart of ${seriesLabels} by ${x.label}`}
       >
         <CartesianGrid {...CHART_GRID_STYLE} />
-        <XAxis {...CHART_X_AXIS} dataKey={x.key} type="number" name={x.label} />
-        <YAxis {...CHART_Y_AXIS} type="number" />
+        <XAxis
+          {...CHART_X_AXIS}
+          dataKey={x.key}
+          type="number"
+          name={x.label}
+          tickFormatter={formatAxisTick}
+        />
+        <YAxis {...CHART_Y_AXIS} type="number" width="auto" tickFormatter={formatAxisTick} />
 
-        <Tooltip cursor={{ strokeDasharray: '3 3' }} contentStyle={CHART_TOOLTIP_STYLE} />
+        <Tooltip
+          cursor={{ strokeDasharray: '3 3' }}
+          contentStyle={CHART_TOOLTIP_STYLE}
+          formatter={formatTooltipValue}
+        />
 
         {showLegend && <Legend {...chartLegendProps()} />}
 

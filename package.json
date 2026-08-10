@@ -1,6 +1,6 @@
 {
   "name": "@cypherx/chat-ui",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "CypherX client renderer: streaming chat UI + Agentic UI (KPI cards, charts, tables) over the CypherX-native ViewSpec protocol. Themeable, session-aware, backend-agnostic.",
   "type": "module",
   "publishConfig": {
