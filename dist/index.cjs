@@ -2236,19 +2236,19 @@ var CHART_LEGEND_STYLE = {
 
 // src/aui/chart-colors.ts
 var CHART_FALLBACKS = [
-  "#E76E50",
+  "#E56C4E",
   // 1 — warm coral / terracotta
   "#2A9D8F",
   // 2 — teal
   "#E9C46A",
   // 3 — soft gold
   "#264653",
-  // 4 — dark teal
+  // 4 — deep teal
   "#F4A261",
   // 5 — sandy orange
   "#7C3AED",
   // 6 — violet
-  "#059669",
+  "#00825A",
   // 7 — emerald
   "#E11D48"
   // 8 — rose
@@ -2520,7 +2520,9 @@ function DownloadIcon() {
 function chartLegendProps() {
   return {
     wrapperStyle: {
-      fontSize: CHART_LEGEND_STYLE.fontSize,
+      fontSize: CHART_LEGEND_STYLE.fontSize
+    },
+    labelStyle: {
       color: CHART_LEGEND_STYLE.color
     }
   };
@@ -2529,17 +2531,41 @@ function shortenLabel(value) {
   const str = String(value ?? "");
   return str.length > 12 ? `${str.slice(0, 10)}...` : str;
 }
+function formatAxisTick(value) {
+  return formatValue(value, "compact");
+}
+function formatTooltipValue(value) {
+  return formatValue(value, "number");
+}
 function shouldShowLegend(seriesCount, showLegend) {
   return showLegend ?? seriesCount > 1;
 }
-function ChartEmpty({ label = "No data" }) {
+var BAR_VALUE_DOMAIN = [
+  (dataMin) => Math.min(0, dataMin),
+  "auto"
+];
+var SPARSE_SERIES_POINT_LIMIT = 8;
+function countPlottablePoints(data, key) {
+  let count = 0;
+  for (const row of data) {
+    const value = row[key];
+    if (value === null || value === void 0 || value === "") continue;
+    if (Number.isFinite(typeof value === "number" ? value : Number(value))) count++;
+  }
+  return count;
+}
+function seriesDotProp(data, key) {
+  return countPlottablePoints(data, key) <= SPARSE_SERIES_POINT_LIMIT ? { r: 3, strokeWidth: 0 } : false;
+}
+function ChartEmpty({ label = "No data", reason }) {
   return /* @__PURE__ */ jsxRuntime.jsx(
     "div",
     {
-      className: "flex h-full items-center justify-center text-sm",
+      className: "flex h-full items-center justify-center px-3 text-center text-sm",
       style: { color: "var(--cx-text-muted)" },
       role: "status",
-      "aria-label": "No chart data available",
+      "aria-label": label,
+      "data-cxc-empty-reason": reason,
       children: label
     }
   );
@@ -2561,7 +2587,15 @@ function BarChart({ data, x, series, options }) {
       children: [
         /* @__PURE__ */ jsxRuntime.jsx(recharts.CartesianGrid, { ...CHART_GRID_STYLE }),
         isVertical ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, type: "number" }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            recharts.XAxis,
+            {
+              ...CHART_X_AXIS,
+              type: "number",
+              domain: BAR_VALUE_DOMAIN,
+              tickFormatter: formatAxisTick
+            }
+          ),
           /* @__PURE__ */ jsxRuntime.jsx(
             recharts.YAxis,
             {
@@ -2572,8 +2606,20 @@ function BarChart({ data, x, series, options }) {
               tickFormatter: shortenLabel
             }
           )
-        ] }) : /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
-        /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE }),
+        ] }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+          /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            recharts.YAxis,
+            {
+              ...CHART_Y_AXIS,
+              type: "number",
+              width: "auto",
+              domain: BAR_VALUE_DOMAIN,
+              tickFormatter: formatAxisTick
+            }
+          )
+        ] }),
+        /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE, formatter: formatTooltipValue }),
         showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
         series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Bar,
@@ -2608,7 +2654,8 @@ function LineChart2({ data, x, series, options }) {
       children: [
         /* @__PURE__ */ jsxRuntime.jsx(recharts.CartesianGrid, { ...CHART_GRID_STYLE }),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
-        /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE }),
+        /* @__PURE__ */ jsxRuntime.jsx(recharts.YAxis, { ...CHART_Y_AXIS, width: "auto", tickFormatter: formatAxisTick }),
+        /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE, formatter: formatTooltipValue }),
         showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
         series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Line,
@@ -2618,7 +2665,7 @@ function LineChart2({ data, x, series, options }) {
             type: "monotone",
             stroke: getChartColor(index),
             strokeWidth: 2,
-            dot: false,
+            dot: seriesDotProp(data, s.key),
             activeDot: { r: 4, strokeWidth: 0 },
             isAnimationActive: true,
             animationDuration: CHART_ANIMATION.duration,
@@ -2661,7 +2708,8 @@ function AreaChart({ data, x, series, options }) {
         )) }),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.CartesianGrid, { ...CHART_GRID_STYLE }),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
-        /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE }),
+        /* @__PURE__ */ jsxRuntime.jsx(recharts.YAxis, { ...CHART_Y_AXIS, width: "auto", tickFormatter: formatAxisTick }),
+        /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE, formatter: formatTooltipValue }),
         showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
         series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Area,
@@ -2672,6 +2720,7 @@ function AreaChart({ data, x, series, options }) {
             stroke: getChartColor(index),
             fill: `url(#area-gradient-${uid}-${s.key})`,
             strokeWidth: 2,
+            dot: seriesDotProp(data, s.key),
             stackId: options?.stacked ? "stack" : void 0,
             isAnimationActive: true,
             animationDuration: CHART_ANIMATION.duration,
@@ -2727,23 +2776,16 @@ function PieChart({ data, x, series, options, donut = false }) {
             ))
           }
         ),
-        /* @__PURE__ */ jsxRuntime.jsx(
-          recharts.Tooltip,
-          {
-            contentStyle: CHART_TOOLTIP_STYLE,
-            formatter: (value) => {
-              if (value === void 0 || value === null) return "--";
-              return Number(value).toLocaleString();
-            }
-          }
-        ),
-        showLegend && // Intentionally diverges from chartLegendProps(): the pie legend uses
-        // the full CHART_LEGEND_STYLE plus bottom-aligned circle swatches,
-        // since its slices are otherwise unlabeled.
+        /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { contentStyle: CHART_TOOLTIP_STYLE, formatter: formatTooltipValue }),
+        showLegend && // Intentionally diverges from chartLegendProps(): the pie legend is
+        // bottom-aligned with circle swatches, since its slices are otherwise
+        // unlabeled. `labelStyle` matters for the same reason it does there —
+        // recharts paints legend text in the slice color unless told not to.
         /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Legend,
           {
-            wrapperStyle: CHART_LEGEND_STYLE,
+            wrapperStyle: { fontSize: CHART_LEGEND_STYLE.fontSize },
+            labelStyle: { color: CHART_LEGEND_STYLE.color },
             verticalAlign: "bottom",
             iconType: "circle",
             iconSize: 8
@@ -2767,9 +2809,25 @@ function ScatterChart({ data, x, series, options }) {
       "aria-label": `Scatter chart of ${seriesLabels} by ${x.label}`,
       children: [
         /* @__PURE__ */ jsxRuntime.jsx(recharts.CartesianGrid, { ...CHART_GRID_STYLE }),
-        /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, dataKey: x.key, type: "number", name: x.label }),
-        /* @__PURE__ */ jsxRuntime.jsx(recharts.YAxis, { ...CHART_Y_AXIS, type: "number" }),
-        /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: { strokeDasharray: "3 3" }, contentStyle: CHART_TOOLTIP_STYLE }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          recharts.XAxis,
+          {
+            ...CHART_X_AXIS,
+            dataKey: x.key,
+            type: "number",
+            name: x.label,
+            tickFormatter: formatAxisTick
+          }
+        ),
+        /* @__PURE__ */ jsxRuntime.jsx(recharts.YAxis, { ...CHART_Y_AXIS, type: "number", width: "auto", tickFormatter: formatAxisTick }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          recharts.Tooltip,
+          {
+            cursor: { strokeDasharray: "3 3" },
+            contentStyle: CHART_TOOLTIP_STYLE,
+            formatter: formatTooltipValue
+          }
+        ),
         showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
         series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Scatter,
@@ -2787,6 +2845,459 @@ function ScatterChart({ data, x, series, options }) {
       ]
     }
   ) });
+}
+
+// src/aui/charts/box-plot-geometry.ts
+var BOX_PLOT_KEYS = ["q_min", "q1", "median", "q3", "q_max"];
+function resolveBoxPlotSeries(series) {
+  const byKey = new Map(series.map((field) => [field.key, field]));
+  const missing = BOX_PLOT_KEYS.filter((key) => !byKey.has(key));
+  if (missing.length > 0) return { fields: null, missing };
+  const fields = Object.fromEntries(
+    BOX_PLOT_KEYS.map((key) => [key, byKey.get(key)])
+  );
+  return { fields, missing: [] };
+}
+function toFiniteNumber(value) {
+  if (value === null || value === void 0 || value === "") return null;
+  const num = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+function parseBoxPlotRows(data, categoryKey) {
+  if (data.length === 0) return { boxes: [], omitted: 0, rejection: "no_rows" };
+  const boxes = [];
+  let nonNumeric = 0;
+  let nonMonotonic = 0;
+  for (const row of data) {
+    const values = BOX_PLOT_KEYS.map((key) => toFiniteNumber(row[key]));
+    if (values.some((value) => value === null)) {
+      nonNumeric++;
+      continue;
+    }
+    const [qMin, q1, median, q3, qMax] = values;
+    if (!(qMin <= q1 && q1 <= median && median <= q3 && q3 <= qMax)) {
+      nonMonotonic++;
+      continue;
+    }
+    boxes.push({
+      category: String(row[categoryKey] ?? ""),
+      q_min: qMin,
+      q1,
+      median,
+      q3,
+      q_max: qMax
+    });
+  }
+  const omitted = nonNumeric + nonMonotonic;
+  const rejection = omitted === 0 ? null : nonMonotonic >= nonNumeric ? "non_monotonic_quartiles" : "non_numeric_quartiles";
+  return { boxes, omitted, rejection };
+}
+function boxPlotDomain(boxes) {
+  if (boxes.length === 0) return [0, 1];
+  let min = Infinity;
+  let max = -Infinity;
+  for (const box of boxes) {
+    if (box.q_min < min) min = box.q_min;
+    if (box.q_max > max) max = box.q_max;
+  }
+  if (min === max) {
+    const pad2 = Math.abs(min) > 0 ? Math.abs(min) * 0.1 : 1;
+    return [min - pad2, max + pad2];
+  }
+  const pad = (max - min) * 0.08;
+  return [min - pad, max + pad];
+}
+function niceStep(range, count) {
+  const rough = range / Math.max(1, count);
+  const magnitude = 10 ** Math.floor(Math.log10(rough));
+  const normalized = rough / magnitude;
+  const step = normalized <= 1 ? 1 : normalized <= 2 ? 2 : normalized <= 5 ? 5 : 10;
+  return step * magnitude;
+}
+function valueAxisTicks([min, max], count = 4) {
+  if (!(max > min)) return [min];
+  const step = niceStep(max - min, count);
+  const ticks = [];
+  const limit = count * 4;
+  for (let tick = Math.ceil(min / step) * step; tick <= max && ticks.length < limit; tick += step) {
+    ticks.push(Number((Math.round(tick / step) * step).toPrecision(12)));
+  }
+  return ticks;
+}
+function makeValueScale([min, max], plotTop, plotHeight) {
+  const span = max - min;
+  if (span <= 0) return () => plotTop + plotHeight / 2;
+  return (value) => plotTop + plotHeight - (value - min) / span * plotHeight;
+}
+var CHAR_WIDTH = 6.6;
+var MIN_LABEL_WIDTH = 44;
+var AXIS_LABEL_GAP = 8;
+var CATEGORY_AXIS_HEIGHT = 22;
+var PLOT_PADDING_TOP = 10;
+var PLOT_PADDING_RIGHT = 8;
+var MIN_BOX_WIDTH = 6;
+var MAX_BOX_WIDTH = 44;
+var BOX_WIDTH_RATIO = 0.62;
+function computeBoxPlotLayout(width, height, categoryCount, axisTickLabels) {
+  const widestTick = axisTickLabels.reduce((longest, label) => Math.max(longest, label.length), 0);
+  const plotLeft = Math.min(width * 0.4, widestTick * CHAR_WIDTH + AXIS_LABEL_GAP);
+  const plotWidth = Math.max(0, width - plotLeft - PLOT_PADDING_RIGHT);
+  const plotHeight = Math.max(0, height - PLOT_PADDING_TOP - CATEGORY_AXIS_HEIGHT);
+  const bands = Math.max(1, categoryCount);
+  const bandWidth = plotWidth / bands;
+  const boxWidth = Math.min(MAX_BOX_WIDTH, Math.max(MIN_BOX_WIDTH, bandWidth * BOX_WIDTH_RATIO));
+  const labelStride = Math.max(1, Math.ceil(MIN_LABEL_WIDTH / Math.max(1, bandWidth)));
+  const labelMaxChars = Math.max(1, Math.floor((bandWidth * labelStride - 4) / CHAR_WIDTH));
+  return {
+    plotLeft,
+    plotTop: PLOT_PADDING_TOP,
+    plotWidth,
+    plotHeight,
+    bandWidth,
+    boxWidth,
+    labelStride,
+    labelMaxChars
+  };
+}
+function bandCenter(layout, index) {
+  return layout.plotLeft + layout.bandWidth * (index + 0.5);
+}
+function fitLabel(label, maxChars) {
+  if (label.length <= maxChars) return label;
+  if (maxChars <= 1) return label.slice(0, 1);
+  return `${label.slice(0, maxChars - 1)}\u2026`;
+}
+function fitLabelBothEnds(label, maxChars) {
+  if (label.length <= maxChars) return label;
+  if (maxChars <= 2) return label.slice(0, Math.max(1, maxChars));
+  const keep = maxChars - 1;
+  const tail = Math.floor(keep / 2);
+  return `${label.slice(0, keep - tail)}\u2026${label.slice(label.length - tail)}`;
+}
+function fitCategoryLabels(labels, maxChars) {
+  const fromStart = labels.map((label) => fitLabel(label, maxChars));
+  if (new Set(fromStart).size === new Set(labels).size) return fromStart;
+  return labels.map((label) => fitLabelBothEnds(label, maxChars));
+}
+var BOX_FILL_OPACITY = 0.18;
+var BOX_STROKE_WIDTH = 1.5;
+var MEDIAN_STROKE_WIDTH = 2;
+var CAP_RATIO = 0.55;
+var MAX_STAGGER_STEPS = 10;
+function BoxPlotChart({ data, x, series }) {
+  const resolution = react.useMemo(() => resolveBoxPlotSeries(series), [series]);
+  const parse = react.useMemo(() => parseBoxPlotRows(data, x.key), [data, x.key]);
+  if (!resolution.fields) {
+    return /* @__PURE__ */ jsxRuntime.jsx(
+      ChartEmpty,
+      {
+        reason: "missing_quartile_series",
+        label: `Box plot needs the ${BOX_PLOT_KEYS.length} quartile series \u2014 missing ${resolution.missing.join(", ")}`
+      }
+    );
+  }
+  if (parse.boxes.length === 0) {
+    return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, { reason: parse.rejection ?? "no_rows", label: emptyLabel(parse.rejection) });
+  }
+  return /* @__PURE__ */ jsxRuntime.jsx(
+    BoxPlotSurface,
+    {
+      boxes: parse.boxes,
+      category: x,
+      measure: resolution.fields.median,
+      omitted: parse.omitted
+    }
+  );
+}
+function emptyLabel(rejection) {
+  switch (rejection) {
+    case "non_monotonic_quartiles":
+      return "No distribution to plot \u2014 the quartiles are not ordered q_min \u2264 q1 \u2264 median \u2264 q3 \u2264 q_max";
+    case "non_numeric_quartiles":
+      return "No distribution to plot \u2014 the quartile values are missing or not numeric";
+    default:
+      return "No data";
+  }
+}
+function BoxPlotSurface({ boxes, category, measure, omitted }) {
+  const [host, size] = useElementSize();
+  const [activeIndex, setActiveIndex] = react.useState(null);
+  const color = getChartColor(0);
+  const geometry = react.useMemo(() => {
+    const domain = boxPlotDomain(boxes);
+    const ticks2 = valueAxisTicks(domain);
+    const layout2 = computeBoxPlotLayout(size.width, size.height, boxes.length, ticks2.map(formatAxisTick));
+    return { ticks: ticks2, layout: layout2, scale: makeValueScale(domain, layout2.plotTop, layout2.plotHeight) };
+  }, [boxes, size.width, size.height]);
+  const { ticks, layout, scale } = geometry;
+  const categoryLabels = react.useMemo(() => {
+    const indices = boxes.map((_, index) => index).filter((index) => index % layout.labelStride === 0);
+    const fitted = fitCategoryLabels(
+      indices.map((index) => boxes[index].category),
+      layout.labelMaxChars
+    );
+    return indices.map((index, position) => ({ index, label: fitted[position] }));
+  }, [boxes, layout.labelStride, layout.labelMaxChars]);
+  const clearActive = react.useCallback(() => setActiveIndex(null), []);
+  const active = react.useMemo(() => {
+    if (activeIndex === null) return null;
+    const box = boxes[activeIndex];
+    return box ? { index: activeIndex, box } : null;
+  }, [activeIndex, boxes]);
+  return /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex h-full w-full min-w-0 flex-col", children: [
+    /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: host, className: "relative min-h-0 w-full flex-1", children: [
+      /* @__PURE__ */ jsxRuntime.jsxs(
+        "svg",
+        {
+          width: size.width,
+          height: size.height,
+          role: "group",
+          "aria-label": `Box plot of ${measure.label} distribution by ${category.label}, ${boxes.length} categories`,
+          onPointerLeave: clearActive,
+          children: [
+            ticks.map((tick) => {
+              const y = scale(tick);
+              return /* @__PURE__ */ jsxRuntime.jsxs("g", { children: [
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "line",
+                  {
+                    x1: layout.plotLeft,
+                    x2: layout.plotLeft + layout.plotWidth,
+                    y1: y,
+                    y2: y,
+                    stroke: CHART_GRID_STYLE.stroke,
+                    strokeDasharray: CHART_GRID_STYLE.strokeDasharray,
+                    strokeOpacity: CHART_GRID_STYLE.strokeOpacity
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "text",
+                  {
+                    x: layout.plotLeft - CHART_Y_AXIS.tickMargin,
+                    y,
+                    textAnchor: "end",
+                    dominantBaseline: "middle",
+                    fontSize: CHART_Y_AXIS.fontSize,
+                    fontFamily: CHART_Y_AXIS.fontFamily,
+                    fill: CHART_Y_AXIS.stroke,
+                    children: formatAxisTick(tick)
+                  }
+                )
+              ] }, tick);
+            }),
+            boxes.map((box, index) => /* @__PURE__ */ jsxRuntime.jsx(
+              BoxMark,
+              {
+                box,
+                index,
+                color,
+                layout,
+                scale,
+                category,
+                isActive: index === activeIndex,
+                onActivate: setActiveIndex,
+                onDeactivate: clearActive
+              },
+              `${box.category}-${index}`
+            )),
+            categoryLabels.map(({ index, label }) => /* @__PURE__ */ jsxRuntime.jsx(
+              "text",
+              {
+                x: bandCenter(layout, index),
+                y: layout.plotTop + layout.plotHeight + CHART_X_AXIS.tickMargin + 4,
+                textAnchor: "middle",
+                fontSize: CHART_X_AXIS.fontSize,
+                fontFamily: CHART_X_AXIS.fontFamily,
+                fill: CHART_X_AXIS.stroke,
+                children: label
+              },
+              `label-${index}`
+            ))
+          ]
+        }
+      ),
+      active && /* @__PURE__ */ jsxRuntime.jsx(
+        BoxTooltip,
+        {
+          box: active.box,
+          x: bandCenter(layout, active.index),
+          y: scale(active.box.q_max),
+          containerWidth: size.width
+        }
+      )
+    ] }),
+    omitted > 0 && /* @__PURE__ */ jsxRuntime.jsxs(
+      "p",
+      {
+        className: "pt-1 text-center text-[11px]",
+        style: { color: "var(--cx-text-muted)" },
+        "data-cxc-omitted": omitted,
+        children: [
+          omitted,
+          " ",
+          omitted === 1 ? "category" : "categories",
+          " not shown \u2014 inconsistent quartile values"
+        ]
+      }
+    )
+  ] });
+}
+function BoxMark({
+  box,
+  index,
+  color,
+  layout,
+  scale,
+  category,
+  isActive,
+  onActivate,
+  onDeactivate
+}) {
+  const center = bandCenter(layout, index);
+  const half = layout.boxWidth / 2;
+  const capHalf = half * CAP_RATIO;
+  const yMax = scale(box.q_max);
+  const yQ3 = scale(box.q3);
+  const yMedian = scale(box.median);
+  const yQ1 = scale(box.q1);
+  const yMin = scale(box.q_min);
+  const boxHeight = Math.max(1, yQ1 - yQ3);
+  const activate = react.useCallback(() => onActivate(index), [onActivate, index]);
+  return /* @__PURE__ */ jsxRuntime.jsxs(
+    "g",
+    {
+      role: "img",
+      tabIndex: 0,
+      "aria-label": describeBox(box, category),
+      className: "cxc-boxplot-mark focus:outline-none",
+      style: { animationDelay: `${Math.min(index, MAX_STAGGER_STEPS) * 40}ms` },
+      onPointerEnter: activate,
+      onPointerDown: activate,
+      onFocus: activate,
+      onBlur: onDeactivate,
+      children: [
+        /* @__PURE__ */ jsxRuntime.jsx("line", { x1: center, x2: center, y1: yMax, y2: yQ3, stroke: color, strokeWidth: BOX_STROKE_WIDTH }),
+        /* @__PURE__ */ jsxRuntime.jsx("line", { x1: center, x2: center, y1: yQ1, y2: yMin, stroke: color, strokeWidth: BOX_STROKE_WIDTH }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "line",
+          {
+            x1: center - capHalf,
+            x2: center + capHalf,
+            y1: yMax,
+            y2: yMax,
+            stroke: color,
+            strokeWidth: BOX_STROKE_WIDTH
+          }
+        ),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "line",
+          {
+            x1: center - capHalf,
+            x2: center + capHalf,
+            y1: yMin,
+            y2: yMin,
+            stroke: color,
+            strokeWidth: BOX_STROKE_WIDTH
+          }
+        ),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "rect",
+          {
+            x: center - half,
+            y: yQ3,
+            width: layout.boxWidth,
+            height: boxHeight,
+            rx: 2,
+            fill: color,
+            fillOpacity: isActive ? BOX_FILL_OPACITY * 2 : BOX_FILL_OPACITY,
+            stroke: color,
+            strokeWidth: BOX_STROKE_WIDTH
+          }
+        ),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "line",
+          {
+            x1: center - half,
+            x2: center + half,
+            y1: yMedian,
+            y2: yMedian,
+            stroke: "var(--cx-text-primary)",
+            strokeWidth: MEDIAN_STROKE_WIDTH
+          }
+        ),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "rect",
+          {
+            x: center - layout.bandWidth / 2,
+            y: layout.plotTop,
+            width: layout.bandWidth,
+            height: layout.plotHeight,
+            fill: "transparent"
+          }
+        )
+      ]
+    }
+  );
+}
+function describeBox(box, category) {
+  return `${category.label} ${box.category}: minimum ${formatTooltipValue(box.q_min)}, lower quartile ${formatTooltipValue(box.q1)}, median ${formatTooltipValue(box.median)}, upper quartile ${formatTooltipValue(box.q3)}, maximum ${formatTooltipValue(box.q_max)}`;
+}
+var TOOLTIP_ROWS = [
+  { key: "q_max", label: "Max" },
+  { key: "q3", label: "Q3" },
+  { key: "median", label: "Median" },
+  { key: "q1", label: "Q1" },
+  { key: "q_min", label: "Min" }
+];
+var TOOLTIP_WIDTH = 148;
+var TOOLTIP_FLIP_THRESHOLD = 96;
+function BoxTooltip({
+  box,
+  x,
+  y,
+  containerWidth
+}) {
+  const half = TOOLTIP_WIDTH / 2;
+  const left = Math.min(Math.max(x, half), Math.max(half, containerWidth - half));
+  const flip = y < TOOLTIP_FLIP_THRESHOLD;
+  return /* @__PURE__ */ jsxRuntime.jsxs(
+    "div",
+    {
+      role: "tooltip",
+      className: "pointer-events-none absolute z-10 px-2 py-1.5",
+      style: {
+        ...CHART_TOOLTIP_STYLE,
+        width: TOOLTIP_WIDTH,
+        left,
+        top: flip ? y + 8 : y - 8,
+        transform: flip ? "translate(-50%, 0)" : "translate(-50%, -100%)"
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntime.jsx("p", { className: "mb-1 truncate font-medium", style: { color: "var(--cx-text-primary)" }, children: box.category }),
+        TOOLTIP_ROWS.map((row) => /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex justify-between gap-3", children: [
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--cx-text-muted)" }, children: row.label }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { style: { color: "var(--cx-text-primary)" }, children: formatTooltipValue(box[row.key]) })
+        ] }, row.key))
+      ]
+    }
+  );
+}
+function useElementSize() {
+  const ref = react.useRef(null);
+  const [size, setSize] = react.useState({
+    ...CHART_INITIAL_DIMENSION
+  });
+  react.useEffect(() => {
+    const node = ref.current;
+    if (!node || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(([entry]) => {
+      const { width, height } = entry.contentRect;
+      if (width > 0 && height > 0) setSize({ width, height });
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  return [ref, size];
 }
 function toChartOptions(block) {
   const stacked = block.options?.stacked ?? (block.chart_type === "bar_stacked" || block.chart_type === "area_stacked");
@@ -2821,6 +3332,8 @@ function ChartDispatch({ block }) {
       return /* @__PURE__ */ jsxRuntime.jsx(PieChart, { ...props, donut: true });
     case "scatter":
       return /* @__PURE__ */ jsxRuntime.jsx(ScatterChart, { ...props });
+    case "box_plot":
+      return /* @__PURE__ */ jsxRuntime.jsx(BoxPlotChart, { ...props });
     default:
       return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, { label: "Unsupported chart type" });
   }

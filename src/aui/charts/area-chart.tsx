@@ -3,6 +3,7 @@ import {
   AreaChart as RechartsAreaChart,
   Area,
   XAxis,
+  YAxis,
   CartesianGrid,
   Tooltip,
   Legend,
@@ -10,6 +11,7 @@ import {
 } from 'recharts'
 import {
   CHART_X_AXIS,
+  CHART_Y_AXIS,
   CHART_GRID_STYLE,
   CHART_TOOLTIP_STYLE,
   CHART_ANIMATION,
@@ -17,7 +19,14 @@ import {
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
-import { shortenLabel, shouldShowLegend, chartLegendProps } from './chart-helpers'
+import {
+  shortenLabel,
+  shouldShowLegend,
+  chartLegendProps,
+  formatAxisTick,
+  formatTooltipValue,
+  seriesDotProp,
+} from './chart-helpers'
 import { ChartEmpty } from './chart-empty'
 
 /**
@@ -25,6 +34,9 @@ import { ChartEmpty } from './chart-empty'
  *
  * Each entry in `series` becomes one gradient-filled area, indexed-colored.
  * `options.stacked` stacks the areas.
+ *
+ * The value axis is always drawn — see the note on LineChart: a touch device
+ * has no hover, so a tooltip-only chart hides its own numbers there.
  */
 export function AreaChart({ data, x, series, options }: ChartProps) {
   // Per-instance prefix so two AreaCharts with the same series key don't collide
@@ -63,8 +75,9 @@ export function AreaChart({ data, x, series, options }: ChartProps) {
 
         <CartesianGrid {...CHART_GRID_STYLE} />
         <XAxis {...CHART_X_AXIS} dataKey={x.key} tickFormatter={shortenLabel} />
+        <YAxis {...CHART_Y_AXIS} width="auto" tickFormatter={formatAxisTick} />
 
-        <Tooltip cursor={false} contentStyle={CHART_TOOLTIP_STYLE} />
+        <Tooltip cursor={false} contentStyle={CHART_TOOLTIP_STYLE} formatter={formatTooltipValue} />
 
         {showLegend && <Legend {...chartLegendProps()} />}
 
@@ -77,6 +90,7 @@ export function AreaChart({ data, x, series, options }: ChartProps) {
             stroke={getChartColor(index)}
             fill={`url(#area-gradient-${uid}-${s.key})`}
             strokeWidth={2}
+            dot={seriesDotProp(data, s.key)}
             stackId={options?.stacked ? 'stack' : undefined}
             isAnimationActive
             animationDuration={CHART_ANIMATION.duration}

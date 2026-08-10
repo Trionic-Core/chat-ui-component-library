@@ -49,6 +49,11 @@ tokens, and typography reads `--cxc-font-*`.
    `[data-theme="dark"]`. Add that class/attribute on an ancestor to switch, or
    override the dark values the same way.
 
+   **The chart palette is one of those sets.** `:root` and `.dark` each define
+   their own `--cxc-chart-1..8`, measured against their own surface. If you
+   override the chart palette in `:root` only, your light hexes leak into dark
+   mode — see the validation note below.
+
 ## Token reference
 
 ### Surfaces & borders
@@ -79,9 +84,34 @@ tokens, and typography reads `--cxc-font-*`.
 `--cxc-radius-sm|md|lg|xl|full`, `--cxc-shadow-sm|md|lg|input`
 
 ### Chart palette (AUI charts)
-`--cxc-chart-1` … `--cxc-chart-8` — series colors for bar/line/area/pie/scatter.
-Wraps if a chart has more than 8 series. (Defaults also ship as code-level
-fallbacks so charts still render if the stylesheet isn't loaded.)
+`--cxc-chart-1` … `--cxc-chart-8` — series colors for bar/line/area/pie/scatter/
+box plot. Wraps if a chart has more than 8 series. Defined **twice**: once under
+`:root` for the light surface and once under `.dark` for the dark surface. The
+light values also ship as code-level fallbacks, so charts still render if the
+stylesheet isn't loaded.
+
+> **Validate a palette you override.** A brand palette is chosen to look right
+> on a brand page, not to be read as data on a chart surface, and the two are
+> different jobs. Overriding these tokens bypasses every measurement the
+> defaults were picked for, so check your values against:
+>
+> 1. **Contrast — each slot vs. the surface it paints on.** WCAG 1.4.11 puts the
+>    bar for a non-text graphical object at **3:1**. Measure light slots against
+>    `--cxc-bg` in `:root` and dark slots against `--cxc-bg` in `.dark`; a hue
+>    that clears 3:1 on white is often invisible on near-black and the reverse.
+>    This is exactly why there are two sets.
+> 2. **Colour-vision deficiency — each adjacent pair.** Roughly 1 in 12 men has
+>    some form of it. Simulate protanopia and deuteranopia and check that
+>    neighbouring slots stay apart; mid-green and mid-red are the classic pair
+>    that merges into one colour. Separating a converging pair in **lightness**
+>    fixes it without changing either hue.
+>
+> Slot order is meaningful — series *N* always takes slot *N* — so a palette must
+> work pairwise from slot 1 outward, not merely as a set.
+>
+> The renderers never rely on hue alone: every chart carries axis labels, a
+> legend and a tooltip, and the box plot draws its median in the text token
+> rather than the series colour. Your palette should hold that line too.
 
 ### Layout & motion
 `--cxc-sidebar-width`, `--cxc-content-max-width`,
@@ -92,6 +122,7 @@ fallbacks so charts still render if the stylesheet isn't loaded.)
   fully re-skins both the chat shell *and* the agentic-UI surfaces (KPI cards,
   charts, tables).
 - **Charts are token-driven**, including dark mode and fonts — set
-  `--cxc-chart-*` and they rebrand everywhere.
+  `--cxc-chart-*` and they rebrand everywhere. Set them under **both** `:root`
+  and `.dark`, and validate each set against its own surface.
 - **Light/dark** resolve automatically because every value is a token reference
   evaluated against the active theme at paint time.

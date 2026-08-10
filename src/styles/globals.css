@@ -39,18 +39,31 @@
     --cxc-error: #C44D4D;
     --cxc-error-light: #FDF0F0;
 
-    /* --- Chart Data Palette (AUI charts: bar/line/area/pie/scatter series) ---
+    /* --- Chart Data Palette — LIGHT (AUI chart series) ---
        Series N reads --cxc-chart-N (1-based). Override these to brand every
-       chart to the client's identity. Designed to read on light AND dark; set
-       a separate palette under .dark below if a client needs different tones.
-       The TS fallback in chart-colors.ts mirrors these defaults. */
-    --cxc-chart-1: #E76E50;
+       chart to the client's identity. A separate, measured set ships under
+       .dark below: the light hexes are NOT legible on the dark surface, so the
+       two sets are validated independently against their own surface.
+       The TS fallback in chart-colors.ts mirrors THIS (light) set.
+
+       Measured against the light surface #FAFAF8 (WCAG 1.4.11 non-text bar is
+       3:1) and for colour-vision-deficiency separation (OKLab ΔE ×100 between
+       adjacent slots under simulated protanopia/deuteranopia; target ≥ 8):
+         slot 1  3.05:1   slot 2  3.18:1   slot 3  1.60:1 ✗   slot 4  9.65:1
+         slot 5  1.97:1 ✗ slot 6  5.45:1   slot 7  4.63:1     slot 8  4.49:1
+         worst adjacent CVD pair 7↔8 ΔE 9.0
+       Slots 3 and 5 are pale warm hues that cannot reach 3:1 on a near-white
+       surface without becoming dark ochre / burnt orange. They are held at the
+       brand value pending an owner decision; both are highly legible in dark
+       mode. Charts carry axis labels, a legend and a tooltip, so a series is
+       never identified by colour alone. */
+    --cxc-chart-1: #E56C4E;
     --cxc-chart-2: #2A9D8F;
     --cxc-chart-3: #E9C46A;
     --cxc-chart-4: #264653;
     --cxc-chart-5: #F4A261;
     --cxc-chart-6: #7C3AED;
-    --cxc-chart-7: #059669;
+    --cxc-chart-7: #00825A;
     --cxc-chart-8: #E11D48;
 
     /* --- User Message Bubble (Dark pill) --- */
@@ -142,6 +155,27 @@
     --cxc-warning-light: rgba(212, 160, 62, 0.12);
     --cxc-error: #D46A6A;
     --cxc-error-light: rgba(212, 106, 106, 0.12);
+
+    /* --- Chart Data Palette — DARK ---
+       Same brand hues as :root (OKLCH hue angle held EXACTLY per slot); only
+       lightness and chroma move, so a series keeps its colour identity when
+       the theme flips. Without this block the light hexes leak into dark mode
+       and slot 4 measures 1.69:1 on #1C1C1C — effectively invisible.
+
+       Measured against the dark surface #1C1C1C:
+         slot 1  5.35:1   slot 2  5.13:1   slot 3 10.20:1   slot 4  4.10:1
+         slot 5  8.27:1   slot 6  3.55:1   slot 7  3.52:1   slot 8  3.63:1
+         worst adjacent CVD pair 7↔8 ΔE 9.0
+       Changed vs light: slot 4 (#264653 → lifted out of the surface) and
+       slot 6 (#7C3AED measured 2.99:1 — below the 3:1 bar). */
+    --cxc-chart-1: #E56C4E;
+    --cxc-chart-2: #2A9D8F;
+    --cxc-chart-3: #E9C46A;
+    --cxc-chart-4: #2486A8;
+    --cxc-chart-5: #F4A261;
+    --cxc-chart-6: #8749FB;
+    --cxc-chart-7: #00825A;
+    --cxc-chart-8: #E11D48;
 
     --cxc-user-bg: #2E2B25;
     --cxc-user-text: #E8E5E0;
@@ -429,6 +463,23 @@
 }
 
 /* ============================================================
+   Box Plot Entrance
+
+   The box plot draws raw SVG, so it cannot use recharts' animation
+   props. Boxes fade in left to right; the stagger reads as "these
+   are ordered categories" rather than as decoration.
+   ============================================================ */
+
+@keyframes cxc-boxplot-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.cxc-boxplot-mark {
+  animation: cxc-boxplot-in 400ms ease-out both;
+}
+
+/* ============================================================
    Streaming Cursor
    ============================================================ */
 
@@ -647,5 +698,9 @@
   }
   .cxc-spin {
     animation: none;
+  }
+  .cxc-boxplot-mark {
+    animation: none;
+    opacity: 1;
   }
 }

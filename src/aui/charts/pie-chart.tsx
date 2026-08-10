@@ -15,7 +15,7 @@ import {
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
-import { shouldShowLegend } from './chart-helpers'
+import { shouldShowLegend, formatTooltipValue } from './chart-helpers'
 import { ChartEmpty } from './chart-empty'
 
 interface PieChartProps extends ChartProps {
@@ -76,20 +76,16 @@ export function PieChart({ data, x, series, options, donut = false }: PieChartPr
           ))}
         </Pie>
 
-        <Tooltip
-          contentStyle={CHART_TOOLTIP_STYLE}
-          formatter={(value) => {
-            if (value === undefined || value === null) return '--'
-            return Number(value).toLocaleString()
-          }}
-        />
+        <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={formatTooltipValue} />
 
         {showLegend && (
-          // Intentionally diverges from chartLegendProps(): the pie legend uses
-          // the full CHART_LEGEND_STYLE plus bottom-aligned circle swatches,
-          // since its slices are otherwise unlabeled.
+          // Intentionally diverges from chartLegendProps(): the pie legend is
+          // bottom-aligned with circle swatches, since its slices are otherwise
+          // unlabeled. `labelStyle` matters for the same reason it does there —
+          // recharts paints legend text in the slice color unless told not to.
           <Legend
-            wrapperStyle={CHART_LEGEND_STYLE}
+            wrapperStyle={{ fontSize: CHART_LEGEND_STYLE.fontSize }}
+            labelStyle={{ color: CHART_LEGEND_STYLE.color }}
             verticalAlign="bottom"
             iconType="circle"
             iconSize={8}

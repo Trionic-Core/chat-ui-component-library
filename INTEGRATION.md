@@ -226,7 +226,17 @@ for the full token reference. Minimal example:
   --cxc-font-sans: 'Brand Sans', system-ui, sans-serif;
   --cxc-chart-1: #4f46e5;  /* … --cxc-chart-8 brand the data viz */
 }
+
+/* The chart palette is defined per theme. Override the dark set too, or your
+   light hexes paint on the dark surface. */
+.dark {
+  --cxc-chart-1: #8b85f5;
+}
 ```
+
+If you override the chart palette, validate it — contrast against each surface
+and colour-vision-deficiency separation between adjacent slots. THEMING.md
+§"Chart palette" gives the two checks and the thresholds.
 
 ---
 

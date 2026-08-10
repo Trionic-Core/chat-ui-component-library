@@ -14,6 +14,7 @@ import {
   AreaChart,
   PieChart,
   ScatterChart,
+  BoxPlotChart,
   type ChartProps,
   type ChartOptions,
 } from './charts'
@@ -61,6 +62,8 @@ export function ChartDispatch({ block }: { block: ChartBlock }) {
       return <PieChart {...props} donut />
     case 'scatter':
       return <ScatterChart {...props} />
+    case 'box_plot':
+      return <BoxPlotChart {...props} />
     default:
       return <ChartEmpty label="Unsupported chart type" />
   }
