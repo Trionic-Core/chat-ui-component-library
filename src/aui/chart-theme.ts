@@ -86,3 +86,28 @@ export const CHART_LEGEND_STYLE = {
   fontSize: 12,
   color: 'var(--cx-text-secondary)',
 } as const
+
+/**
+ * Zero reference line, drawn only when the data crosses zero.
+ *
+ * Muted on purpose: it is a datum the eye should find when it looks for it, not
+ * a mark competing with the bars. recharts' own default is a hardcoded light
+ * grey that disappears in dark mode.
+ */
+export const CHART_ZERO_LINE_STYLE = {
+  stroke: 'var(--cx-text-muted)',
+  strokeWidth: 1,
+  strokeOpacity: 0.5,
+} as const
+
+/**
+ * The number printed beside a bar.
+ *
+ * One step down from the axis size: it sits inside the plot area next to the
+ * mark it describes, so it needs to be readable without competing with it.
+ */
+export const CHART_VALUE_LABEL_STYLE = {
+  fontSize: 11,
+  fontFamily: 'inherit',
+  fill: 'var(--cx-text-secondary)',
+} as const

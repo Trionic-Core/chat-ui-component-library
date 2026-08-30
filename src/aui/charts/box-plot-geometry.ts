@@ -9,6 +9,7 @@
  * ----------------------------------------------------------------*/
 
 import type { ChartFieldRef, DataRow } from '../aui-types'
+import { CHAR_PX, MIN_LABEL_WIDTH } from './label-fit'
 
 /**
  * The five statistics a box plot needs, ordered low to high.
@@ -192,17 +193,6 @@ export function makeValueScale(
 
 /* -------------------------------- Layout ------------------------------- */
 
-/** Approximate advance width of one character at the axis font size (12px). */
-const CHAR_WIDTH = 6.6
-/**
- * Narrowest category label worth printing: about six characters plus air.
- *
- * Set from what a label has to *do*, not from what fits. A three-character
- * budget printed "Ou…" under ten consecutive outlets — ten labels carrying no
- * information at all. Demanding six characters raises the stride instead, so
- * fewer labels print and each one says something.
- */
-const MIN_LABEL_WIDTH = 44
 const AXIS_LABEL_GAP = 8
 const CATEGORY_AXIS_HEIGHT = 22
 const PLOT_PADDING_TOP = 10
@@ -243,7 +233,7 @@ export function computeBoxPlotLayout(
   axisTickLabels: string[],
 ): BoxPlotLayout {
   const widestTick = axisTickLabels.reduce((longest, label) => Math.max(longest, label.length), 0)
-  const plotLeft = Math.min(width * 0.4, widestTick * CHAR_WIDTH + AXIS_LABEL_GAP)
+  const plotLeft = Math.min(width * 0.4, widestTick * CHAR_PX + AXIS_LABEL_GAP)
   const plotWidth = Math.max(0, width - plotLeft - PLOT_PADDING_RIGHT)
   const plotHeight = Math.max(0, height - PLOT_PADDING_TOP - CATEGORY_AXIS_HEIGHT)
 
@@ -253,8 +243,14 @@ export function computeBoxPlotLayout(
 
   // Once a band is narrower than a readable label, print every Nth label rather
   // than overlapping them into a smear.
+  //
+  // TODO: unify with verticalCategoryTicks() in chart-layout.ts. This stride
+  // comes from a fixed 44px floor; the cartesian axes now derive theirs from
+  // what the longest label actually needs, which is what stopped "2025-01" and
+  // "2026-01" printing identically. The box plot draws its own SVG and reads
+  // the stride differently, so the merge is a separate change.
   const labelStride = Math.max(1, Math.ceil(MIN_LABEL_WIDTH / Math.max(1, bandWidth)))
-  const labelMaxChars = Math.max(1, Math.floor((bandWidth * labelStride - 4) / CHAR_WIDTH))
+  const labelMaxChars = Math.max(1, Math.floor((bandWidth * labelStride - 4) / CHAR_PX))
 
   return {
     plotLeft,
@@ -271,36 +267,4 @@ export function computeBoxPlotLayout(
 /** Centre x of the category at `index`. */
 export function bandCenter(layout: BoxPlotLayout, index: number): number {
   return layout.plotLeft + layout.bandWidth * (index + 0.5)
-}
-
-/** Truncate a category label to the band's budget, keeping the start. */
-export function fitLabel(label: string, maxChars: number): string {
-  if (label.length <= maxChars) return label
-  if (maxChars <= 1) return label.slice(0, 1)
-  return `${label.slice(0, maxChars - 1)}…`
-}
-
-/** Truncate from the middle, keeping both ends. */
-export function fitLabelBothEnds(label: string, maxChars: number): string {
-  if (label.length <= maxChars) return label
-  if (maxChars <= 2) return label.slice(0, Math.max(1, maxChars))
-  const keep = maxChars - 1
-  const tail = Math.floor(keep / 2)
-  return `${label.slice(0, keep - tail)}…${label.slice(label.length - tail)}`
-}
-
-/**
- * Fit a set of category labels to `maxChars`, keeping them distinguishable.
- *
- * Keeping the start reads best and is what the other charts do, so it is the
- * default. It fails badly on the label shapes real client data is full of —
- * "Outlet Number 1..30", "SKU-00041", "2026-01".. — where every label shares a
- * prefix and truncation collapses them all to the same string. When that
- * happens the labels stop identifying anything, so the whole set falls back to
- * middle truncation, which keeps the part that actually differs.
- */
-export function fitCategoryLabels(labels: string[], maxChars: number): string[] {
-  const fromStart = labels.map((label) => fitLabel(label, maxChars))
-  if (new Set(fromStart).size === new Set(labels).size) return fromStart
-  return labels.map((label) => fitLabelBothEnds(label, maxChars))
 }

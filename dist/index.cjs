@@ -2233,6 +2233,16 @@ var CHART_LEGEND_STYLE = {
   fontSize: 12,
   color: "var(--cx-text-secondary)"
 };
+var CHART_ZERO_LINE_STYLE = {
+  stroke: "var(--cx-text-muted)",
+  strokeWidth: 1,
+  strokeOpacity: 0.5
+};
+var CHART_VALUE_LABEL_STYLE = {
+  fontSize: 11,
+  fontFamily: "inherit",
+  fill: "var(--cx-text-secondary)"
+};
 
 // src/aui/chart-colors.ts
 var CHART_FALLBACKS = [
@@ -2367,8 +2377,18 @@ function Sparkline({ values }) {
     }
   ) });
 }
+var PANEL_SIZE = {
+  md: "w-full max-w-3xl",
+  lg: "w-[min(92vw,1024px)] max-w-none"
+};
+var BODY_SIZE = {
+  md: "px-5 py-4",
+  // The tall expanded chart scrolls inside the dialog rather than pushing the
+  // panel past the viewport, where its header would be unreachable.
+  lg: "px-5 py-4 max-h-[80vh] overflow-y-auto"
+};
 var FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
-function Dialog({ open, onClose, title, children }) {
+function Dialog({ open, onClose, title, children, size = "md" }) {
   const overlayRef = react.useRef(null);
   const panelRef = react.useRef(null);
   const previouslyFocused = react.useRef(null);
@@ -2441,7 +2461,7 @@ function Dialog({ open, onClose, title, children }) {
         {
           ref: panelRef,
           tabIndex: -1,
-          className: "w-full max-w-3xl rounded-lg border focus:outline-none",
+          className: `${PANEL_SIZE[size]} rounded-lg border focus:outline-none`,
           style: {
             borderColor: "var(--cx-border)",
             backgroundColor: "var(--cx-canvas)",
@@ -2486,7 +2506,7 @@ function Dialog({ open, onClose, title, children }) {
                 ]
               }
             ),
-            /* @__PURE__ */ jsxRuntime.jsx("div", { className: "px-5 py-4", children })
+            /* @__PURE__ */ jsxRuntime.jsx("div", { className: BODY_SIZE[size], children })
           ]
         }
       )
@@ -2527,15 +2547,14 @@ function chartLegendProps() {
     }
   };
 }
-function shortenLabel(value) {
-  const str = String(value ?? "");
-  return str.length > 12 ? `${str.slice(0, 10)}...` : str;
-}
 function formatAxisTick(value) {
   return formatValue(value, "compact");
 }
 function formatTooltipValue(value) {
   return formatValue(value, "number");
+}
+function formatTooltipLabel(label) {
+  return String(label ?? "");
 }
 function shouldShowLegend(seriesCount, showLegend) {
   return showLegend ?? seriesCount > 1;
@@ -2557,6 +2576,394 @@ function countPlottablePoints(data, key) {
 function seriesDotProp(data, key) {
   return countPlottablePoints(data, key) <= SPARSE_SERIES_POINT_LIMIT ? { r: 3, strokeWidth: 0 } : false;
 }
+
+// src/aui/charts/label-fit.ts
+var CHAR_PX = 6.6;
+var MIN_LABEL_WIDTH = 44;
+function fitLabel(label, maxChars) {
+  if (label.length <= maxChars) return label;
+  if (maxChars <= 1) return label.slice(0, 1);
+  return `${label.slice(0, maxChars - 1)}\u2026`;
+}
+function fitLabelBothEnds(label, maxChars) {
+  if (label.length <= maxChars) return label;
+  if (maxChars <= 2) return label.slice(0, Math.max(1, maxChars));
+  const keep = maxChars - 1;
+  const tail = Math.floor(keep / 2);
+  return `${label.slice(0, keep - tail)}\u2026${label.slice(label.length - tail)}`;
+}
+function fitCategoryLabelsReport(labels, maxChars) {
+  const distinct = new Set(labels).size;
+  const fromStart = labels.map((label) => fitLabel(label, maxChars));
+  if (new Set(fromStart).size === distinct) return { labels: fromStart, collided: false };
+  const bothEnds = labels.map((label) => fitLabelBothEnds(label, maxChars));
+  return { labels: bothEnds, collided: new Set(bothEnds).size !== distinct };
+}
+function fitCategoryLabels(labels, maxChars) {
+  return fitCategoryLabelsReport(labels, maxChars).labels;
+}
+function wrapLabel(label, maxChars, maxLines = 2) {
+  if (maxChars < 1 || maxLines < 2) return null;
+  if (label.length <= maxChars) return null;
+  if (label.length > maxChars * maxLines) return null;
+  const lines = [];
+  let current = "";
+  for (const word of label.split(/\s+/).filter(Boolean)) {
+    if (word.length > maxChars) return null;
+    const candidate = current ? `${current} ${word}` : word;
+    if (candidate.length <= maxChars) {
+      current = candidate;
+      continue;
+    }
+    lines.push(current);
+    if (lines.length >= maxLines) return null;
+    current = word;
+  }
+  if (current) lines.push(current);
+  return lines.length > 1 && lines.length <= maxLines ? lines : null;
+}
+var MEASUREMENT_SAMPLE = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+var AXIS_FONT = "12px sans-serif";
+var measured = /* @__PURE__ */ new Map();
+function measureCharPx(font = AXIS_FONT) {
+  const cached = measured.get(font);
+  if (cached !== void 0) return cached;
+  const width = measureSample(font);
+  measured.set(font, width);
+  return width;
+}
+function measureSample(font) {
+  if (typeof document === "undefined") return CHAR_PX;
+  const context = document.createElement("canvas").getContext("2d");
+  if (!context) return CHAR_PX;
+  context.font = font;
+  const width = context.measureText(MEASUREMENT_SAMPLE).width;
+  if (!Number.isFinite(width) || width <= 0) return CHAR_PX;
+  return width / MEASUREMENT_SAMPLE.length;
+}
+
+// src/aui/charts/chart-layout.ts
+var BAND_PX = 28;
+var MIN_BAND_PX = 22;
+var INLINE_MAX_CATEGORIES = 12;
+var CHART_CHROME_PX = 46;
+var INLINE_MIN_HEIGHT_PX = 200;
+var VERTICAL_CHART_HEIGHT_PX = 256;
+var VALUE_LABEL_MIN_WIDTH_PX = 360;
+var ANIMATION_MAX_ROWS = 30;
+var MAX_SLICES = 8;
+var AXIS_MIN_WIDTH_PX = 72;
+var AXIS_MAX_WIDTH_RATIO = 0.4;
+var LABEL_MAX_CHARS = 28;
+var FLIP_MIN_CATEGORIES = 12;
+var FLIP_LONG_LABEL_CATEGORIES = 6;
+var FLIP_LONG_LABEL_CHARS = 12;
+var GROUPED_BAND_STEP_PX = 8;
+var GROUPED_BAND_MAX_PX = 56;
+var NARROW_CHART_WIDTH_PX = 400;
+var DEFAULT_CHART_WIDTH_PX = 600;
+var EXPANDED_CHART_WIDTH_PX = 984;
+var EXPANDED_VERTICAL_MIN_HEIGHT_PX = 360;
+var TICK_INTERVAL_MIN_BAND_PX = 16;
+var TICK_GAP_PX = 8;
+var MIN_VISIBLE_TICKS = 4;
+var VALUE_AXIS_ESTIMATE_PX = 48;
+var AXIS_LABEL_PADDING_PX = 12;
+var ORDERED_SAMPLE_LIMIT = 50;
+var ORDERED_RATIO = 0.8;
+var EQUIDISTANT_INTERVAL = "equidistantPreserveStart";
+var FLIPPABLE_CHART_TYPES = /* @__PURE__ */ new Set([
+  "bar",
+  "bar_grouped",
+  "bar_stacked"
+]);
+var BAR_CHART_TYPES = /* @__PURE__ */ new Set([
+  "bar",
+  "bar_horizontal",
+  "bar_grouped",
+  "bar_stacked"
+]);
+function clamp(low, value, high) {
+  return Math.min(Math.max(value, low), high);
+}
+function toFiniteNumber(value) {
+  if (value === null || value === void 0 || value === "") return null;
+  const num = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(num) ? num : null;
+}
+function bandHeight(seriesCount, stacked) {
+  if (stacked || seriesCount <= 1) return BAND_PX;
+  return Math.min(GROUPED_BAND_MAX_PX, BAND_PX + GROUPED_BAND_STEP_PX * (seriesCount - 1));
+}
+function axisIntervalFor(bandPx) {
+  return bandPx >= TICK_INTERVAL_MIN_BAND_PX ? 0 : EQUIDISTANT_INTERVAL;
+}
+function categoryLayout({
+  rows,
+  width,
+  mode,
+  seriesCount,
+  stacked,
+  longestLabelChars = 0,
+  charPx = CHAR_PX
+}) {
+  const bandPx = bandHeight(seriesCount, stacked);
+  const totalRows = Math.max(0, rows);
+  const shownRows = mode === "expanded" ? totalRows : Math.min(totalRows, INLINE_MAX_CATEGORIES);
+  const contentHeight = shownRows * bandPx + CHART_CHROME_PX;
+  const hostHeight = mode === "expanded" ? contentHeight : clamp(INLINE_MIN_HEIGHT_PX, contentHeight, INLINE_MAX_CATEGORIES * bandPx + CHART_CHROME_PX);
+  const axisCeiling = AXIS_MAX_WIDTH_RATIO * width;
+  const axisWidth = Math.round(
+    clamp(AXIS_MIN_WIDTH_PX, longestLabelChars * charPx + AXIS_LABEL_PADDING_PX, axisCeiling)
+  );
+  const maxChars = Math.max(
+    1,
+    Math.min(LABEL_MAX_CHARS, Math.floor((axisCeiling - AXIS_LABEL_PADDING_PX) / charPx))
+  );
+  return {
+    hostHeight,
+    shownRows,
+    bandPx,
+    axisWidth,
+    maxChars,
+    interval: axisIntervalFor(bandPx),
+    // Stacked segments share one band and can each be a few pixels wide, so
+    // their labels would land on top of one another. Grouped series pay for
+    // their labels with a taller band (see bandHeight).
+    showValueLabels: !stacked && bandPx >= MIN_BAND_PX && width >= VALUE_LABEL_MIN_WIDTH_PX,
+    animate: shownRows <= ANIMATION_MAX_ROWS
+  };
+}
+function verticalCategoryTicks({
+  plotWidth,
+  rows,
+  longestLabelChars,
+  charPx = CHAR_PX
+}) {
+  const bandPx = Math.max(1, plotWidth / Math.max(1, rows));
+  const needed = Math.max(1, Math.ceil((longestLabelChars * charPx + TICK_GAP_PX) / bandPx));
+  const stride = rows < MIN_VISIBLE_TICKS ? 1 : Math.min(needed, Math.max(1, Math.floor(rows / MIN_VISIBLE_TICKS)));
+  return {
+    stride,
+    // recharts counts the ticks it SKIPS between two printed ones.
+    interval: stride - 1,
+    maxChars: Math.max(
+      1,
+      Math.min(LABEL_MAX_CHARS, Math.floor((bandPx * stride - TICK_GAP_PX) / charPx))
+    )
+  };
+}
+var VALUE_LABEL_FONT_RATIO = 11 / 12;
+function verticalValueLabelsFit(plotWidth, marks, longestValueChars, charPx = CHAR_PX) {
+  if (longestValueChars <= 0 || marks <= 0) return false;
+  const bandWidth = plotWidth / marks;
+  return bandWidth >= longestValueChars * charPx * VALUE_LABEL_FONT_RATIO;
+}
+var VALUE_LABEL_GAP_PX = 6;
+var VALUE_LABEL_LINE_PX = 14;
+function valueLabelReservePx(longestValueChars, charPx = CHAR_PX) {
+  if (longestValueChars <= 0) return 0;
+  return Math.ceil(longestValueChars * charPx * VALUE_LABEL_FONT_RATIO) + VALUE_LABEL_GAP_PX;
+}
+var ORDERED_PATTERNS = [
+  // ISO date, with or without a time part: 2026-01-15, 2026-01-15T09:30:00Z
+  /^\d{4}-\d{2}-\d{2}([T ]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})?)?$/,
+  // Year-month: 2026-01, 2026/1
+  /^\d{4}[-/]\d{1,2}$/,
+  // Year plus a period marker: 2026-Q1, 2026 H2, 2026W07
+  /^\d{4}[-/ ]?(q[1-4]|h[12]|w\d{1,2})$/i,
+  // The same written the other way round: Q1 2026, W07-2026
+  /^(q[1-4]|h[12]|w\d{1,2})[-/ ]?\d{4}$/i,
+  // Month name with a year: Jan 2026, January-2026, Jan. 26
+  /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?[\s,/-]+\d{2,4}$/i,
+  // And the other way round: 2026 Jan
+  /^\d{4}[\s,/-]+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?$/i
+];
+function isOrderedValue(value) {
+  if (typeof value === "number") return Number.isFinite(value);
+  if (value instanceof Date) return !Number.isNaN(value.getTime());
+  if (typeof value !== "string") return false;
+  const text = value.trim();
+  if (text === "") return false;
+  if (Number.isFinite(Number(text))) return true;
+  return ORDERED_PATTERNS.some((pattern) => pattern.test(text));
+}
+function isOrderedAxis(values) {
+  const sample = [];
+  for (const value of values) {
+    if (value === null || value === void 0 || value === "") continue;
+    sample.push(value);
+    if (sample.length >= ORDERED_SAMPLE_LIMIT) break;
+  }
+  if (sample.length === 0) return false;
+  let matches = 0;
+  for (const value of sample) {
+    if (isOrderedValue(value)) matches++;
+  }
+  return matches / sample.length >= ORDERED_RATIO;
+}
+function shouldFlipToHorizontal({
+  chartType,
+  rows,
+  longestLabelChars,
+  width,
+  ordered
+}) {
+  if (!FLIPPABLE_CHART_TYPES.has(chartType)) return false;
+  if (ordered) return false;
+  if (rows > FLIP_MIN_CATEGORIES) return true;
+  if (rows > FLIP_LONG_LABEL_CATEGORIES && longestLabelChars > FLIP_LONG_LABEL_CHARS) return true;
+  return width < NARROW_CHART_WIDTH_PX && rows > FLIP_LONG_LABEL_CATEGORIES;
+}
+function valueLabelAnchor(value) {
+  if (value < 0) return { side: "start", textAnchor: "end", dx: -VALUE_LABEL_GAP_PX };
+  return { side: "end", textAnchor: "start", dx: VALUE_LABEL_GAP_PX };
+}
+function valueSigns(data, keys) {
+  let positive = false;
+  let negative = false;
+  for (const row of data) {
+    for (const key of keys) {
+      const num = toFiniteNumber(row[key]);
+      if (num === null) continue;
+      if (num >= 0) positive = true;
+      else negative = true;
+      if (positive && negative) return { positive, negative };
+    }
+  }
+  return { positive, negative };
+}
+function deriveTitle(x, series) {
+  const measures = series.map((field) => field.label?.trim()).filter((label) => Boolean(label)).join(", ");
+  const dimension = x.label?.trim() ?? "";
+  if (measures && dimension) return `${measures} by ${dimension}`;
+  return measures || dimension;
+}
+function collapseSlices(rows, max = MAX_SLICES) {
+  if (max < 2 || rows.length <= max) return rows;
+  const keep = max - 1;
+  const kept = new Set(
+    rows.map((slice, index) => ({ index, value: slice.value })).sort((a, b) => b.value - a.value || a.index - b.index).slice(0, keep).map((entry) => entry.index)
+  );
+  const slices = [];
+  let otherTotal = 0;
+  let otherCount = 0;
+  rows.forEach((slice, index) => {
+    if (kept.has(index)) {
+      slices.push(slice);
+      return;
+    }
+    otherTotal += slice.value;
+    otherCount++;
+  });
+  slices.push({ name: `Other (${otherCount} categories)`, value: otherTotal });
+  return slices;
+}
+function planBarLayout({
+  chartType,
+  xValues,
+  orientation,
+  width,
+  mode,
+  seriesCount,
+  stacked,
+  charPx = CHAR_PX
+}) {
+  const categories = xValues.map((value) => String(value ?? ""));
+  const longestLabelChars = categories.reduce((longest, label) => Math.max(longest, label.length), 0);
+  const requestedHorizontal = orientation === "vertical";
+  const flipped = !requestedHorizontal && shouldFlipToHorizontal({
+    chartType,
+    rows: categories.length,
+    longestLabelChars,
+    width,
+    ordered: isOrderedAxis(xValues)
+  });
+  return {
+    horizontal: requestedHorizontal || flipped,
+    flipped,
+    categories,
+    layout: categoryLayout({
+      rows: categories.length,
+      width,
+      mode,
+      seriesCount,
+      stacked,
+      longestLabelChars,
+      charPx
+    })
+  };
+}
+var BASELINE_DY = {
+  start: "0.71em",
+  middle: "0.32em",
+  end: "-0.3em"
+};
+var LINE_DY = "1.1em";
+var WRAPPED_FIRST_DY = "-0.25em";
+function makeCategoryTick({ fitted, maxChars, allowWrap }) {
+  return function CategoryTick(props) {
+    const raw = String(props.payload?.value ?? "");
+    const x = Number(props.x);
+    const y = Number(props.y);
+    if (!Number.isFinite(x) || !Number.isFinite(y)) return null;
+    const lines = allowWrap ? wrapLabel(raw, maxChars) : null;
+    const printed = lines ?? [fitted.get(raw) ?? raw];
+    const firstDy = lines ? WRAPPED_FIRST_DY : BASELINE_DY[props.verticalAnchor] ?? BASELINE_DY.middle;
+    return /* @__PURE__ */ jsxRuntime.jsxs(
+      "text",
+      {
+        className: props.className,
+        x,
+        y,
+        fill: props.fill ?? CHART_Y_AXIS.stroke,
+        fontSize: CHART_Y_AXIS.fontSize,
+        fontFamily: CHART_Y_AXIS.fontFamily,
+        textAnchor: props.textAnchor,
+        children: [
+          /* @__PURE__ */ jsxRuntime.jsx("title", { children: raw }),
+          printed.map((line, index) => /* @__PURE__ */ jsxRuntime.jsx("tspan", { x, dy: index === 0 ? firstDy : LINE_DY, children: line }, `${line}-${index}`))
+        ]
+      }
+    );
+  };
+}
+function useCategoryTicks({
+  data,
+  xKey,
+  plotWidth,
+  charPx = CHAR_PX
+}) {
+  return react.useMemo(() => {
+    const categories = data.map((row) => String(row[xKey] ?? ""));
+    const longestLabelChars = categories.reduce(
+      (longest, label) => Math.max(longest, label.length),
+      0
+    );
+    const { interval, maxChars } = verticalCategoryTicks({
+      plotWidth,
+      rows: categories.length,
+      longestLabelChars,
+      charPx
+    });
+    const labels = fitCategoryLabels(categories, maxChars);
+    const fitted = /* @__PURE__ */ new Map();
+    categories.forEach((raw, index) => {
+      if (!fitted.has(raw)) fitted.set(raw, labels[index]);
+    });
+    return {
+      interval,
+      tick: makeCategoryTick({ fitted, maxChars, allowWrap: false }),
+      // recharts measures this string to lay the axis out, so it has to be the
+      // string that is actually painted — not the raw label.
+      tickFormatter: (value) => {
+        const raw = String(value ?? "");
+        return fitted.get(raw) ?? raw;
+      },
+      tooltipLabelFormatter: formatTooltipLabel
+    };
+  }, [data, xKey, plotWidth, charPx]);
+}
 function ChartEmpty({ label = "No data", reason }) {
   return /* @__PURE__ */ jsxRuntime.jsx(
     "div",
@@ -2570,81 +2977,238 @@ function ChartEmpty({ label = "No data", reason }) {
     }
   );
 }
-function BarChart({ data, x, series, options }) {
-  if (!data.length || !x.key || series.length === 0) {
-    return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, {});
-  }
-  const isVertical = options?.orientation === "vertical";
-  const showLegend = shouldShowLegend(series.length, options?.showLegend);
-  const seriesLabels = series.map((s) => s.label).join(", ");
-  return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxRuntime.jsxs(
-    recharts.BarChart,
-    {
-      data,
-      layout: isVertical ? "vertical" : "horizontal",
-      accessibilityLayer: true,
-      "aria-label": `Bar chart of ${seriesLabels} by ${x.label}`,
-      children: [
-        /* @__PURE__ */ jsxRuntime.jsx(recharts.CartesianGrid, { ...CHART_GRID_STYLE }),
-        isVertical ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntime.jsx(
-            recharts.XAxis,
-            {
-              ...CHART_X_AXIS,
-              type: "number",
-              domain: BAR_VALUE_DOMAIN,
-              tickFormatter: formatAxisTick
-            }
-          ),
-          /* @__PURE__ */ jsxRuntime.jsx(
-            recharts.YAxis,
-            {
-              ...CHART_Y_AXIS,
-              dataKey: x.key,
-              type: "category",
-              width: 100,
-              tickFormatter: shortenLabel
-            }
-          )
-        ] }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
-          /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
-          /* @__PURE__ */ jsxRuntime.jsx(
-            recharts.YAxis,
-            {
-              ...CHART_Y_AXIS,
-              type: "number",
-              width: "auto",
-              domain: BAR_VALUE_DOMAIN,
-              tickFormatter: formatAxisTick
-            }
-          )
-        ] }),
-        /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE, formatter: formatTooltipValue }),
-        showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
-        series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsx(
-          recharts.Bar,
-          {
-            dataKey: s.key,
-            name: s.label,
-            fill: getChartColor(index),
-            radius: 4,
-            stackId: options?.stacked ? "stack" : void 0,
-            isAnimationActive: true,
-            animationDuration: CHART_ANIMATION.duration,
-            animationEasing: CHART_ANIMATION.easing
-          },
-          s.key
-        ))
-      ]
+var DEFAULT_MARGIN_PX = 5;
+function BarChart({
+  data,
+  x,
+  series,
+  options,
+  mode = "inline",
+  width = DEFAULT_CHART_WIDTH_PX,
+  chartType = "bar",
+  plan
+}) {
+  const stacked = options?.stacked ?? false;
+  const seriesCount = series.length;
+  const charPx = measureCharPx();
+  const resolved = react.useMemo(
+    () => plan ?? planBarLayout({
+      chartType,
+      xValues: data.map((row) => row[x.key]),
+      orientation: options?.orientation,
+      width,
+      mode,
+      seriesCount,
+      stacked,
+      charPx
+    }),
+    [plan, chartType, data, x.key, options?.orientation, width, mode, seriesCount, stacked, charPx]
+  );
+  const { horizontal, flipped, categories, layout } = resolved;
+  const plotWidth = Math.max(1, width - VALUE_AXIS_ESTIMATE_PX);
+  const verticalTicks = useCategoryTicks({ data, xKey: x.key, plotWidth, charPx });
+  const horizontalTicks = react.useMemo(() => {
+    const maxChars = layout.maxChars;
+    const labels = fitCategoryLabels(categories, maxChars);
+    const fitted = /* @__PURE__ */ new Map();
+    categories.forEach((raw, index) => {
+      if (!fitted.has(raw)) fitted.set(raw, labels[index]);
+    });
+    return {
+      // Two lines need a tall band, so only a horizontal chart can offer them.
+      tick: makeCategoryTick({ fitted, maxChars, allowWrap: layout.bandPx >= BAND_PX }),
+      tickFormatter: (value) => {
+        const raw = String(value ?? "");
+        return fitted.get(raw) ?? raw;
+      }
+    };
+  }, [categories, layout.maxChars, layout.bandPx]);
+  const valueLabel = react.useMemo(() => makeValueLabel(horizontal), [horizontal]);
+  const seriesKeys = react.useMemo(() => series.map((field) => field.key), [series]);
+  const signs = react.useMemo(() => valueSigns(data, seriesKeys), [data, seriesKeys]);
+  const mixedSigns = signs.positive && signs.negative;
+  const longestValueChars = react.useMemo(() => {
+    let longest = 0;
+    for (const row of data) {
+      for (const key of seriesKeys) {
+        const value = row[key];
+        if (value === null || value === void 0 || value === "") continue;
+        if (!Number.isFinite(Number(value))) continue;
+        longest = Math.max(longest, formatAxisTick(value).length);
+      }
     }
-  ) });
+    return longest;
+  }, [data, seriesKeys]);
+  if (!data.length || !x.key || seriesCount === 0) {
+    return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, {});
+  }
+  const showLegend = shouldShowLegend(seriesCount, options?.showLegend);
+  const seriesLabels = series.map((s) => s.label).join(", ");
+  const showValueLabels = layout.showValueLabels && (horizontal || verticalValueLabelsFit(plotWidth, data.length * seriesCount, longestValueChars, charPx));
+  const reserve = showValueLabels ? valueLabelReservePx(longestValueChars, charPx) : 0;
+  const chartMargin = {
+    top: !horizontal && reserve > 0 ? DEFAULT_MARGIN_PX + VALUE_LABEL_LINE_PX : DEFAULT_MARGIN_PX,
+    right: horizontal && signs.positive ? DEFAULT_MARGIN_PX + reserve : DEFAULT_MARGIN_PX,
+    bottom: DEFAULT_MARGIN_PX,
+    // Negative bars grow leftwards, so their labels need the room on that side.
+    left: horizontal && signs.negative ? DEFAULT_MARGIN_PX + reserve : DEFAULT_MARGIN_PX
+  };
+  const categoryAxis = {
+    ...CHART_Y_AXIS,
+    dataKey: x.key,
+    ...horizontal ? horizontalTicks : { tick: verticalTicks.tick, tickFormatter: verticalTicks.tickFormatter }
+  };
+  return /* @__PURE__ */ jsxRuntime.jsx(
+    "div",
+    {
+      className: "h-full w-full min-w-0",
+      "data-cxc-layout": flipped ? "flipped" : void 0,
+      children: /* @__PURE__ */ jsxRuntime.jsx(
+        recharts.ResponsiveContainer,
+        {
+          width: "100%",
+          height: "100%",
+          initialDimension: CHART_INITIAL_DIMENSION,
+          debounce: mode === "expanded" ? 50 : 0,
+          children: /* @__PURE__ */ jsxRuntime.jsxs(
+            recharts.BarChart,
+            {
+              data,
+              margin: chartMargin,
+              layout: horizontal ? "vertical" : "horizontal",
+              accessibilityLayer: true,
+              "aria-label": `Bar chart of ${seriesLabels} by ${x.label}`,
+              children: [
+                /* @__PURE__ */ jsxRuntime.jsx(recharts.CartesianGrid, { ...CHART_GRID_STYLE }),
+                horizontal ? /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                  /* @__PURE__ */ jsxRuntime.jsx(
+                    recharts.XAxis,
+                    {
+                      ...CHART_X_AXIS,
+                      type: "number",
+                      domain: BAR_VALUE_DOMAIN,
+                      tickFormatter: formatAxisTick,
+                      orientation: mode === "expanded" ? "top" : "bottom"
+                    }
+                  ),
+                  /* @__PURE__ */ jsxRuntime.jsx(
+                    recharts.YAxis,
+                    {
+                      ...categoryAxis,
+                      type: "category",
+                      width: layout.axisWidth,
+                      interval: layout.interval
+                    }
+                  )
+                ] }) : /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+                  /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...categoryAxis, interval: verticalTicks.interval }),
+                  /* @__PURE__ */ jsxRuntime.jsx(
+                    recharts.YAxis,
+                    {
+                      ...CHART_Y_AXIS,
+                      type: "number",
+                      width: "auto",
+                      domain: BAR_VALUE_DOMAIN,
+                      tickFormatter: formatAxisTick
+                    }
+                  )
+                ] }),
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  recharts.Tooltip,
+                  {
+                    cursor: false,
+                    contentStyle: CHART_TOOLTIP_STYLE,
+                    formatter: formatTooltipValue,
+                    labelFormatter: verticalTicks.tooltipLabelFormatter
+                  }
+                ),
+                showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
+                mixedSigns && /* @__PURE__ */ jsxRuntime.jsx(recharts.ReferenceLine, { ...horizontal ? { x: 0 } : { y: 0 }, ...CHART_ZERO_LINE_STYLE }),
+                series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsx(
+                  recharts.Bar,
+                  {
+                    dataKey: s.key,
+                    name: s.label,
+                    fill: getChartColor(index),
+                    radius: 4,
+                    stackId: stacked ? "stack" : void 0,
+                    minPointSize: 2,
+                    isAnimationActive: layout.animate,
+                    animationDuration: CHART_ANIMATION.duration,
+                    animationEasing: CHART_ANIMATION.easing,
+                    children: showValueLabels && /* @__PURE__ */ jsxRuntime.jsx(recharts.LabelList, { dataKey: s.key, content: valueLabel })
+                  },
+                  s.key
+                ))
+              ]
+            }
+          )
+        }
+      )
+    }
+  );
 }
-function LineChart2({ data, x, series, options }) {
+function toBarRect(viewBox) {
+  if (!viewBox || typeof viewBox !== "object") return null;
+  const { x, y, width, height } = viewBox;
+  if (![x, y, width, height].every((value) => typeof value === "number" && Number.isFinite(value))) {
+    return null;
+  }
+  const [left, w] = normalize(x, width);
+  const [top, h] = normalize(y, height);
+  return { x: left, y: top, width: w, height: h };
+}
+function normalize(origin, extent) {
+  return extent < 0 ? [origin + extent, -extent] : [origin, extent];
+}
+function makeValueLabel(horizontal) {
+  return function BarValueLabel(props) {
+    const rect = toBarRect(props.viewBox);
+    const raw = props.value;
+    const value = typeof raw === "number" ? raw : Number(raw);
+    if (!rect || !Number.isFinite(value)) return /* @__PURE__ */ jsxRuntime.jsx(jsxRuntime.Fragment, {});
+    const anchor = valueLabelAnchor(value);
+    if (!horizontal) {
+      const above = value < 0;
+      return /* @__PURE__ */ jsxRuntime.jsx(
+        "text",
+        {
+          x: rect.x + rect.width / 2,
+          y: above ? rect.y + rect.height : rect.y,
+          dy: above ? "1em" : "-0.4em",
+          textAnchor: "middle",
+          ...CHART_VALUE_LABEL_STYLE,
+          children: formatAxisTick(value)
+        }
+      );
+    }
+    const edge = anchor.side === "end" ? rect.x + rect.width : rect.x;
+    return /* @__PURE__ */ jsxRuntime.jsx(
+      "text",
+      {
+        x: edge + anchor.dx,
+        y: rect.y + rect.height / 2,
+        dy: "0.32em",
+        textAnchor: anchor.textAnchor,
+        ...CHART_VALUE_LABEL_STYLE,
+        children: formatAxisTick(value)
+      }
+    );
+  };
+}
+function LineChart2({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX }) {
+  const ticks = useCategoryTicks({
+    data,
+    xKey: x.key,
+    plotWidth: Math.max(1, width - VALUE_AXIS_ESTIMATE_PX),
+    charPx: measureCharPx()
+  });
   if (!data.length || !x.key || series.length === 0) {
     return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, {});
   }
   const showLegend = shouldShowLegend(series.length, options?.showLegend);
   const seriesLabels = series.map((s) => s.label).join(", ");
+  const animate = data.length <= ANIMATION_MAX_ROWS;
   return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxRuntime.jsxs(
     recharts.LineChart,
     {
@@ -2653,9 +3217,26 @@ function LineChart2({ data, x, series, options }) {
       "aria-label": `Line chart of ${seriesLabels} by ${x.label}`,
       children: [
         /* @__PURE__ */ jsxRuntime.jsx(recharts.CartesianGrid, { ...CHART_GRID_STYLE }),
-        /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          recharts.XAxis,
+          {
+            ...CHART_X_AXIS,
+            dataKey: x.key,
+            tickFormatter: ticks.tickFormatter,
+            tick: ticks.tick,
+            interval: ticks.interval
+          }
+        ),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.YAxis, { ...CHART_Y_AXIS, width: "auto", tickFormatter: formatAxisTick }),
-        /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE, formatter: formatTooltipValue }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          recharts.Tooltip,
+          {
+            cursor: false,
+            contentStyle: CHART_TOOLTIP_STYLE,
+            formatter: formatTooltipValue,
+            labelFormatter: ticks.tooltipLabelFormatter
+          }
+        ),
         showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
         series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Line,
@@ -2667,7 +3248,7 @@ function LineChart2({ data, x, series, options }) {
             strokeWidth: 2,
             dot: seriesDotProp(data, s.key),
             activeDot: { r: 4, strokeWidth: 0 },
-            isAnimationActive: true,
+            isAnimationActive: animate,
             animationDuration: CHART_ANIMATION.duration,
             animationEasing: CHART_ANIMATION.easing
           },
@@ -2677,13 +3258,20 @@ function LineChart2({ data, x, series, options }) {
     }
   ) });
 }
-function AreaChart({ data, x, series, options }) {
+function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX }) {
   const uid = react.useId();
+  const ticks = useCategoryTicks({
+    data,
+    xKey: x.key,
+    plotWidth: Math.max(1, width - VALUE_AXIS_ESTIMATE_PX),
+    charPx: measureCharPx()
+  });
   if (!data.length || !x.key || series.length === 0) {
     return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, {});
   }
   const showLegend = shouldShowLegend(series.length, options?.showLegend);
   const seriesLabels = series.map((s) => s.label).join(", ");
+  const animate = data.length <= ANIMATION_MAX_ROWS;
   return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxRuntime.jsxs(
     recharts.AreaChart,
     {
@@ -2707,9 +3295,26 @@ function AreaChart({ data, x, series, options }) {
           s.key
         )) }),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.CartesianGrid, { ...CHART_GRID_STYLE }),
-        /* @__PURE__ */ jsxRuntime.jsx(recharts.XAxis, { ...CHART_X_AXIS, dataKey: x.key, tickFormatter: shortenLabel }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          recharts.XAxis,
+          {
+            ...CHART_X_AXIS,
+            dataKey: x.key,
+            tickFormatter: ticks.tickFormatter,
+            tick: ticks.tick,
+            interval: ticks.interval
+          }
+        ),
         /* @__PURE__ */ jsxRuntime.jsx(recharts.YAxis, { ...CHART_Y_AXIS, width: "auto", tickFormatter: formatAxisTick }),
-        /* @__PURE__ */ jsxRuntime.jsx(recharts.Tooltip, { cursor: false, contentStyle: CHART_TOOLTIP_STYLE, formatter: formatTooltipValue }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          recharts.Tooltip,
+          {
+            cursor: false,
+            contentStyle: CHART_TOOLTIP_STYLE,
+            formatter: formatTooltipValue,
+            labelFormatter: ticks.tooltipLabelFormatter
+          }
+        ),
         showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
         series.map((s, index) => /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Area,
@@ -2722,7 +3327,7 @@ function AreaChart({ data, x, series, options }) {
             strokeWidth: 2,
             dot: seriesDotProp(data, s.key),
             stackId: options?.stacked ? "stack" : void 0,
-            isAnimationActive: true,
+            isAnimationActive: animate,
             animationDuration: CHART_ANIMATION.duration,
             animationEasing: CHART_ANIMATION.easing
           },
@@ -2732,20 +3337,44 @@ function AreaChart({ data, x, series, options }) {
     }
   ) });
 }
+function readSlices(rows) {
+  let total = 0;
+  for (const slice of rows) {
+    if (!Number.isFinite(slice.value) || slice.value < 0) return { slices: [], invalid: true };
+    total += slice.value;
+  }
+  if (!(total > 0)) return { slices: [], invalid: true };
+  return { slices: collapseSlices(rows, MAX_SLICES), invalid: false };
+}
 function PieChart({ data, x, series, options, donut = false }) {
   const valueKey = series[0]?.key;
   const valueLabel = series[0]?.label ?? "";
-  const chartData = react.useMemo(() => {
-    if (!data.length || !x.key || !valueKey) return [];
-    return data.map((row) => ({
-      name: String(row[x.key] ?? ""),
-      value: Number(row[valueKey]) || 0
-    }));
+  const { slices, invalid } = react.useMemo(() => {
+    if (!data.length || !x.key || !valueKey) return { slices: [], invalid: false };
+    return readSlices(
+      data.map((row) => {
+        const raw = row[valueKey];
+        return {
+          name: String(row[x.key] ?? ""),
+          // A blank cell is a missing measurement, so it takes no share.
+          value: raw === null || raw === void 0 || raw === "" ? 0 : Number(raw)
+        };
+      })
+    );
   }, [data, x.key, valueKey]);
-  if (!chartData.length) {
+  if (invalid) {
+    return /* @__PURE__ */ jsxRuntime.jsx(
+      ChartEmpty,
+      {
+        label: "These values cannot be drawn as a pie: a share of a whole cannot be negative.",
+        reason: "pie_invalid_values"
+      }
+    );
+  }
+  if (!slices.length) {
     return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, { label: "No data available" });
   }
-  const showLegend = shouldShowLegend(chartData.length, options?.showLegend);
+  const showLegend = shouldShowLegend(slices.length, options?.showLegend);
   return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxRuntime.jsxs(
     recharts.PieChart,
     {
@@ -2755,7 +3384,7 @@ function PieChart({ data, x, series, options, donut = false }) {
         /* @__PURE__ */ jsxRuntime.jsx(
           recharts.Pie,
           {
-            data: chartData,
+            data: slices,
             dataKey: "value",
             nameKey: "name",
             cx: "50%",
@@ -2764,15 +3393,16 @@ function PieChart({ data, x, series, options, donut = false }) {
             outerRadius: "80%",
             paddingAngle: 2,
             strokeWidth: 0,
+            isAnimationActive: slices.length <= ANIMATION_MAX_ROWS,
             animationDuration: CHART_ANIMATION.duration,
             animationEasing: CHART_ANIMATION.easing,
-            children: chartData.map((_, index) => /* @__PURE__ */ jsxRuntime.jsx(
+            children: slices.map((slice, index) => /* @__PURE__ */ jsxRuntime.jsx(
               recharts.Cell,
               {
                 fill: getChartColor(index),
                 className: "outline-none focus:outline-none"
               },
-              `cell-${index}`
+              `cell-${slice.name}-${index}`
             ))
           }
         ),
@@ -2858,7 +3488,7 @@ function resolveBoxPlotSeries(series) {
   );
   return { fields, missing: [] };
 }
-function toFiniteNumber(value) {
+function toFiniteNumber2(value) {
   if (value === null || value === void 0 || value === "") return null;
   const num = typeof value === "number" ? value : Number(value);
   return Number.isFinite(num) ? num : null;
@@ -2869,7 +3499,7 @@ function parseBoxPlotRows(data, categoryKey) {
   let nonNumeric = 0;
   let nonMonotonic = 0;
   for (const row of data) {
-    const values = BOX_PLOT_KEYS.map((key) => toFiniteNumber(row[key]));
+    const values = BOX_PLOT_KEYS.map((key) => toFiniteNumber2(row[key]));
     if (values.some((value) => value === null)) {
       nonNumeric++;
       continue;
@@ -2929,8 +3559,6 @@ function makeValueScale([min, max], plotTop, plotHeight) {
   if (span <= 0) return () => plotTop + plotHeight / 2;
   return (value) => plotTop + plotHeight - (value - min) / span * plotHeight;
 }
-var CHAR_WIDTH = 6.6;
-var MIN_LABEL_WIDTH = 44;
 var AXIS_LABEL_GAP = 8;
 var CATEGORY_AXIS_HEIGHT = 22;
 var PLOT_PADDING_TOP = 10;
@@ -2940,14 +3568,14 @@ var MAX_BOX_WIDTH = 44;
 var BOX_WIDTH_RATIO = 0.62;
 function computeBoxPlotLayout(width, height, categoryCount, axisTickLabels) {
   const widestTick = axisTickLabels.reduce((longest, label) => Math.max(longest, label.length), 0);
-  const plotLeft = Math.min(width * 0.4, widestTick * CHAR_WIDTH + AXIS_LABEL_GAP);
+  const plotLeft = Math.min(width * 0.4, widestTick * CHAR_PX + AXIS_LABEL_GAP);
   const plotWidth = Math.max(0, width - plotLeft - PLOT_PADDING_RIGHT);
   const plotHeight = Math.max(0, height - PLOT_PADDING_TOP - CATEGORY_AXIS_HEIGHT);
   const bands = Math.max(1, categoryCount);
   const bandWidth = plotWidth / bands;
   const boxWidth = Math.min(MAX_BOX_WIDTH, Math.max(MIN_BOX_WIDTH, bandWidth * BOX_WIDTH_RATIO));
   const labelStride = Math.max(1, Math.ceil(MIN_LABEL_WIDTH / Math.max(1, bandWidth)));
-  const labelMaxChars = Math.max(1, Math.floor((bandWidth * labelStride - 4) / CHAR_WIDTH));
+  const labelMaxChars = Math.max(1, Math.floor((bandWidth * labelStride - 4) / CHAR_PX));
   return {
     plotLeft,
     plotTop: PLOT_PADDING_TOP,
@@ -2961,23 +3589,6 @@ function computeBoxPlotLayout(width, height, categoryCount, axisTickLabels) {
 }
 function bandCenter(layout, index) {
   return layout.plotLeft + layout.bandWidth * (index + 0.5);
-}
-function fitLabel(label, maxChars) {
-  if (label.length <= maxChars) return label;
-  if (maxChars <= 1) return label.slice(0, 1);
-  return `${label.slice(0, maxChars - 1)}\u2026`;
-}
-function fitLabelBothEnds(label, maxChars) {
-  if (label.length <= maxChars) return label;
-  if (maxChars <= 2) return label.slice(0, Math.max(1, maxChars));
-  const keep = maxChars - 1;
-  const tail = Math.floor(keep / 2);
-  return `${label.slice(0, keep - tail)}\u2026${label.slice(label.length - tail)}`;
-}
-function fitCategoryLabels(labels, maxChars) {
-  const fromStart = labels.map((label) => fitLabel(label, maxChars));
-  if (new Set(fromStart).size === new Set(labels).size) return fromStart;
-  return labels.map((label) => fitLabelBothEnds(label, maxChars));
 }
 var BOX_FILL_OPACITY = 0.18;
 var BOX_STROKE_WIDTH = 1.5;
@@ -3299,7 +3910,7 @@ function useElementSize() {
   }, []);
   return [ref, size];
 }
-function toChartOptions(block) {
+function chartOptionsFor(block) {
   const stacked = block.options?.stacked ?? (block.chart_type === "bar_stacked" || block.chart_type === "area_stacked");
   const orientation = block.options?.orientation ?? (block.chart_type === "bar_horizontal" ? "vertical" : void 0);
   return {
@@ -3308,12 +3919,16 @@ function toChartOptions(block) {
     orientation
   };
 }
-function ChartDispatch({ block }) {
+function ChartDispatch({ block, mode, width, plan }) {
   const props = {
     data: block.data,
     x: block.x,
     series: block.series,
-    options: toChartOptions(block)
+    options: chartOptionsFor(block),
+    mode,
+    width,
+    chartType: block.chart_type,
+    plan
   };
   switch (block.chart_type) {
     case "bar":
@@ -3337,6 +3952,25 @@ function ChartDispatch({ block }) {
     default:
       return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, { label: "Unsupported chart type" });
   }
+}
+function useElementWidth(ref, fallback = DEFAULT_CHART_WIDTH_PX) {
+  const [width, setWidth] = react.useState(fallback);
+  react.useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    if (typeof window === "undefined" || typeof ResizeObserver === "undefined") {
+      const measured2 = element.getBoundingClientRect().width;
+      if (measured2 > 0) setWidth(measured2);
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const measured2 = entries[0]?.contentRect.width ?? 0;
+      if (measured2 > 0) setWidth(measured2);
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref, fallback]);
+  return width;
 }
 
 // src/aui/csv.ts
@@ -3369,28 +4003,113 @@ function downloadCsv(filename, content) {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
+function useBarPlan(block, width, mode) {
+  const options = react.useMemo(() => chartOptionsFor(block), [block]);
+  return react.useMemo(() => {
+    if (!BAR_CHART_TYPES.has(block.chart_type)) return null;
+    return planBarLayout({
+      chartType: block.chart_type,
+      xValues: block.data.map((row) => row[block.x.key]),
+      orientation: options.orientation,
+      width,
+      mode,
+      seriesCount: block.series.length,
+      stacked: options.stacked ?? false,
+      charPx: measureCharPx()
+    });
+  }, [block, options, width, mode]);
+}
 function ChartBlock({ block }) {
   const [expanded, setExpanded] = react.useState(false);
+  const hostRef = react.useRef(null);
+  const width = useElementWidth(hostRef, DEFAULT_CHART_WIDTH_PX);
+  const plan = useBarPlan(block, width, "inline");
+  const shownRows = plan?.horizontal ? plan.layout.shownRows : block.data.length;
+  const inlineBlock = react.useMemo(
+    () => shownRows < block.data.length ? { ...block, data: block.data.slice(0, shownRows) } : block,
+    [block, shownRows]
+  );
+  const total = block.data.length;
+  const shown = inlineBlock.data.length;
+  const title = (block.title ?? "").trim() || deriveTitle(block.x, block.series) || "Chart";
   const csvColumns = react.useMemo(
     () => [{ key: block.x.key, label: block.x.label }, ...block.series.map((s) => ({ key: s.key, label: s.label }))],
     [block.x, block.series]
   );
   const handleExport = react.useCallback(() => {
-    downloadCsv(block.title || "chart", rowsToCsv(csvColumns, block.data));
-  }, [block.title, block.data, csvColumns]);
+    downloadCsv(title, rowsToCsv(csvColumns, block.data));
+  }, [title, block.data, csvColumns]);
   const openExpand = react.useCallback(() => setExpanded(true), []);
   const closeExpand = react.useCallback(() => setExpanded(false), []);
   return /* @__PURE__ */ jsxRuntime.jsxs(Card, { padding: "sm", children: [
     /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "mb-3 flex items-center justify-between gap-2", children: [
-      /* @__PURE__ */ jsxRuntime.jsx("h4", { className: "truncate text-sm font-semibold", style: { color: "var(--cx-text-primary)" }, children: block.title || "Chart" }),
+      /* @__PURE__ */ jsxRuntime.jsx("h4", { className: "truncate text-sm font-semibold", style: { color: "var(--cx-text-primary)" }, children: title }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex shrink-0 items-center gap-1", children: [
         /* @__PURE__ */ jsxRuntime.jsx(IconButton, { label: "Download CSV", onClick: handleExport, children: /* @__PURE__ */ jsxRuntime.jsx(DownloadIcon, {}) }),
         /* @__PURE__ */ jsxRuntime.jsx(IconButton, { label: "Expand chart", onClick: openExpand, children: /* @__PURE__ */ jsxRuntime.jsx(ExpandIcon, {}) })
       ] })
     ] }),
-    /* @__PURE__ */ jsxRuntime.jsx("div", { className: "h-64 min-h-64 w-full min-w-0", children: /* @__PURE__ */ jsxRuntime.jsx(ChartDispatch, { block }) }),
-    /* @__PURE__ */ jsxRuntime.jsx(Dialog, { open: expanded, onClose: closeExpand, title: block.title || "Chart", children: /* @__PURE__ */ jsxRuntime.jsx("div", { className: "h-[60vh] w-full min-w-0", children: /* @__PURE__ */ jsxRuntime.jsx(ChartDispatch, { block }) }) })
+    /* @__PURE__ */ jsxRuntime.jsx(
+      "div",
+      {
+        ref: hostRef,
+        className: "w-full min-w-0",
+        style: { height: plan?.horizontal ? plan.layout.hostHeight : VERTICAL_CHART_HEIGHT_PX },
+        "data-cxc-shown": shown,
+        "data-cxc-total": total,
+        children: /* @__PURE__ */ jsxRuntime.jsx(ChartDispatch, { block: inlineBlock, mode: "inline", width, plan: plan ?? void 0 })
+      }
+    ),
+    shown < total && // Every cut is printed. The renderer never drops a row silently, and
+    // the wire order is kept — an ORDER BY ranking IS the answer.
+    /* @__PURE__ */ jsxRuntime.jsxs(
+      "div",
+      {
+        className: "mt-2 flex items-center gap-1.5 text-xs",
+        style: { color: "var(--cx-text-muted)" },
+        children: [
+          /* @__PURE__ */ jsxRuntime.jsxs("span", { children: [
+            "Showing ",
+            shown,
+            " of ",
+            total
+          ] }),
+          /* @__PURE__ */ jsxRuntime.jsx("span", { "aria-hidden": "true", children: "\xB7" }),
+          /* @__PURE__ */ jsxRuntime.jsx(
+            "button",
+            {
+              type: "button",
+              onClick: openExpand,
+              className: "font-medium hover:underline focus:outline-none focus-visible:ring-2",
+              style: { color: "var(--cx-accent)" },
+              children: "View all"
+            }
+          )
+        ]
+      }
+    ),
+    /* @__PURE__ */ jsxRuntime.jsx(Dialog, { open: expanded, onClose: closeExpand, title, size: "lg", children: /* @__PURE__ */ jsxRuntime.jsx(ExpandedChart, { block }) })
   ] });
+}
+function ExpandedChart({ block }) {
+  const hostRef = react.useRef(null);
+  const width = useElementWidth(hostRef, EXPANDED_CHART_WIDTH_PX);
+  const plan = useBarPlan(block, width, "expanded");
+  return /* @__PURE__ */ jsxRuntime.jsx(
+    "div",
+    {
+      ref: hostRef,
+      className: "w-full min-w-0",
+      style: plan?.horizontal ? { height: plan.layout.hostHeight } : (
+        // A vertical chart cannot use its rows to earn height, so it takes a
+        // share of the viewport with a floor for short laptop screens.
+        { height: "60vh", minHeight: EXPANDED_VERTICAL_MIN_HEIGHT_PX }
+      ),
+      "data-cxc-shown": block.data.length,
+      "data-cxc-total": block.data.length,
+      children: /* @__PURE__ */ jsxRuntime.jsx(ChartDispatch, { block, mode: "expanded", width, plan: plan ?? void 0 })
+    }
+  );
 }
 function IconButton({
   label,

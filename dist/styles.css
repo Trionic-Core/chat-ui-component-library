@@ -417,12 +417,6 @@
   .h-14 {
     height: calc(var(--spacing) * 14);
   }
-  .h-64 {
-    height: calc(var(--spacing) * 64);
-  }
-  .h-\[60vh\] {
-    height: 60vh;
-  }
   .h-full {
     height: 100%;
   }
@@ -438,14 +432,14 @@
   .max-h-\[60vh\] {
     max-height: 60vh;
   }
+  .max-h-\[80vh\] {
+    max-height: 80vh;
+  }
   .min-h-0 {
     min-height: 0px;
   }
   .min-h-9 {
     min-height: calc(var(--spacing) * 9);
-  }
-  .min-h-64 {
-    min-height: calc(var(--spacing) * 64);
   }
   .w-0\.5 {
     width: calc(var(--spacing) * 0.5);
@@ -480,6 +474,9 @@
   .w-\[300px\] {
     width: 300px;
   }
+  .w-\[min\(92vw\,1024px\)\] {
+    width: min(92vw, 1024px);
+  }
   .w-full {
     width: 100%;
   }
@@ -506,6 +503,9 @@
   }
   .max-w-lg {
     max-width: var(--container-lg);
+  }
+  .max-w-none {
+    max-width: none;
   }
   .max-w-sm {
     max-width: var(--container-sm);
@@ -933,6 +933,10 @@
   .italic {
     font-style: italic;
   }
+  .ordinal {
+    --tw-ordinal: ordinal;
+    font-variant-numeric: var(--tw-ordinal,) var(--tw-slashed-zero,) var(--tw-numeric-figure,) var(--tw-numeric-spacing,) var(--tw-numeric-fraction,);
+  }
   .tabular-nums {
     --tw-numeric-spacing: tabular-nums;
     font-variant-numeric: var(--tw-ordinal,) var(--tw-slashed-zero,) var(--tw-numeric-figure,) var(--tw-numeric-spacing,) var(--tw-numeric-fraction,);
@@ -971,6 +975,9 @@
   }
   .invert {
     --tw-invert: invert(100%);
+    filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
+  }
+  .filter {
     filter: var(--tw-blur,) var(--tw-brightness,) var(--tw-contrast,) var(--tw-grayscale,) var(--tw-hue-rotate,) var(--tw-invert,) var(--tw-saturate,) var(--tw-sepia,) var(--tw-drop-shadow,);
   }
   .transition {
@@ -1043,6 +1050,9 @@
   @media (hover: hover) {
     .hover\:bg-\[var\(--cx-canvas-muted\)\]:hover {
       background-color: var(--cx-canvas-muted);
+    }
+    .hover\:underline:hover {
+      text-decoration-line: underline;
     }
     .hover\:opacity-80:hover {
       opacity: 80%;

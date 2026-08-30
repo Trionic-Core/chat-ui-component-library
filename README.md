@@ -541,6 +541,49 @@ const {
 
 ---
 
+## Agentic UI (AUI)
+
+`AuiView` renders the `ViewSpec` blocks the agent emits — KPI cards, charts, tables, text and
+actions. See **[INTEGRATION.md](./INTEGRATION.md)** for the protocol and the host wiring.
+
+### Chart legibility (v0.8.0)
+
+Charts apply a legibility policy automatically. The agent chooses the question, the chart type
+and the labels; the renderer decides how much room those need. No wire change and no host
+configuration — a chart that used to draw 62 categories into a fixed 256px box now reads.
+
+What the renderer does on its own:
+
+| Behaviour | Rule |
+|---|---|
+| **Height from the data** | A horizontal bar chart is `rows x 28px + 46px`, not a fixed box. |
+| **Inline cap** | 12 categories inline, in wire order. The footer prints `Showing 12 of 62 · View all`; the expand view lists every row at the same band. |
+| **Orientation** | A `bar`/`bar_grouped`/`bar_stacked` chart flips to horizontal bars past 12 categories, or past 6 with labels over 12 characters. **Never when the axis is ordered** — dates, year-months, years, month+year and finite numbers all carry meaning in their sequence, so a monthly chart and a store-number chart both keep reading left to right (judged on the values, never on the column name). The host records a flip in `data-cxc-layout="flipped"`. |
+| **Labels** | Fitted to the axis the chart actually has, and fitted as a SET: when a prefix is shared ("Variant #12…"), the whole set switches to middle truncation so each label still identifies its bar. The full label is in a `<title>` and in the tooltip. |
+| **Ticks** | Every tick on a horizontal bar chart; on a vertical category axis one tick every N bands, where N is what the LONGEST label needs (`ceil((chars x charPx + 8) / band)`) — so the surviving labels print whole instead of truncating into each other — capped so at least 4 ticks remain, and handed to recharts as a numeric `interval` rather than a string it would re-derive from the truncated text. |
+| **Value labels** | Printed on every bar once the band is 22px and the chart is 360px wide — a touch device has no hover. Off for stacked series (segments would overlap) and for a vertical bar whose band is narrower than the number. The chart reserves margin on whichever side the labels hang, so the longest bar's number is not clipped. |
+| **Zero line** | Drawn only when the data crosses zero. Bars stay linear and zero-anchored; there is no log scale on a bar. |
+| **Pie / donut** | Above 8 slices the tail collapses into one `Other (k categories)` slice. Negative values or a zero total are refused (`data-cxc-empty-reason="pie_invalid_values"`) instead of drawn as a false whole. |
+| **Title** | Derived as `"<series labels> by <x label>"` when the block carries no title. Never the literal "Chart". |
+| **Animation** | Off above 30 rows, so the first readable frame is not delayed on a slow device. |
+
+The renderer never re-sorts, never drops a row silently, and never adds an "Other" bar to a
+ranking (that would be a number the agent never computed). Every threshold is a named constant in
+`src/aui/charts/chart-layout.ts`:
+
+```
+BAND_PX 28   MIN_BAND_PX 22   INLINE_MAX_CATEGORIES 12   CHART_CHROME_PX 46
+INLINE_MIN_HEIGHT_PX 200      VERTICAL_CHART_HEIGHT_PX 256
+AXIS_MIN_WIDTH_PX 72          AXIS_MAX_WIDTH_RATIO 0.4    LABEL_MAX_CHARS 28
+FLIP_MIN_CATEGORIES 12        FLIP_LONG_LABEL_CATEGORIES 6 / FLIP_LONG_LABEL_CHARS 12
+VALUE_LABEL_MIN_WIDTH_PX 360  ANIMATION_MAX_ROWS 30        MAX_SLICES 8
+TICK_GAP_PX 8                 MIN_VISIBLE_TICKS 4
+```
+
+Diagnostics on the chart host: `data-cxc-shown`, `data-cxc-total`, `data-cxc-layout`.
+
+---
+
 ## Theming
 
 The library uses CSS custom properties with the `--cxc-` prefix. Override them at any scope:

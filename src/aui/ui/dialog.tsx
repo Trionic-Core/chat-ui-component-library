@@ -18,12 +18,32 @@ interface DialogProps {
   onClose: () => void
   title: string
   children: ReactNode
+  /**
+   * Panel width. "md" (default) is the table's expand view; "lg" is for
+   * content that earns the extra pixels — an expanded chart is 984px wide
+   * against 600px inline, and its body scrolls instead of squeezing.
+   */
+  size?: DialogSize
+}
+
+type DialogSize = 'md' | 'lg'
+
+const PANEL_SIZE: Record<DialogSize, string> = {
+  md: 'w-full max-w-3xl',
+  lg: 'w-[min(92vw,1024px)] max-w-none',
+}
+
+const BODY_SIZE: Record<DialogSize, string> = {
+  md: 'px-5 py-4',
+  // The tall expanded chart scrolls inside the dialog rather than pushing the
+  // panel past the viewport, where its header would be unreachable.
+  lg: 'px-5 py-4 max-h-[80vh] overflow-y-auto',
 }
 
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
-export function Dialog({ open, onClose, title, children }: DialogProps) {
+export function Dialog({ open, onClose, title, children, size = 'md' }: DialogProps) {
   const overlayRef = useRef<HTMLDivElement>(null)
   const panelRef = useRef<HTMLDivElement>(null)
   // The element focused before the dialog opened, restored when it closes.
@@ -108,7 +128,7 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
       <div
         ref={panelRef}
         tabIndex={-1}
-        className="w-full max-w-3xl rounded-lg border focus:outline-none"
+        className={`${PANEL_SIZE[size]} rounded-lg border focus:outline-none`}
         style={{
           borderColor: 'var(--cx-border)',
           backgroundColor: 'var(--cx-canvas)',
@@ -145,7 +165,7 @@ export function Dialog({ open, onClose, title, children }: DialogProps) {
             </svg>
           </button>
         </div>
-        <div className="px-5 py-4">{children}</div>
+        <div className={BODY_SIZE[size]}>{children}</div>
       </div>
     </div>
   )

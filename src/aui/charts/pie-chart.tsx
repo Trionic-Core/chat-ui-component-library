@@ -16,11 +16,38 @@ import {
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
 import { shouldShowLegend, formatTooltipValue } from './chart-helpers'
+import { ANIMATION_MAX_ROWS, MAX_SLICES, collapseSlices, type PieSlice } from './chart-layout'
 import { ChartEmpty } from './chart-empty'
 
 interface PieChartProps extends ChartProps {
   /** Render as a donut (inner radius cut out). Maps the "donut" chart_type. */
   donut?: boolean
+}
+
+/** A pie's slices, or the reason there is no honest pie to draw. */
+interface PieData {
+  slices: PieSlice[]
+  invalid: boolean
+}
+
+/**
+ * Read the rows into slices, refusing anything a pie cannot honestly show.
+ *
+ * A pie asserts that its slices are the parts of one whole. Negative values
+ * have no share of a whole, and a zero or non-numeric total has no whole to
+ * divide — the old `Number(v) || 0` quietly turned both into a confident,
+ * meaningless picture. Blank cells still count as zero; that is a missing
+ * measurement, not a contradiction.
+ */
+function readSlices(rows: PieSlice[]): PieData {
+  let total = 0
+  for (const slice of rows) {
+    if (!Number.isFinite(slice.value) || slice.value < 0) return { slices: [], invalid: true }
+    total += slice.value
+  }
+  if (!(total > 0)) return { slices: [], invalid: true }
+
+  return { slices: collapseSlices(rows, MAX_SLICES), invalid: false }
 }
 
 /**
@@ -34,19 +61,34 @@ export function PieChart({ data, x, series, options, donut = false }: PieChartPr
   const valueKey = series[0]?.key
   const valueLabel = series[0]?.label ?? ''
 
-  const chartData = useMemo(() => {
-    if (!data.length || !x.key || !valueKey) return []
-    return data.map((row) => ({
-      name: String(row[x.key] ?? ''),
-      value: Number(row[valueKey]) || 0,
-    }))
+  const { slices, invalid } = useMemo<PieData>(() => {
+    if (!data.length || !x.key || !valueKey) return { slices: [], invalid: false }
+    return readSlices(
+      data.map((row) => {
+        const raw = row[valueKey]
+        return {
+          name: String(row[x.key] ?? ''),
+          // A blank cell is a missing measurement, so it takes no share.
+          value: raw === null || raw === undefined || raw === '' ? 0 : Number(raw),
+        }
+      }),
+    )
   }, [data, x.key, valueKey])
 
-  if (!chartData.length) {
+  if (invalid) {
+    return (
+      <ChartEmpty
+        label="These values cannot be drawn as a pie: a share of a whole cannot be negative."
+        reason="pie_invalid_values"
+      />
+    )
+  }
+
+  if (!slices.length) {
     return <ChartEmpty label="No data available" />
   }
 
-  const showLegend = shouldShowLegend(chartData.length, options?.showLegend)
+  const showLegend = shouldShowLegend(slices.length, options?.showLegend)
 
   return (
     <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
@@ -55,7 +97,7 @@ export function PieChart({ data, x, series, options, donut = false }: PieChartPr
         aria-label={`${donut ? 'Donut' : 'Pie'} chart of ${valueLabel} by ${x.label}`}
       >
         <Pie
-          data={chartData}
+          data={slices}
           dataKey="value"
           nameKey="name"
           cx="50%"
@@ -64,12 +106,13 @@ export function PieChart({ data, x, series, options, donut = false }: PieChartPr
           outerRadius="80%"
           paddingAngle={2}
           strokeWidth={0}
+          isAnimationActive={slices.length <= ANIMATION_MAX_ROWS}
           animationDuration={CHART_ANIMATION.duration}
           animationEasing={CHART_ANIMATION.easing}
         >
-          {chartData.map((_, index) => (
+          {slices.map((slice, index) => (
             <Cell
-              key={`cell-${index}`}
+              key={`cell-${slice.name}-${index}`}
               fill={getChartColor(index)}
               className="outline-none focus:outline-none"
             />

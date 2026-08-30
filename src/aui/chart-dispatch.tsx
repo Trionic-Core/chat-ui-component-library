@@ -19,10 +19,16 @@ import {
   type ChartOptions,
 } from './charts'
 import { ChartEmpty } from './charts/chart-empty'
+import type { BarLayoutPlan, ChartRenderMode } from './charts/chart-layout'
 import type { ChartBlock } from './aui-types'
 
-/** Translate the emitted snake_case options to the wrappers' camelCase props. */
-function toChartOptions(block: ChartBlock): ChartOptions {
+/**
+ * Translate the emitted snake_case options to the wrappers' camelCase props.
+ *
+ * Exported because the block plans a bar chart's layout before it renders one,
+ * and both have to read the same orientation and the same stacking.
+ */
+export function chartOptionsFor(block: ChartBlock): ChartOptions {
   const stacked =
     block.options?.stacked ??
     (block.chart_type === 'bar_stacked' || block.chart_type === 'area_stacked')
@@ -37,12 +43,25 @@ function toChartOptions(block: ChartBlock): ChartOptions {
   }
 }
 
-export function ChartDispatch({ block }: { block: ChartBlock }) {
+interface ChartDispatchProps {
+  block: ChartBlock
+  /** Render context from the block; a bare dispatch renders inline defaults. */
+  mode?: ChartRenderMode
+  width?: number
+  /** Bar-family layout the block already decided (and sliced `data` to match). */
+  plan?: BarLayoutPlan
+}
+
+export function ChartDispatch({ block, mode, width, plan }: ChartDispatchProps) {
   const props: ChartProps = {
     data: block.data,
     x: block.x,
     series: block.series,
-    options: toChartOptions(block),
+    options: chartOptionsFor(block),
+    mode,
+    width,
+    chartType: block.chart_type,
+    plan,
   }
 
   switch (block.chart_type) {

@@ -9,6 +9,7 @@ import {
   chartLegendProps,
   countPlottablePoints,
   formatAxisTick,
+  formatTooltipLabel,
   formatTooltipValue,
   seriesDotProp,
 } from './chart-helpers'
@@ -50,6 +51,8 @@ vi.mock('recharts', async () => {
     'CartesianGrid',
     'Tooltip',
     'Legend',
+    'LabelList',
+    'ReferenceLine',
   ]
   // The chart roots render a real <svg> so SVG-namespaced children (the area
   // chart's <defs><linearGradient>) stay in an SVG context; anything else would
@@ -89,6 +92,11 @@ function block(
 function render(chart: ChartBlock) {
   renderToStaticMarkup(createElement(ChartDispatch, { block: chart }))
   return captured
+}
+
+/** The markup itself, for the refusal paths that never reach recharts. */
+function renderHtml(chart: ChartBlock) {
+  return renderToStaticMarkup(createElement(ChartDispatch, { block: chart }))
 }
 
 function all(type: string) {
@@ -268,4 +276,121 @@ describe('legend text is legible, not the series colour', () => {
       expect(one('Legend').labelStyle).toMatchObject({ color: 'var(--cx-text-secondary)' })
     },
   )
+})
+
+describe('category axes print a label that identifies its mark', () => {
+  const OUTLETS: DataRow[] = Array.from({ length: 24 }, (_, i) => ({
+    month: `Region ${i + 1} distribution centre`,
+    revenue: i * 100,
+  }))
+
+  /** Two years, so a fitter that drops the year digit is caught. */
+  const TWO_YEARS: DataRow[] = Array.from({ length: 24 }, (_, i) => ({
+    month: `${2025 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`,
+    revenue: 400000 + i * 9100,
+  }))
+
+  it.each(['line', 'area', 'bar'] as const)('%s thins its ticks on a fixed stride', (chartType) => {
+    // A NUMBER, not "equidistantPreserveStart": with the string, recharts chose
+    // its own stride by measuring the already-truncated text, so its stride and
+    // the label budget disagreed and the budget was the wrong one.
+    render(block(chartType, TWO_YEARS))
+    const interval = one('XAxis').interval
+    expect(typeof interval).toBe('number')
+    expect(interval).toBe(2)
+  })
+
+  it.each(['line', 'area', 'bar'] as const)(
+    '%s keeps two years of months apart on the axis',
+    (chartType) => {
+      // The defect: at a six-character budget "2025-01" and "2026-01" both
+      // printed "202…01". The stride now comes from what the label needs.
+      render(block(chartType, TWO_YEARS))
+      const axis = one('XAxis')
+      const format = axis.tickFormatter as (value: unknown) => string
+      const stride = (axis.interval as number) + 1
+      const shown = TWO_YEARS.filter((_, index) => index % stride === 0)
+      const printed = shown.map((row) => format(row.month))
+      expect(new Set(printed).size).toBe(printed.length)
+      for (const label of printed) expect(label).not.toContain('…')
+    },
+  )
+
+  it.each(['line', 'area'] as const)('%s renders the shared tick component', (chartType) => {
+    render(block(chartType, TWO_YEARS))
+    expect(typeof one('XAxis').tick).toBe('function')
+  })
+
+  it.each(['line', 'area', 'bar', 'bar_horizontal'] as const)(
+    '%s puts the full category in the tooltip',
+    (chartType) => {
+      render(block(chartType, MONTHS))
+      expect(one('Tooltip').labelFormatter).toBe(formatTooltipLabel)
+    },
+  )
+
+  it.each([
+    ['line', 'Line'],
+    ['area', 'Area'],
+  ] as const)('%s stops animating past the row budget', (chartType, mark) => {
+    render(block(chartType, MONTHS))
+    expect(one(mark).isAnimationActive).toBe(true)
+
+    captured.length = 0
+    const dense: DataRow[] = Array.from({ length: 40 }, (_, i) => ({ month: `M${i}`, revenue: i }))
+    render(block(chartType, dense))
+    expect(one(mark).isAnimationActive).toBe(false)
+  })
+
+})
+
+describe('pie and donut refuse what a pie cannot say', () => {
+  const slices = (count: number): DataRow[] =>
+    Array.from({ length: count }, (_, i) => ({ month: `Category ${i + 1}`, revenue: count - i }))
+
+  it('caps the slice count and names the remainder', () => {
+    render(block('donut', slices(11)))
+    const pie = one('Pie').data as { name: string; value: number }[]
+    expect(pie).toHaveLength(8)
+    expect(all('Cell')).toHaveLength(8)
+    expect(pie[pie.length - 1].name).toBe('Other (4 categories)')
+  })
+
+  it('leaves a chart at the cap alone', () => {
+    render(block('pie', slices(8)))
+    expect(all('Cell')).toHaveLength(8)
+  })
+
+  it('refuses negative values instead of drawing a false whole', () => {
+    // `Number(v) || 0` used to coerce these into a confident, meaningless pie.
+    const html = renderHtml(block('pie', [
+      { month: 'Gain', revenue: 40 },
+      { month: 'Loss', revenue: -25 },
+    ]))
+    expect(html).toContain('data-cxc-empty-reason="pie_invalid_values"')
+  })
+
+  it('refuses a total of zero, which has no whole to divide', () => {
+    const html = renderHtml(block('pie', [
+      { month: 'A', revenue: 0 },
+      { month: 'B', revenue: 0 },
+    ]))
+    expect(html).toContain('data-cxc-empty-reason="pie_invalid_values"')
+  })
+
+  it('refuses a non-numeric measure rather than plotting it as zero', () => {
+    const html = renderHtml(block('pie', [
+      { month: 'A', revenue: 'n/a' },
+      { month: 'B', revenue: 10 },
+    ]))
+    expect(html).toContain('data-cxc-empty-reason="pie_invalid_values"')
+  })
+
+  it('still treats a blank cell as a missing measurement, not a contradiction', () => {
+    render(block('pie', [
+      { month: 'A', revenue: null },
+      { month: 'B', revenue: 10 },
+    ]))
+    expect(all('Cell')).toHaveLength(2)
+  })
 })

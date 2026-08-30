@@ -11,13 +11,13 @@ import type { ChartFieldRef } from '../aui-types'
 import type { ChartProps } from './types'
 import { formatAxisTick, formatTooltipValue } from './chart-helpers'
 import { ChartEmpty } from './chart-empty'
+import { fitCategoryLabels } from './label-fit'
 import {
   BOX_PLOT_KEYS,
   type BoxStat,
   bandCenter,
   boxPlotDomain,
   computeBoxPlotLayout,
-  fitCategoryLabels,
   makeValueScale,
   parseBoxPlotRows,
   resolveBoxPlotSeries,

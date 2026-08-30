@@ -19,13 +19,19 @@ import {
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
 import {
-  shortenLabel,
   shouldShowLegend,
   chartLegendProps,
   formatAxisTick,
   formatTooltipValue,
   seriesDotProp,
 } from './chart-helpers'
+import {
+  ANIMATION_MAX_ROWS,
+  DEFAULT_CHART_WIDTH_PX,
+  VALUE_AXIS_ESTIMATE_PX,
+} from './chart-layout'
+import { measureCharPx } from './label-fit'
+import { useCategoryTicks } from './use-category-ticks'
 import { ChartEmpty } from './chart-empty'
 
 /**
@@ -38,13 +44,23 @@ import { ChartEmpty } from './chart-empty'
  * whatever device the user holds, and a touch device has no hover — without an
  * axis the numbers would be unreachable there.
  */
-export function LineChart({ data, x, series, options }: ChartProps) {
+export function LineChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX }: ChartProps) {
+  // The x axis is a category axis, so which labels print and how wide each may
+  // be is the same question a vertical bar chart asks. One answer, one hook.
+  const ticks = useCategoryTicks({
+    data,
+    xKey: x.key,
+    plotWidth: Math.max(1, width - VALUE_AXIS_ESTIMATE_PX),
+    charPx: measureCharPx(),
+  })
+
   if (!data.length || !x.key || series.length === 0) {
     return <ChartEmpty />
   }
 
   const showLegend = shouldShowLegend(series.length, options?.showLegend)
   const seriesLabels = series.map((s) => s.label).join(', ')
+  const animate = data.length <= ANIMATION_MAX_ROWS
 
   return (
     <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
@@ -54,10 +70,21 @@ export function LineChart({ data, x, series, options }: ChartProps) {
         aria-label={`Line chart of ${seriesLabels} by ${x.label}`}
       >
         <CartesianGrid {...CHART_GRID_STYLE} />
-        <XAxis {...CHART_X_AXIS} dataKey={x.key} tickFormatter={shortenLabel} />
+        <XAxis
+          {...CHART_X_AXIS}
+          dataKey={x.key}
+          tickFormatter={ticks.tickFormatter}
+          tick={ticks.tick}
+          interval={ticks.interval}
+        />
         <YAxis {...CHART_Y_AXIS} width="auto" tickFormatter={formatAxisTick} />
 
-        <Tooltip cursor={false} contentStyle={CHART_TOOLTIP_STYLE} formatter={formatTooltipValue} />
+        <Tooltip
+          cursor={false}
+          contentStyle={CHART_TOOLTIP_STYLE}
+          formatter={formatTooltipValue}
+          labelFormatter={ticks.tooltipLabelFormatter}
+        />
 
         {showLegend && <Legend {...chartLegendProps()} />}
 
@@ -71,7 +98,7 @@ export function LineChart({ data, x, series, options }: ChartProps) {
             strokeWidth={2}
             dot={seriesDotProp(data, s.key)}
             activeDot={{ r: 4, strokeWidth: 0 }}
-            isAnimationActive
+            isAnimationActive={animate}
             animationDuration={CHART_ANIMATION.duration}
             animationEasing={CHART_ANIMATION.easing}
           />

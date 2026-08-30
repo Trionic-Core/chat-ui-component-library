@@ -29,12 +29,6 @@ export function chartLegendProps() {
   }
 }
 
-/** Shorten long category labels for axis ticks (full value stays in the tooltip). */
-export function shortenLabel(value: unknown): string {
-  const str = String(value ?? '')
-  return str.length > 12 ? `${str.slice(0, 10)}...` : str
-}
-
 /**
  * Value-axis tick label. Compact notation (1234567 -> "1.2M") because a value
  * axis is the narrowest text in the chart — on a phone-width chat column a
@@ -52,6 +46,17 @@ export function formatAxisTick(value: unknown): string {
  */
 export function formatTooltipValue(value: unknown): string {
   return formatValue(value as CellValue, 'number')
+}
+
+/**
+ * Tooltip category label — the full, unfitted value.
+ *
+ * The axis prints a label fitted to the space it has; the tooltip is the place
+ * that owes the reader the whole name. recharts hands this the raw axis value,
+ * not the formatted tick, so no un-fitting is needed.
+ */
+export function formatTooltipLabel(label: unknown): string {
+  return String(label ?? '')
 }
 
 /** Whether a legend should render: explicit option wins, else on for multi-series. */
