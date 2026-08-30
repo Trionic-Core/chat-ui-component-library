@@ -10,6 +10,7 @@ import {
   GROUPED_BAND_MAX_PX,
   INLINE_MAX_CATEGORIES,
   INLINE_MIN_HEIGHT_PX,
+  INLINE_ROW_STEPS,
   LABEL_MAX_CHARS,
   MAX_SLICES,
   MIN_VISIBLE_TICKS,
@@ -19,6 +20,7 @@ import {
   collapseSlices,
   deriveTitle,
   hasMixedSigns,
+  inlineRowSteps,
   isOrderedAxis,
   planBarLayout,
   shouldAnimate,
@@ -586,5 +588,109 @@ describe('verticalCategoryTicks — the stride comes from the longest label', ()
     const ticks = verticalCategoryTicks({ plotWidth: 0, rows: 24, longestLabelChars: 7 })
     expect(ticks.stride).toBeGreaterThanOrEqual(1)
     expect(ticks.maxChars).toBeGreaterThanOrEqual(1)
+  })
+})
+
+describe('inlineRowSteps — the reader decides how much of a ranking they want', () => {
+  const labels = (total: number, shown: number) =>
+    inlineRowSteps(total, shown).map((step) => step.label)
+
+  it('starts at the default step and matches it', () => {
+    // The first step IS the default the renderer picks, or the footer would
+    // offer a step the chart is already showing.
+    expect(INLINE_ROW_STEPS[0]).toBe(INLINE_MAX_CATEGORIES)
+  })
+
+  it('offers every larger step plus the whole result', () => {
+    expect(labels(100, 12)).toEqual(['20', '50', 'All'])
+  })
+
+  it('drops a step the result cannot fill', () => {
+    // A 30-row result has no "50" to show.
+    expect(labels(30, 12)).toEqual(['20', 'All'])
+    expect(labels(15, 12)).toEqual(['All'])
+  })
+
+  it('offers nothing when every row is already drawn', () => {
+    expect(labels(12, 12)).toEqual([])
+    expect(labels(10, 10)).toEqual([])
+    expect(labels(0, 0)).toEqual([])
+  })
+
+  it('lets the reader put the rows away again', () => {
+    // Smaller steps stay on offer; the one showing does not, because "Showing
+    // 50 of 100" already states it.
+    expect(labels(100, 50)).toEqual(['12', '20', 'All'])
+    expect(labels(100, 100)).toEqual(['12', '20', '50'])
+  })
+
+  it('carries the row count each step selects', () => {
+    expect(inlineRowSteps(100, 12)).toEqual([
+      { rows: 20, label: '20' },
+      { rows: 50, label: '50' },
+      { rows: 100, label: 'All' },
+    ])
+  })
+})
+
+describe('a chosen step lifts the inline height cap', () => {
+  const at = (inlineRows: number) =>
+    categoryLayout({
+      rows: 100,
+      width: 600,
+      mode: 'inline',
+      seriesCount: 1,
+      stacked: false,
+      inlineRows,
+    })
+
+  it('keeps the cap at the default step', () => {
+    // A chat message must not OPEN as a page.
+    expect(at(INLINE_MAX_CATEGORIES).shownRows).toBe(12)
+    expect(at(INLINE_MAX_CATEGORIES).hostHeight).toBe(382)
+  })
+
+  it('grows to the step the reader picked', () => {
+    // Past the default the height is the reader's choice, not the renderer's.
+    expect(at(20).shownRows).toBe(20)
+    expect(at(20).hostHeight).toBe(20 * BAND_PX + CHART_CHROME_PX)
+    expect(at(50).hostHeight).toBe(50 * BAND_PX + CHART_CHROME_PX)
+    expect(at(100).hostHeight).toBe(100 * BAND_PX + CHART_CHROME_PX)
+  })
+
+  it('never shows more rows than the result has', () => {
+    const layout = categoryLayout({
+      rows: 30,
+      width: 600,
+      mode: 'inline',
+      seriesCount: 1,
+      stacked: false,
+      inlineRows: 100,
+    })
+    expect(layout.shownRows).toBe(30)
+  })
+
+  it('keeps the floor, so a small chosen step is still a chart', () => {
+    const layout = categoryLayout({
+      rows: 2,
+      width: 600,
+      mode: 'inline',
+      seriesCount: 1,
+      stacked: false,
+      inlineRows: 50,
+    })
+    expect(layout.hostHeight).toBe(INLINE_MIN_HEIGHT_PX)
+  })
+
+  it('leaves the expanded view alone — it always shows everything', () => {
+    const layout = categoryLayout({
+      rows: 100,
+      width: 984,
+      mode: 'expanded',
+      seriesCount: 1,
+      stacked: false,
+      inlineRows: 12,
+    })
+    expect(layout.shownRows).toBe(100)
   })
 })

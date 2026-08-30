@@ -151,18 +151,18 @@ describe('a 62-row ranking, inline', () => {
   })
 
   it('prints the cut instead of hiding it', () => {
-    expect(text(render(RANKING()))).toContain('Showing 12 of 62 · View all')
+    expect(text(render(RANKING()))).toContain('Showing 12 of 62 · 20 · 50 · All')
   })
 
   it('names the rows behind the ones it embedded', () => {
     // total_count is a wire contract for a producer that truncates; today it
     // always equals the embedded count, so the suffix must stay off then.
     const capped = { ...RANKING(), total_count: 340 }
-    expect(text(render(capped))).toContain('Showing 12 of 62 (340 total) · View all')
+    expect(text(render(capped))).toContain('Showing 12 of 62 (340 total) · 20 · 50 · All')
 
     captured.length = 0
     const exact = { ...RANKING(), total_count: 62 }
-    expect(text(render(exact))).toContain('Showing 12 of 62 · View all')
+    expect(text(render(exact))).toContain('Showing 12 of 62 · 20 · 50 · All')
     expect(text(render(exact))).not.toContain('total)')
   })
 
@@ -176,8 +176,9 @@ describe('a 62-row ranking, inline', () => {
     )
     const rendered = text(render(short))
     expect(rendered).toContain('Showing 9 of 9 (340 total)')
-    // Nothing more to open: every embedded row is already on screen.
-    expect(rendered).not.toContain('View all')
+    // Nothing more to offer: every embedded row is already on screen.
+    expect(rendered).toContain('Showing 9 of 9 (340 total)')
+    expect(rendered).not.toContain('All')
   })
 
   it('prints no footer when every row is drawn', () => {
@@ -403,7 +404,8 @@ describe('auto-orientation', () => {
     expect(html).toContain('data-cxc-layout="flipped"')
     expect(html).toContain('data-cxc-shown="12"')
     expect(all('BarChart')[0].props.layout).toBe('vertical')
-    expect(text(html)).toContain('Showing 12 of 13 · View all')
+    // 13 rows: no "20" or "50" to offer, only the whole thing.
+    expect(text(html)).toContain('Showing 12 of 13 · All')
   })
 
   it('leaves 24 months upright, complete, and thinned by a fixed stride', () => {

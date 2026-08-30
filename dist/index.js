@@ -2713,6 +2713,7 @@ function measureSample(font, sample) {
 var BAND_PX = 28;
 var MIN_BAND_PX = 22;
 var INLINE_MAX_CATEGORIES = 12;
+var INLINE_ROW_STEPS = [12, 20, 50];
 var CHART_CHROME_PX = 46;
 var INLINE_MIN_HEIGHT_PX = 200;
 var VERTICAL_CHART_HEIGHT_PX = 256;
@@ -2738,6 +2739,14 @@ var VALUE_AXIS_ESTIMATE_PX = 48;
 var AXIS_LABEL_PADDING_PX = 12;
 var ORDERED_SAMPLE_LIMIT = 50;
 var ORDERED_RATIO = 0.8;
+function inlineRowSteps(total, shown) {
+  const steps = INLINE_ROW_STEPS.filter((rows) => rows < total).map((rows) => ({
+    rows,
+    label: String(rows)
+  }));
+  if (total > 0) steps.push({ rows: total, label: "All" });
+  return steps.filter((step) => step.rows !== shown);
+}
 function shouldAnimate(marks) {
   return marks <= ANIMATION_MAX_ROWS;
 }
@@ -2774,14 +2783,16 @@ function categoryLayout({
   mode,
   seriesCount,
   stacked,
+  inlineRows = INLINE_MAX_CATEGORIES,
   longestLabelChars = 0,
   charPx = CHAR_PX
 }) {
   const bandPx = bandHeight(seriesCount, stacked);
   const totalRows = Math.max(0, rows);
-  const shownRows = mode === "expanded" ? totalRows : Math.min(totalRows, INLINE_MAX_CATEGORIES);
+  const step = Math.max(0, inlineRows);
+  const shownRows = mode === "expanded" ? totalRows : Math.min(totalRows, step);
   const contentHeight = shownRows * bandPx + CHART_CHROME_PX;
-  const hostHeight = mode === "expanded" ? contentHeight : clamp(INLINE_MIN_HEIGHT_PX, contentHeight, INLINE_MAX_CATEGORIES * bandPx + CHART_CHROME_PX);
+  const hostHeight = mode === "expanded" ? contentHeight : step > INLINE_MAX_CATEGORIES ? Math.max(INLINE_MIN_HEIGHT_PX, contentHeight) : clamp(INLINE_MIN_HEIGHT_PX, contentHeight, INLINE_MAX_CATEGORIES * bandPx + CHART_CHROME_PX);
   const axisCeiling = AXIS_MAX_WIDTH_RATIO * width;
   const axisWidth = Math.round(
     clamp(AXIS_MIN_WIDTH_PX, longestLabelChars * charPx + AXIS_LABEL_PADDING_PX, axisCeiling)
@@ -2939,6 +2950,7 @@ function planBarLayout({
   mode,
   seriesCount,
   stacked,
+  inlineRows,
   charPx = CHAR_PX
 }) {
   const categories = xValues.map((value) => String(value ?? ""));
@@ -2961,6 +2973,7 @@ function planBarLayout({
       mode,
       seriesCount,
       stacked,
+      inlineRows,
       longestLabelChars,
       charPx
     })
@@ -4150,7 +4163,7 @@ function downloadCsv(filename, content) {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
-function useBarPlan(block, width, mode, charPx) {
+function useBarPlan(block, width, mode, charPx, inlineRows) {
   const options = useMemo(() => chartOptionsFor(block), [block]);
   return useMemo(() => {
     if (!BAR_CHART_TYPES.has(block.chart_type)) return null;
@@ -4162,9 +4175,10 @@ function useBarPlan(block, width, mode, charPx) {
       mode,
       seriesCount: block.series.length,
       stacked: options.stacked ?? false,
+      inlineRows,
       charPx
     });
-  }, [block, options, width, mode, charPx]);
+  }, [block, options, width, mode, charPx, inlineRows]);
 }
 function useHostMetrics(ref, block, fallbackWidth) {
   const { width } = useElementSize(ref, {
@@ -4179,9 +4193,10 @@ function useHostMetrics(ref, block, fallbackWidth) {
 }
 function ChartBlock({ block }) {
   const [expanded, setExpanded] = useState(false);
+  const [inlineRows, setInlineRows] = useState(INLINE_MAX_CATEGORIES);
   const hostRef = useRef(null);
   const { width, charPx } = useHostMetrics(hostRef, block, DEFAULT_CHART_WIDTH_PX);
-  const plan = useBarPlan(block, width, "inline", charPx);
+  const plan = useBarPlan(block, width, "inline", charPx, inlineRows);
   const shownRows = plan?.horizontal ? plan.layout.shownRows : block.data.length;
   const inlineBlock = useMemo(
     () => shownRows < block.data.length ? { ...block, data: block.data.slice(0, shownRows) } : block,
@@ -4191,7 +4206,7 @@ function ChartBlock({ block }) {
   const shown = inlineBlock.data.length;
   const totalCount = block.total_count ?? total;
   const hasMoreThanEmbedded = totalCount > total;
-  const showViewAll = shown < total;
+  const steps = plan?.horizontal ? inlineRowSteps(total, shown) : [];
   const title = (block.title ?? "").trim() || deriveTitle(block.x, block.series) || "Chart";
   const csvColumns = useMemo(
     () => [{ key: block.x.key, label: block.x.label }, ...block.series.map((s) => ({ key: s.key, label: s.label }))],
@@ -4230,12 +4245,14 @@ function ChartBlock({ block }) {
         )
       }
     ),
-    (showViewAll || hasMoreThanEmbedded) && // Every cut is printed. The renderer never drops a row silently, and
-    // the wire order is kept — an ORDER BY ranking IS the answer.
+    (steps.length > 0 || hasMoreThanEmbedded) && // Every cut is printed, and every cut is the reader's to undo. The
+    // renderer never drops a row silently, and the wire order is kept —
+    // an ORDER BY ranking IS the answer.
     /* @__PURE__ */ jsxs(
       "div",
       {
-        className: "mt-2 flex items-center gap-1.5 text-xs",
+        "data-cxc-footer": "",
+        className: "mt-2 flex flex-wrap items-center gap-1.5 text-xs",
         style: { color: "var(--cx-text-muted)" },
         children: [
           /* @__PURE__ */ jsxs("span", { children: [
@@ -4245,19 +4262,7 @@ function ChartBlock({ block }) {
             total,
             hasMoreThanEmbedded ? ` (${totalCount.toLocaleString()} total)` : ""
           ] }),
-          showViewAll && /* @__PURE__ */ jsxs(Fragment, { children: [
-            /* @__PURE__ */ jsx("span", { "aria-hidden": "true", children: "\xB7" }),
-            /* @__PURE__ */ jsx(
-              "button",
-              {
-                type: "button",
-                onClick: openExpand,
-                className: "font-medium hover:underline focus:outline-none focus-visible:ring-2",
-                style: { color: "var(--cx-accent)" },
-                children: "View all"
-              }
-            )
-          ] })
+          steps.map((step) => /* @__PURE__ */ jsx(RowStepButton, { step, total, onSelect: setInlineRows }, step.rows))
         ]
       }
     ),
@@ -4292,6 +4297,27 @@ function ExpandedChart({ block }) {
       )
     }
   );
+}
+function RowStepButton({
+  step,
+  total,
+  onSelect
+}) {
+  const select = useCallback(() => onSelect(step.rows), [onSelect, step.rows]);
+  return /* @__PURE__ */ jsxs(Fragment, { children: [
+    /* @__PURE__ */ jsx("span", { "aria-hidden": "true", children: "\xB7" }),
+    /* @__PURE__ */ jsx(
+      "button",
+      {
+        type: "button",
+        onClick: select,
+        "aria-label": step.label === "All" ? `Show all ${total} rows` : `Show ${step.label} rows`,
+        className: "font-medium hover:underline focus:outline-none focus-visible:ring-2",
+        style: { color: "var(--cx-accent)" },
+        children: step.label
+      }
+    )
+  ] });
 }
 function IconButton({
   label,

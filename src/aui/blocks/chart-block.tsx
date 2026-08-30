@@ -7,12 +7,15 @@ import { ChartDispatch, chartOptionsFor } from '../chart-dispatch'
 import {
   BAR_CHART_TYPES,
   DEFAULT_CHART_WIDTH_PX,
+  INLINE_MAX_CATEGORIES,
   EXPANDED_CHART_WIDTH_PX,
   EXPANDED_VERTICAL_MIN_HEIGHT_PX,
   VERTICAL_CHART_HEIGHT_PX,
   type BarLayoutPlan,
   type ChartRenderMode,
+  type RowStep,
   deriveTitle,
+  inlineRowSteps,
   planBarLayout,
 } from '../charts/chart-layout'
 import { labelSample } from '../charts/label-fit'
@@ -44,6 +47,7 @@ function useBarPlan(
   width: number,
   mode: ChartRenderMode,
   charPx: number,
+  inlineRows?: number,
 ): BarLayoutPlan | null {
   const options = useMemo(() => chartOptionsFor(block), [block])
   return useMemo(() => {
@@ -56,9 +60,10 @@ function useBarPlan(
       mode,
       seriesCount: block.series.length,
       stacked: options.stacked ?? false,
+      inlineRows,
       charPx,
     })
-  }, [block, options, width, mode, charPx])
+  }, [block, options, width, mode, charPx, inlineRows])
 }
 
 /**
@@ -83,10 +88,14 @@ function useHostMetrics(
 
 export function ChartBlock({ block }: ChartBlockProps) {
   const [expanded, setExpanded] = useState(false)
+  // How many rows the reader has asked the inline chart for. Component state on
+  // purpose: it is a reading choice about THIS chart in THIS message, not a
+  // preference to carry anywhere else.
+  const [inlineRows, setInlineRows] = useState(INLINE_MAX_CATEGORIES)
   const hostRef = useRef<HTMLDivElement>(null)
   const { width, charPx } = useHostMetrics(hostRef, block, DEFAULT_CHART_WIDTH_PX)
 
-  const plan = useBarPlan(block, width, 'inline', charPx)
+  const plan = useBarPlan(block, width, 'inline', charPx, inlineRows)
 
   // Only horizontal bars are sliced. Every other chart type draws one mark per
   // row inside a fixed box, so its legibility does not depend on the row COUNT
@@ -103,7 +112,9 @@ export function ChartBlock({ block }: ChartBlockProps) {
   // it embedded. Same wording as the table, so the two footers read alike.
   const totalCount = block.total_count ?? total
   const hasMoreThanEmbedded = totalCount > total
-  const showViewAll = shown < total
+  // Steps belong to the chart type whose height IS its row count. Every other
+  // chart already draws every row, so there is nothing to step through.
+  const steps = plan?.horizontal ? inlineRowSteps(total, shown) : []
   // One title for the header, the CSV name and the dialog's accessible name.
   // The literal survives only for a block whose wire carries no labels at all;
   // a blank header would be worse, and a dialog needs a name either way.
@@ -154,30 +165,22 @@ export function ChartBlock({ block }: ChartBlockProps) {
         />
       </div>
 
-      {(showViewAll || hasMoreThanEmbedded) && (
-        // Every cut is printed. The renderer never drops a row silently, and
-        // the wire order is kept — an ORDER BY ranking IS the answer.
+      {(steps.length > 0 || hasMoreThanEmbedded) && (
+        // Every cut is printed, and every cut is the reader's to undo. The
+        // renderer never drops a row silently, and the wire order is kept —
+        // an ORDER BY ranking IS the answer.
         <div
-          className="mt-2 flex items-center gap-1.5 text-xs"
+          data-cxc-footer=""
+          className="mt-2 flex flex-wrap items-center gap-1.5 text-xs"
           style={{ color: 'var(--cx-text-muted)' }}
         >
           <span>
             Showing {shown} of {total}
             {hasMoreThanEmbedded ? ` (${totalCount.toLocaleString()} total)` : ''}
           </span>
-          {showViewAll && (
-            <>
-              <span aria-hidden="true">·</span>
-              <button
-                type="button"
-                onClick={openExpand}
-                className="font-medium hover:underline focus:outline-none focus-visible:ring-2"
-                style={{ color: 'var(--cx-accent)' }}
-              >
-                View all
-              </button>
-            </>
-          )}
+          {steps.map((step) => (
+            <RowStepButton key={step.rows} step={step} total={total} onSelect={setInlineRows} />
+          ))}
         </div>
       )}
 
@@ -221,6 +224,35 @@ function ExpandedChart({ block }: ChartBlockProps) {
         plan={plan ?? undefined}
       />
     </div>
+  )
+}
+
+/** One row-count step. The separator is its own node so it is not announced. */
+function RowStepButton({
+  step,
+  total,
+  onSelect,
+}: {
+  step: RowStep
+  total: number
+  onSelect: (rows: number) => void
+}) {
+  const select = useCallback(() => onSelect(step.rows), [onSelect, step.rows])
+
+  return (
+    <>
+      <span aria-hidden="true">·</span>
+      <button
+        type="button"
+        onClick={select}
+        // "50" alone says nothing out of context; the label says what it does.
+        aria-label={step.label === 'All' ? `Show all ${total} rows` : `Show ${step.label} rows`}
+        className="font-medium hover:underline focus:outline-none focus-visible:ring-2"
+        style={{ color: 'var(--cx-accent)' }}
+      >
+        {step.label}
+      </button>
+    </>
   )
 }
 

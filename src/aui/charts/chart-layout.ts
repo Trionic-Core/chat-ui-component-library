@@ -28,8 +28,17 @@ import { CHAR_PX } from './label-fit'
 export const BAND_PX = 28
 /** Never draw a band below this: the value label stops fitting beside the bar. */
 export const MIN_BAND_PX = 22
-/** Categories drawn inline before the chart hands the rest to "View all". */
+/** Categories drawn inline before the chart offers the reader more. */
 export const INLINE_MAX_CATEGORIES = 12
+
+/**
+ * Row counts the reader can step the inline chart through, below "All".
+ *
+ * The first is the default (INLINE_MAX_CATEGORIES) — a chat message should not
+ * open as a page. The rest exist because the reader, unlike the renderer, knows
+ * whether they want the whole ranking in front of them.
+ */
+export const INLINE_ROW_STEPS = [12, 20, 50] as const
 /** Axis, margins and legend around the plot area (recharts chrome). */
 export const CHART_CHROME_PX = 46
 /** A chart shorter than this reads as a strip rather than a chart. */
@@ -81,6 +90,31 @@ export const AXIS_LABEL_PADDING_PX = 12
 export const ORDERED_SAMPLE_LIMIT = 50
 /** Share of sampled x values that must be ordered to lock the axis direction. */
 export const ORDERED_RATIO = 0.8
+
+export interface RowStep {
+  /** Rows this step draws. */
+  rows: number
+  /** What the reader reads: the number, or "All". */
+  label: string
+}
+
+/**
+ * The steps a reader may switch the inline chart to.
+ *
+ * A step is offered only when it would show something new: steps at or above
+ * the total are dropped (a 30-row result has no "50"), and the step already
+ * showing is dropped because the footer already states it — "Showing 12 of 100"
+ * IS the current step, so it never needs a button of its own. Smaller steps
+ * stay on offer, so a reader who opened 50 rows can put them away again.
+ */
+export function inlineRowSteps(total: number, shown: number): RowStep[] {
+  const steps: RowStep[] = INLINE_ROW_STEPS.filter((rows) => rows < total).map((rows) => ({
+    rows,
+    label: String(rows),
+  }))
+  if (total > 0) steps.push({ rows: total, label: 'All' })
+  return steps.filter((step) => step.rows !== shown)
+}
 
 /**
  * Whether a chart of `marks` marks may play its entrance animation.
@@ -176,6 +210,11 @@ export interface CategoryLayoutInput {
   mode: ChartRenderMode
   seriesCount: number
   stacked: boolean
+  /**
+   * Rows the reader asked the INLINE chart for. The default step keeps the
+   * height cap; a larger one is a choice the reader made, so it does not.
+   */
+  inlineRows?: number
   /** Longest category label in characters; sizes the axis column. */
   longestLabelChars?: number
   /** Measured character width; the Latin estimate when there is no DOM. */
@@ -212,18 +251,25 @@ export function categoryLayout({
   mode,
   seriesCount,
   stacked,
+  inlineRows = INLINE_MAX_CATEGORIES,
   longestLabelChars = 0,
   charPx = CHAR_PX,
 }: CategoryLayoutInput): CategoryLayout {
   const bandPx = bandHeight(seriesCount, stacked)
   const totalRows = Math.max(0, rows)
-  const shownRows = mode === 'expanded' ? totalRows : Math.min(totalRows, INLINE_MAX_CATEGORIES)
+  const step = Math.max(0, inlineRows)
+  const shownRows = mode === 'expanded' ? totalRows : Math.min(totalRows, step)
 
   const contentHeight = shownRows * bandPx + CHART_CHROME_PX
+  // The cap stops a chat message opening as a page. Once the reader asks for
+  // more rows that is no longer the renderer's call to make, so the cap lifts —
+  // but the floor stays, because a two-row chart is still a chart.
   const hostHeight =
     mode === 'expanded'
       ? contentHeight
-      : clamp(INLINE_MIN_HEIGHT_PX, contentHeight, INLINE_MAX_CATEGORIES * bandPx + CHART_CHROME_PX)
+      : step > INLINE_MAX_CATEGORIES
+        ? Math.max(INLINE_MIN_HEIGHT_PX, contentHeight)
+        : clamp(INLINE_MIN_HEIGHT_PX, contentHeight, INLINE_MAX_CATEGORIES * bandPx + CHART_CHROME_PX)
 
   const axisCeiling = AXIS_MAX_WIDTH_RATIO * width
   const axisWidth = Math.round(
@@ -595,6 +641,8 @@ export interface BarLayoutInput {
   mode: ChartRenderMode
   seriesCount: number
   stacked: boolean
+  /** Rows the reader asked the inline chart for; see categoryLayout. */
+  inlineRows?: number
   charPx?: number
 }
 
@@ -625,6 +673,7 @@ export function planBarLayout({
   mode,
   seriesCount,
   stacked,
+  inlineRows,
   charPx = CHAR_PX,
 }: BarLayoutInput): BarLayoutPlan {
   const categories = xValues.map((value) => String(value ?? ''))
@@ -653,6 +702,7 @@ export function planBarLayout({
       mode,
       seriesCount,
       stacked,
+      inlineRows,
       longestLabelChars,
       charPx,
     }),
