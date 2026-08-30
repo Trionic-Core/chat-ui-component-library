@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs'
+import { dirname, join } from 'node:path'
+import { fileURLToPath } from 'node:url'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
@@ -8,7 +11,9 @@ import {
   SPARSE_SERIES_POINT_LIMIT,
   chartLegendProps,
   countPlottablePoints,
+  axisUnitFor,
   formatAxisTick,
+  formatSeriesValue,
   formatTooltipLabel,
   formatTooltipValue,
   seriesDotProp,
@@ -109,6 +114,20 @@ function one(type: string) {
   return matches[0].props
 }
 
+/** The recorded axis tick formatter, as a callable. */
+function tick(axis: Record<string, unknown>) {
+  return axis.tickFormatter as (value: unknown) => string
+}
+
+/** The recorded tooltip value formatter, as a callable. */
+function tooltip() {
+  return one('Tooltip').formatter as (
+    value: unknown,
+    name: unknown,
+    item?: { dataKey?: unknown },
+  ) => string
+}
+
 beforeEach(() => {
   captured.length = 0
 })
@@ -117,7 +136,7 @@ describe('value axis — reachable without hover', () => {
   it.each(['line', 'area'] as const)('%s renders a numeric y-axis', (chartType) => {
     render(block(chartType, MONTHS))
     const yAxis = one('YAxis')
-    expect(yAxis.tickFormatter).toBe(formatAxisTick)
+    expect(tick(yAxis)(1234567)).toBe('1.2M')
     // "auto" sizes the column to the widest tick: a fixed width either clips
     // "1.2M" or wastes a third of a phone-width chat column on "12".
     expect(yAxis.width).toBe('auto')
@@ -127,7 +146,7 @@ describe('value axis — reachable without hover', () => {
     render(block('bar', MONTHS))
     const yAxis = one('YAxis')
     expect(yAxis.type).toBe('number')
-    expect(yAxis.tickFormatter).toBe(formatAxisTick)
+    expect(tick(yAxis)(1234567)).toBe('1.2M')
     expect(one('XAxis').dataKey).toBe('month')
   })
 
@@ -135,14 +154,14 @@ describe('value axis — reachable without hover', () => {
     render(block('bar_horizontal', MONTHS))
     expect(one('YAxis').type).toBe('category')
     expect(one('XAxis').type).toBe('number')
-    expect(one('XAxis').tickFormatter).toBe(formatAxisTick)
+    expect(tick(one('XAxis'))(1234567)).toBe('1.2M')
   })
 
   it.each(['line', 'area', 'bar', 'bar_horizontal', 'pie', 'scatter'] as const)(
     '%s formats its tooltip values through the shared formatter',
     (chartType) => {
       render(block(chartType, MONTHS))
-      expect(one('Tooltip').formatter).toBe(formatTooltipValue)
+      expect(tooltip()(1234567, 'Revenue', { dataKey: 'revenue' })).toBe('1,234,567')
     },
   )
 })
@@ -393,4 +412,135 @@ describe('pie and donut refuse what a pie cannot say', () => {
     ]))
     expect(all('Cell')).toHaveLength(2)
   })
+})
+
+describe('series format and unit reach the axis, the tooltip and the labels', () => {
+  const RUPEES = { key: 'revenue', label: 'Revenue', format: 'currency' as const, unit: '₹' }
+  const PERCENT = { key: 'revenue', label: 'Margin', format: 'percent' as const }
+
+  it('prints the client unit on the value axis and in the tooltip', () => {
+    // The formatter bakes in no locale currency, so the unit is the only thing
+    // that carries ₹ / $ / AED. The axis stays compact, the tooltip exact.
+    render(block('bar', MONTHS, { series: [RUPEES] }))
+    expect(tick(one('YAxis'))(1234567)).toBe('1.2M ₹')
+    expect(tooltip()(1234567, 'Revenue', { dataKey: 'revenue' })).toBe('1,234,567 ₹')
+  })
+
+  it('prints a percent series with its own symbol and no unit', () => {
+    // "12% %" would be the alternative, so percent takes the format and skips
+    // the unit on both surfaces.
+    render(block('bar', [{ month: 'Jan', revenue: 12 }], { series: [PERCENT] }))
+    expect(tick(one('YAxis'))(12)).toBe('12%')
+    expect(tooltip()(12, 'Margin', { dataKey: 'revenue' })).toBe('12%')
+  })
+
+  it('leaves a shared axis bare when the series disagree on the unit', () => {
+    // One axis cannot be in two units: "1.2M ₹" would be a false statement
+    // about the other series' bars. The tooltip still speaks per series.
+    render(
+      block('bar', [{ month: 'Jan', revenue: 1234567, orders: 4210 }], {
+        series: [RUPEES, { key: 'orders', label: 'Orders' }],
+      }),
+    )
+    expect(tick(one('YAxis'))(1234567)).toBe('1.2M')
+    expect(tooltip()(1234567, 'Revenue', { dataKey: 'revenue' })).toBe('1,234,567 ₹')
+    expect(tooltip()(4210, 'Orders', { dataKey: 'orders' })).toBe('4,210')
+  })
+
+  it('keeps the unit when every series agrees on it', () => {
+    render(
+      block('bar', [{ month: 'Jan', revenue: 1234567, cost: 900000 }], {
+        series: [RUPEES, { key: 'cost', label: 'Cost', format: 'currency', unit: '₹' }],
+      }),
+    )
+    expect(tick(one('YAxis'))(1234567)).toBe('1.2M ₹')
+  })
+
+  it('needs no dataKey when there is only one series to be', () => {
+    // recharts hands a pie the slice's "value" key, not the measure's, so a
+    // lookup would miss and silently drop the client's unit. With one series
+    // there is nothing to disambiguate.
+    render(block('bar', MONTHS, { series: [RUPEES] }))
+    expect(tooltip()(1234567, 'Revenue', { dataKey: 'value' })).toBe('1,234,567 ₹')
+    expect(tooltip()(1234567, 'Revenue')).toBe('1,234,567 ₹')
+  })
+
+  it('falls back to the plain formatter when several series leave it ambiguous', () => {
+    render(
+      block('bar', [{ month: 'Jan', revenue: 1234567, orders: 4210 }], {
+        series: [RUPEES, { key: 'orders', label: 'Orders' }],
+      }),
+    )
+    expect(tooltip()(1234567, 'Revenue', { dataKey: 'unknown_key' })).toBe('1,234,567')
+  })
+
+  it('gives a pie its single series format and unit', () => {
+    render(block('donut', MONTHS, { series: [RUPEES] }))
+    expect(tooltip()(1234567, 'Revenue')).toBe('1,234,567 ₹')
+  })
+
+  it('gives a box plot the unit only when all five quartiles agree', () => {
+    // The five series are one measure seen five ways. A disagreement means the
+    // payload is inconsistent, and an axis cannot be in two units.
+    const agree = ['q_min', 'q1', 'median', 'q3', 'q_max'].map((key) => ({
+      key,
+      label: key,
+      format: 'currency' as const,
+      unit: '₹',
+    }))
+    expect(axisUnitFor(agree)).toBe('₹')
+    expect(axisUnitFor([...agree.slice(0, 4), { key: 'q_max', label: 'q_max', unit: '$' }])).toBe(
+      undefined,
+    )
+  })
+})
+
+describe('formatSeriesValue', () => {
+  it('is compact for a label and exact for a tooltip', () => {
+    const field = { key: 'r', label: 'R', format: 'currency' as const, unit: '₹' }
+    expect(formatSeriesValue(1234567, field, { compact: true })).toBe('1.2M ₹')
+    expect(formatSeriesValue(1234567, field, { compact: false })).toBe('1,234,567 ₹')
+  })
+
+  it('defaults an unformatted series to a grouped number', () => {
+    const field = { key: 'r', label: 'R' }
+    expect(formatSeriesValue(1234567, field, { compact: false })).toBe('1,234,567')
+    expect(formatSeriesValue(1234567, field, { compact: true })).toBe('1.2M')
+  })
+
+  it('degrades an unusable value instead of printing NaN', () => {
+    const field = { key: 'r', label: 'R', unit: '₹' }
+    expect(formatSeriesValue(null, field, { compact: false })).toBe('--')
+    expect(formatSeriesValue('n/a', field, { compact: true })).toBe('n/a ₹')
+  })
+})
+
+describe('formatter factories are built once, not per render', () => {
+  // The regression this guards: a factory called inline in JSX allocates on
+  // every render (the tooltip one builds a Map) and hands recharts a new
+  // function identity each time. Three charts did that while three memoized
+  // it. useSeriesFormatters is the one place now — this keeps it that way.
+  const CHART_DIR = dirname(fileURLToPath(import.meta.url))
+  const CHARTS = [
+    'bar-chart.tsx',
+    'line-chart.tsx',
+    'area-chart.tsx',
+    'scatter-chart.tsx',
+    'pie-chart.tsx',
+    'box-plot-chart.tsx',
+  ]
+
+  it.each(CHARTS)('%s builds no factory inside its JSX', (file) => {
+    const source = readFileSync(join(CHART_DIR, file), 'utf8')
+    // `prop={makeSomething(...)}` — a factory call in a prop position.
+    expect(source).not.toMatch(/=\{make[A-Z][A-Za-z]*\(/)
+  })
+
+  it.each(['bar-chart.tsx', 'line-chart.tsx', 'area-chart.tsx', 'scatter-chart.tsx', 'pie-chart.tsx'])(
+    '%s takes its value formatters from the shared hook',
+    (file) => {
+      const source = readFileSync(join(CHART_DIR, file), 'utf8')
+      expect(source).toContain('useSeriesFormatters')
+    },
+  )
 })

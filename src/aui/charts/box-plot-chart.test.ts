@@ -1,7 +1,7 @@
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { describe, expect, it } from 'vitest'
-import type { ChartBlock, DataRow } from '../aui-types'
+import type { ChartBlock, ChartFieldRef, DataRow } from '../aui-types'
 import { ChartDispatch } from '../chart-dispatch'
 import { BOX_PLOT_KEYS } from './box-plot-geometry'
 
@@ -131,5 +131,55 @@ describe('box_plot — presentation', () => {
     // Encoding the median with the same colour as the box would make it a
     // hue-only distinction; it must read as a rule across the box instead.
     expect(render(block())).toContain('stroke="var(--cx-text-primary)"')
+  })
+})
+
+describe('box_plot — format and unit across the five quartile series', () => {
+  /** The five series, each carrying the same format/unit unless overridden. */
+  function quartiles(shared: Partial<ChartFieldRef>, last: Partial<ChartFieldRef> = shared) {
+    return BOX_PLOT_KEYS.map((key, index) => ({
+      key,
+      label: key,
+      ...(index === BOX_PLOT_KEYS.length - 1 ? last : shared),
+    }))
+  }
+
+  /** The value-axis tick labels, which the box plot paints itself. */
+  function axisTicks(html: string): string[] {
+    return [...html.matchAll(/text-anchor="end"[^>]*>([^<]*)</g)].map((m) => m[1])
+  }
+
+  it('prints the client unit on the value axis and in the value readout', () => {
+    // The aria description shares printValue with the tooltip rows — it is the
+    // only one of the two reachable without a DOM.
+    const html = render(block({ series: quartiles({ format: 'currency', unit: '₹' }) }))
+    expect(axisTicks(html).every((tick) => tick.endsWith(' ₹'))).toBe(true)
+    expect(html).toContain(
+      'Outlet North: minimum 10 ₹, lower quartile 20 ₹, median 30 ₹, upper quartile 40 ₹, maximum 50 ₹',
+    )
+  })
+
+  it('leaves the axis bare when the five series disagree on the unit', () => {
+    // One axis cannot be in two units, and five quartiles of ONE measure
+    // disagreeing means the payload is inconsistent — so it claims neither.
+    const html = render(
+      block({
+        series: quartiles({ format: 'currency', unit: '₹' }, { format: 'currency', unit: '$' }),
+      }),
+    )
+    expect(axisTicks(html).some((tick) => tick.includes('₹') || tick.includes('$'))).toBe(false)
+    expect(html).toContain('minimum 10, lower quartile 20, median 30')
+  })
+
+  it('prints a percent measure with its symbol and no unit', () => {
+    const html = render(block({ series: quartiles({ format: 'percent' }) }))
+    expect(axisTicks(html).every((tick) => tick.endsWith('%'))).toBe(true)
+    expect(html).toContain('minimum 10%, lower quartile 20%, median 30%')
+  })
+
+  it('renders exactly as before when the series carry neither', () => {
+    const html = render(block())
+    expect(axisTicks(html).some((tick) => /[₹$%]/.test(tick))).toBe(false)
+    expect(html).toContain('minimum 10, lower quartile 20, median 30')
   })
 })

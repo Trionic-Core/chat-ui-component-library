@@ -23,10 +23,11 @@ import {
   CHART_ZERO_LINE_STYLE,
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
+import type { ChartFieldRef } from '../aui-types'
 import type { ChartProps } from './types'
 import {
-  formatAxisTick,
-  formatTooltipValue,
+  longestValueLabel,
+  seriesValueLabel,
   shouldShowLegend,
   chartLegendProps,
   BAR_VALUE_DOMAIN,
@@ -45,6 +46,7 @@ import {
 import { fitCategoryLabels, measureCharPx } from './label-fit'
 import { makeCategoryTick } from './category-tick'
 import { useCategoryTicks } from './use-category-ticks'
+import { useSeriesFormatters } from './use-series-formatters'
 import { ChartEmpty } from './chart-empty'
 
 /** recharts' own default cartesian margin, which this chart keeps as its base. */
@@ -125,26 +127,21 @@ export function BarChart({
     }
   }, [categories, layout.maxChars, layout.bandPx])
 
-  const valueLabel = useMemo(() => makeValueLabel(horizontal), [horizontal])
+  // One label renderer per series: each prints in its own format and unit.
+  const valueLabels = useMemo(
+    () => series.map((field) => makeValueLabel(horizontal, field)),
+    [series, horizontal],
+  )
+  const formatters = useSeriesFormatters(series)
 
   const seriesKeys = useMemo(() => series.map((field) => field.key), [series])
   const signs = useMemo(() => valueSigns(data, seriesKeys), [data, seriesKeys])
   const mixedSigns = signs.positive && signs.negative
 
   // Both the band-width test and the margin reserve are sized from the text
-  // that will actually print, not from an assumed maximum.
-  const longestValueChars = useMemo(() => {
-    let longest = 0
-    for (const row of data) {
-      for (const key of seriesKeys) {
-        const value = row[key]
-        if (value === null || value === undefined || value === '') continue
-        if (!Number.isFinite(Number(value))) continue
-        longest = Math.max(longest, formatAxisTick(value).length)
-      }
-    }
-    return longest
-  }, [data, seriesKeys])
+  // that will actually print — the same seriesValueLabel() the labels paint,
+  // unit included, so the two can never drift apart.
+  const longestValueChars = useMemo(() => longestValueLabel(data, series), [data, series])
 
   if (!data.length || !x.key || seriesCount === 0) {
     return <ChartEmpty />
@@ -201,7 +198,7 @@ export function BarChart({
                 {...CHART_X_AXIS}
                 type="number"
                 domain={BAR_VALUE_DOMAIN}
-                tickFormatter={formatAxisTick}
+                tickFormatter={formatters.tick}
                 // The expanded list scrolls, so a bottom axis is off-screen for
                 // every row the reader is actually looking at.
                 orientation={mode === 'expanded' ? 'top' : 'bottom'}
@@ -221,7 +218,7 @@ export function BarChart({
                 type="number"
                 width="auto"
                 domain={BAR_VALUE_DOMAIN}
-                tickFormatter={formatAxisTick}
+                tickFormatter={formatters.tick}
               />
             </>
           )}
@@ -229,7 +226,7 @@ export function BarChart({
           <Tooltip
             cursor={false}
             contentStyle={CHART_TOOLTIP_STYLE}
-            formatter={formatTooltipValue}
+            formatter={formatters.tooltip}
             labelFormatter={verticalTicks.tooltipLabelFormatter}
           />
 
@@ -254,7 +251,7 @@ export function BarChart({
               animationDuration={CHART_ANIMATION.duration}
               animationEasing={CHART_ANIMATION.easing}
             >
-              {showValueLabels && <LabelList dataKey={s.key} content={valueLabel} />}
+              {showValueLabels && <LabelList dataKey={s.key} content={valueLabels[index]} />}
             </Bar>
           ))}
         </RechartsBarChart>
@@ -306,7 +303,9 @@ function normalize(origin: number, extent: number): [number, number] {
  * relative to the bar rectangle, so a negative bar's "right" edge is the zero
  * line, on top of its neighbour.
  */
-function makeValueLabel(horizontal: boolean) {
+function makeValueLabel(horizontal: boolean, field: ChartFieldRef) {
+  const print = (value: number) => seriesValueLabel(value, field)
+
   return function BarValueLabel(props: LabelProps) {
     const rect = toBarRect(props.viewBox)
     const raw = props.value
@@ -327,7 +326,7 @@ function makeValueLabel(horizontal: boolean) {
           textAnchor="middle"
           {...CHART_VALUE_LABEL_STYLE}
         >
-          {formatAxisTick(value)}
+          {print(value)}
         </text>
       )
     }
@@ -341,7 +340,7 @@ function makeValueLabel(horizontal: boolean) {
         textAnchor={anchor.textAnchor}
         {...CHART_VALUE_LABEL_STYLE}
       >
-        {formatAxisTick(value)}
+        {print(value)}
       </text>
     )
   }

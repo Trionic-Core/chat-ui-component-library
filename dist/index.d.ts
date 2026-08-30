@@ -38,6 +38,8 @@ interface MetricGroupBlock {
 interface ChartFieldRef {
     key: string;
     label: string;
+    format?: ValueFormat;
+    unit?: string;
 }
 interface ChartBlockOptions {
     stacked?: boolean;
@@ -52,6 +54,17 @@ interface ChartBlock {
     x: ChartFieldRef;
     series: ChartFieldRef[];
     options?: ChartBlockOptions;
+    /**
+     * Rows the query produced, when that is more than the rows embedded here.
+     *
+     * Mirrors TableBlock.total_count. Today the producer always sets it equal to
+     * the embedded row count — the execution row guard bounds the read before the
+     * count is taken, and a governed shape refuses an overflow rather than
+     * truncating — so "(N total)" is a contract for a future producer, not
+     * something a client can observe yet. The renderer prints it only when it
+     * genuinely exceeds the embedded rows.
+     */
+    total_count?: number;
 }
 interface TableColumn {
     key: string;

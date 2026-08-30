@@ -15,7 +15,8 @@ import {
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
-import { shouldShowLegend, formatTooltipValue } from './chart-helpers'
+import { shouldShowLegend } from './chart-helpers'
+import { useSeriesFormatters } from './use-series-formatters'
 import { ANIMATION_MAX_ROWS, MAX_SLICES, collapseSlices, type PieSlice } from './chart-layout'
 import { ChartEmpty } from './chart-empty'
 
@@ -60,6 +61,12 @@ function readSlices(rows: PieSlice[]): PieData {
 export function PieChart({ data, x, series, options, donut = false }: PieChartProps) {
   const valueKey = series[0]?.key
   const valueLabel = series[0]?.label ?? ''
+
+  // A pie plots ONE measure, so every slice — the "Other" aggregate included —
+  // formats through that single series. The shared formatter handles it: with
+  // one series it skips the dataKey lookup, which would miss here anyway
+  // (recharts hands a pie the slice's "value" key, not the measure's).
+  const formatters = useSeriesFormatters(series)
 
   const { slices, invalid } = useMemo<PieData>(() => {
     if (!data.length || !x.key || !valueKey) return { slices: [], invalid: false }
@@ -119,7 +126,7 @@ export function PieChart({ data, x, series, options, donut = false }: PieChartPr
           ))}
         </Pie>
 
-        <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={formatTooltipValue} />
+        <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={formatters.tooltip} />
 
         {showLegend && (
           // Intentionally diverges from chartLegendProps(): the pie legend is

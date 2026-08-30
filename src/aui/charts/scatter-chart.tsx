@@ -22,8 +22,9 @@ import {
   shouldShowLegend,
   chartLegendProps,
   formatAxisTick,
-  formatTooltipValue,
+
 } from './chart-helpers'
+import { useSeriesFormatters } from './use-series-formatters'
 import { ChartEmpty } from './chart-empty'
 
 /**
@@ -34,6 +35,8 @@ import { ChartEmpty } from './chart-empty'
  * correlating two measures.
  */
 export function ScatterChart({ data, x, series, options }: ChartProps) {
+  const formatters = useSeriesFormatters(series)
+
   if (!data.length || !x.key || series.length === 0) {
     return <ChartEmpty label="Configure X-axis and a measure for the scatter plot" />
   }
@@ -56,12 +59,17 @@ export function ScatterChart({ data, x, series, options }: ChartProps) {
           name={x.label}
           tickFormatter={formatAxisTick}
         />
-        <YAxis {...CHART_Y_AXIS} type="number" width="auto" tickFormatter={formatAxisTick} />
+        <YAxis
+          {...CHART_Y_AXIS}
+          type="number"
+          width="auto"
+          tickFormatter={formatters.tick}
+        />
 
         <Tooltip
           cursor={{ strokeDasharray: '3 3' }}
           contentStyle={CHART_TOOLTIP_STYLE}
-          formatter={formatTooltipValue}
+          formatter={formatters.tooltip}
         />
 
         {showLegend && <Legend {...chartLegendProps()} />}

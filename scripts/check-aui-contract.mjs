@@ -134,6 +134,25 @@ for (const [iface, fields] of Object.entries(REQUIRED_FIELDS)) {
   }
 }
 
+// Optional fields that are still part of the contract. A producer may omit
+// them on the wire; the TYPE may not omit them, or a client silently stops
+// being able to read what the backend sends.
+const OPTIONAL_FIELDS = {
+  ChartFieldRef: ['format', 'unit'],
+  ChartBlock: ['total_count'],
+  TableColumn: ['format', 'unit'],
+  TableBlock: ['total_count'],
+}
+for (const [iface, fields] of Object.entries(OPTIONAL_FIELDS)) {
+  const body = interfaceBody(iface)
+  if (body === null) { errors.push(`interface ${iface}: not found`); continue }
+  for (const f of fields) {
+    if (!new RegExp(`(^|\\n)\\s*${f}\\?\\s*:`).test(body)) {
+      errors.push(`${iface}.${f}: optional contract field missing`)
+    }
+  }
+}
+
 if (errors.length) {
   console.error('✗ AUI contract check FAILED — client types drifted from the canonical wire contract:')
   for (const e of errors) console.error('  - ' + e)

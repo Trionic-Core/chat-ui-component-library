@@ -582,6 +582,21 @@ TICK_GAP_PX 8                 MIN_VISIBLE_TICKS 4
 
 Diagnostics on the chart host: `data-cxc-shown`, `data-cxc-total`, `data-cxc-layout`.
 
+### Chart series format and unit (v0.8.0)
+
+Three optional wire fields, all additive — a producer that omits them renders exactly as before:
+
+| Field | Meaning |
+|---|---|
+| `series[].format` | The `ValueFormat` this measure renders in, the same field `TableColumn` carries, so one measure looks identical in a KPI card, a table cell and a chart. Ignored on `x`. |
+| `series[].unit` | The client's own symbol or code (`₹`, `$`, `AED`). The formatter bakes in no locale currency, so the unit is the only thing that carries it: the axis prints `1.2M ₹` and the tooltip `1,234,567 ₹`. A `percent` series takes neither — its format already prints `%`. Ignored on `x`. |
+| `total_count` | Rows the query produced, when that is more than the rows embedded here. Mirrors `TableBlock.total_count`; the footer then reads `Showing 12 of 62 (340 total)`. |
+
+One value axis is shared, so it prints a unit only when **every** series agrees on one. With mixed
+units the axis goes bare and each value label and tooltip entry carries its own series' unit — the
+series is resolved per tooltip entry from recharts' `dataKey`, never assumed. A box plot's value axis
+takes a unit only when all five quartile series agree.
+
 ---
 
 ## Theming

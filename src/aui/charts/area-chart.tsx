@@ -22,8 +22,6 @@ import type { ChartProps } from './types'
 import {
   shouldShowLegend,
   chartLegendProps,
-  formatAxisTick,
-  formatTooltipValue,
   seriesDotProp,
 } from './chart-helpers'
 import {
@@ -33,6 +31,7 @@ import {
 } from './chart-layout'
 import { measureCharPx } from './label-fit'
 import { useCategoryTicks } from './use-category-ticks'
+import { useSeriesFormatters } from './use-series-formatters'
 import { ChartEmpty } from './chart-empty'
 
 /**
@@ -51,6 +50,7 @@ export function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDT
 
   // The x axis is a category axis, so which labels print and how wide each may
   // be is the same question a vertical bar chart asks. One answer, one hook.
+  const formatters = useSeriesFormatters(series)
   const ticks = useCategoryTicks({
     data,
     xKey: x.key,
@@ -97,12 +97,12 @@ export function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDT
           tick={ticks.tick}
           interval={ticks.interval}
         />
-        <YAxis {...CHART_Y_AXIS} width="auto" tickFormatter={formatAxisTick} />
+        <YAxis {...CHART_Y_AXIS} width="auto" tickFormatter={formatters.tick} />
 
         <Tooltip
           cursor={false}
           contentStyle={CHART_TOOLTIP_STYLE}
-          formatter={formatTooltipValue}
+          formatter={formatters.tooltip}
           labelFormatter={ticks.tooltipLabelFormatter}
         />
 

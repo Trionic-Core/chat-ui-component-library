@@ -80,13 +80,15 @@ const GROUPED_ROWS: DataRow[] = [
 const CASES: { id: string; caption: string; block: ChartBlock }[] = [
   {
     id: 'a-ranking',
-    caption: '(a) bar_horizontal · 62 rows · one -1.2M outlier · shared-prefix labels · no title',
+    caption:
+      '(a) bar_horizontal · 62 rows · one -1.2M outlier · shared-prefix labels · no title · currency ₹',
     block: {
       type: 'chart',
       chart_type: 'bar_horizontal',
       x: { key: 'variant', label: 'Product Variant' },
-      series: [{ key: 'margin', label: 'Gross Margin' }],
+      series: [{ key: 'margin', label: 'Gross Margin', format: 'currency', unit: '₹' }],
       data: RANKING_ROWS,
+      total_count: 62,
     },
   },
   {

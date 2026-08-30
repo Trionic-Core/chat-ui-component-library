@@ -77,6 +77,11 @@ export function ChartBlock({ block }: ChartBlockProps) {
 
   const total = block.data.length
   const shown = inlineBlock.data.length
+  // Rows the query produced, when the producer says that is more than the rows
+  // it embedded. Same wording as the table, so the two footers read alike.
+  const totalCount = block.total_count ?? total
+  const hasMoreThanEmbedded = totalCount > total
+  const showViewAll = shown < total
   // One title for the header, the CSV name and the dialog's accessible name.
   // The literal survives only for a block whose wire carries no labels at all;
   // a blank header would be worse, and a dialog needs a name either way.
@@ -121,7 +126,7 @@ export function ChartBlock({ block }: ChartBlockProps) {
         <ChartDispatch block={inlineBlock} mode="inline" width={width} plan={plan ?? undefined} />
       </div>
 
-      {shown < total && (
+      {(showViewAll || hasMoreThanEmbedded) && (
         // Every cut is printed. The renderer never drops a row silently, and
         // the wire order is kept — an ORDER BY ranking IS the answer.
         <div
@@ -130,16 +135,21 @@ export function ChartBlock({ block }: ChartBlockProps) {
         >
           <span>
             Showing {shown} of {total}
+            {hasMoreThanEmbedded ? ` (${totalCount.toLocaleString()} total)` : ''}
           </span>
-          <span aria-hidden="true">·</span>
-          <button
-            type="button"
-            onClick={openExpand}
-            className="font-medium hover:underline focus:outline-none focus-visible:ring-2"
-            style={{ color: 'var(--cx-accent)' }}
-          >
-            View all
-          </button>
+          {showViewAll && (
+            <>
+              <span aria-hidden="true">·</span>
+              <button
+                type="button"
+                onClick={openExpand}
+                className="font-medium hover:underline focus:outline-none focus-visible:ring-2"
+                style={{ color: 'var(--cx-accent)' }}
+              >
+                View all
+              </button>
+            </>
+          )}
         </div>
       )}
 

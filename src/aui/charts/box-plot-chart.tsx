@@ -9,11 +9,12 @@ import {
 import { getChartColor } from '../chart-colors'
 import type { ChartFieldRef } from '../aui-types'
 import type { ChartProps } from './types'
-import { formatAxisTick, formatTooltipValue } from './chart-helpers'
+import { axisFieldFor, formatSeriesValue } from './chart-helpers'
 import { ChartEmpty } from './chart-empty'
 import { fitCategoryLabels } from './label-fit'
 import {
   BOX_PLOT_KEYS,
+  type BoxPlotKey,
   type BoxStat,
   bandCenter,
   boxPlotDomain,
@@ -47,6 +48,10 @@ const MAX_STAGGER_STEPS = 10
 
 export function BoxPlotChart({ data, x, series }: ChartProps) {
   const resolution = useMemo(() => resolveBoxPlotSeries(series), [series])
+  // The five quartiles are one measure seen five ways, so the value axis takes
+  // a unit only when all five series agree on it (axisFieldFor); a disagreement
+  // means the payload is inconsistent, and an axis cannot be in two units.
+  const valueField = useMemo(() => axisFieldFor(series), [series])
   const parse = useMemo(() => parseBoxPlotRows(data, x.key), [data, x.key])
 
   if (!resolution.fields) {
@@ -67,6 +72,7 @@ export function BoxPlotChart({ data, x, series }: ChartProps) {
       boxes={parse.boxes}
       category={x}
       measure={resolution.fields.median}
+      valueField={valueField}
       omitted={parse.omitted}
     />
   )
@@ -89,21 +95,31 @@ interface BoxPlotSurfaceProps {
   boxes: BoxStat[]
   category: ChartFieldRef
   measure: ChartFieldRef
+  /** Format and unit the whole value axis speaks in — see axisFieldFor. */
+  valueField: ChartFieldRef
   omitted: number
 }
 
-function BoxPlotSurface({ boxes, category, measure, omitted }: BoxPlotSurfaceProps) {
+function BoxPlotSurface({ boxes, category, measure, valueField, omitted }: BoxPlotSurfaceProps) {
   const [host, size] = useElementSize()
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
 
   const color = getChartColor(0)
+  const printTick = useCallback(
+    (value: number) => formatSeriesValue(value, valueField, { compact: true }),
+    [valueField],
+  )
+  const printValue = useCallback(
+    (value: number) => formatSeriesValue(value, valueField, { compact: false }),
+    [valueField],
+  )
 
   const geometry = useMemo(() => {
     const domain = boxPlotDomain(boxes)
     const ticks = valueAxisTicks(domain)
-    const layout = computeBoxPlotLayout(size.width, size.height, boxes.length, ticks.map(formatAxisTick))
+    const layout = computeBoxPlotLayout(size.width, size.height, boxes.length, ticks.map(printTick))
     return { ticks, layout, scale: makeValueScale(domain, layout.plotTop, layout.plotHeight) }
-  }, [boxes, size.width, size.height])
+  }, [boxes, size.width, size.height, printTick])
 
   const { ticks, layout, scale } = geometry
 
@@ -160,7 +176,7 @@ function BoxPlotSurface({ boxes, category, measure, omitted }: BoxPlotSurfacePro
                   fontFamily={CHART_Y_AXIS.fontFamily}
                   fill={CHART_Y_AXIS.stroke}
                 >
-                  {formatAxisTick(tick)}
+                  {printTick(tick)}
                 </text>
               </g>
             )
@@ -175,6 +191,7 @@ function BoxPlotSurface({ boxes, category, measure, omitted }: BoxPlotSurfacePro
               layout={layout}
               scale={scale}
               category={category}
+              printValue={printValue}
               isActive={index === activeIndex}
               onActivate={setActiveIndex}
               onDeactivate={clearActive}
@@ -200,6 +217,7 @@ function BoxPlotSurface({ boxes, category, measure, omitted }: BoxPlotSurfacePro
         {active && (
           <BoxTooltip
             box={active.box}
+            printValue={printValue}
             x={bandCenter(layout, active.index)}
             y={scale(active.box.q_max)}
             containerWidth={size.width}
@@ -230,6 +248,7 @@ interface BoxMarkProps {
   layout: ReturnType<typeof computeBoxPlotLayout>
   scale: (value: number) => number
   category: ChartFieldRef
+  printValue: (value: number) => string
   isActive: boolean
   onActivate: (index: number) => void
   onDeactivate: () => void
@@ -242,6 +261,7 @@ function BoxMark({
   layout,
   scale,
   category,
+  printValue,
   isActive,
   onActivate,
   onDeactivate,
@@ -265,7 +285,7 @@ function BoxMark({
     <g
       role="img"
       tabIndex={0}
-      aria-label={describeBox(box, category)}
+      aria-label={describeBox(box, category, printValue)}
       className="cxc-boxplot-mark focus:outline-none"
       style={{ animationDelay: `${Math.min(index, MAX_STAGGER_STEPS) * 40}ms` }}
       onPointerEnter={activate}
@@ -333,20 +353,26 @@ function BoxMark({
 }
 
 /** Full sentence for assistive tech — the five numbers, never colour alone. */
-function describeBox(box: BoxStat, category: ChartFieldRef): string {
+function describeBox(
+  box: BoxStat,
+  category: ChartFieldRef,
+  printValue: (value: number) => string,
+): string {
   return (
     `${category.label} ${box.category}: ` +
-    `minimum ${formatTooltipValue(box.q_min)}, ` +
-    `lower quartile ${formatTooltipValue(box.q1)}, ` +
-    `median ${formatTooltipValue(box.median)}, ` +
-    `upper quartile ${formatTooltipValue(box.q3)}, ` +
-    `maximum ${formatTooltipValue(box.q_max)}`
+    `minimum ${printValue(box.q_min)}, ` +
+    `lower quartile ${printValue(box.q1)}, ` +
+    `median ${printValue(box.median)}, ` +
+    `upper quartile ${printValue(box.q3)}, ` +
+    `maximum ${printValue(box.q_max)}`
   )
 }
 
 /* ------------------------------- Tooltip ------------------------------- */
 
-const TOOLTIP_ROWS: { key: keyof BoxStat & string; label: string }[] = [
+// Typed to the five quartile keys, not to keyof BoxStat: the category is a
+// string and would not survive a numeric formatter.
+const TOOLTIP_ROWS: { key: BoxPlotKey; label: string }[] = [
   { key: 'q_max', label: 'Max' },
   { key: 'q3', label: 'Q3' },
   { key: 'median', label: 'Median' },
@@ -359,11 +385,13 @@ const TOOLTIP_FLIP_THRESHOLD = 96
 
 function BoxTooltip({
   box,
+  printValue,
   x,
   y,
   containerWidth,
 }: {
   box: BoxStat
+  printValue: (value: number) => string
   x: number
   y: number
   containerWidth: number
@@ -391,7 +419,7 @@ function BoxTooltip({
         <div key={row.key} className="flex justify-between gap-3">
           <span style={{ color: 'var(--cx-text-muted)' }}>{row.label}</span>
           <span style={{ color: 'var(--cx-text-primary)' }}>
-            {formatTooltipValue(box[row.key])}
+            {printValue(box[row.key])}
           </span>
         </div>
       ))}

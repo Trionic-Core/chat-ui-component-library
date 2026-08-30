@@ -1,7 +1,7 @@
 import { createElement, type ReactElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChartBlock as ChartBlockType, ChartType, DataRow } from '../aui-types'
+import type { ChartBlock as ChartBlockType, ChartFieldRef, ChartType, DataRow } from '../aui-types'
 import { ChartBlock } from './chart-block'
 
 /* ------------------------------------------------------------------
@@ -84,16 +84,16 @@ const OUTLETS: DataRow[] = Array.from({ length: 13 }, (_, i) => ({
 function block(
   chartType: ChartType,
   data: DataRow[],
-  x: { key: string; label: string },
-  series: { key: string; label: string }[],
+  x: ChartFieldRef,
+  series: ChartFieldRef[],
   overrides: Partial<ChartBlockType> = {},
 ): ChartBlockType {
   return { type: 'chart', chart_type: chartType, x, series, data, ...overrides }
 }
 
-const RANKING = () =>
+const RANKING = (measure: Partial<ChartFieldRef> = {}) =>
   block('bar_horizontal', NEGATIVE_MARGINS, { key: 'variant', label: 'Product Variant' }, [
-    { key: 'margin', label: 'Gross Margin' },
+    { key: 'margin', label: 'Gross Margin', ...measure },
   ])
 
 function render(chart: ChartBlockType): string {
@@ -152,6 +152,32 @@ describe('a 62-row ranking, inline', () => {
 
   it('prints the cut instead of hiding it', () => {
     expect(text(render(RANKING()))).toContain('Showing 12 of 62 · View all')
+  })
+
+  it('names the rows behind the ones it embedded', () => {
+    // total_count is a wire contract for a producer that truncates; today it
+    // always equals the embedded count, so the suffix must stay off then.
+    const capped = { ...RANKING(), total_count: 340 }
+    expect(text(render(capped))).toContain('Showing 12 of 62 (340 total) · View all')
+
+    captured.length = 0
+    const exact = { ...RANKING(), total_count: 62 }
+    expect(text(render(exact))).toContain('Showing 12 of 62 · View all')
+    expect(text(render(exact))).not.toContain('total)')
+  })
+
+  it('still names them when every embedded row is drawn', () => {
+    const short = block(
+      'bar_horizontal',
+      NEGATIVE_MARGINS.slice(0, 9),
+      { key: 'variant', label: 'V' },
+      [{ key: 'margin', label: 'Margin' }],
+      { total_count: 340 },
+    )
+    const rendered = text(render(short))
+    expect(rendered).toContain('Showing 9 of 9 (340 total)')
+    // Nothing more to open: every embedded row is already on screen.
+    expect(rendered).not.toContain('View all')
   })
 
   it('prints no footer when every row is drawn', () => {
@@ -228,6 +254,41 @@ describe('a 62-row ranking, inline', () => {
     )
     expect(html).toContain('text-anchor="start"')
     expect(html).toContain('x="346"')
+  })
+
+  it('reserves the room the unit takes, not just the number', () => {
+    // The label paints "-1.2M ₹" but the reserve used to measure "-1.2M", so
+    // the widest bar's number clipped at the plot edge — the very defect the
+    // reserve exists to prevent. Both now measure seriesValueLabel().
+    render(RANKING())
+    const bare = all('BarChart')[0].props.margin as { left: number }
+
+    captured.length = 0
+    render(RANKING({ format: 'currency', unit: '₹' }))
+    const withUnit = all('BarChart')[0].props.margin as { left: number }
+
+    // All-negative data, so the labels hang to the LEFT and that margin grows.
+    // "-1.2M" -> 5 chars = 37px reserve; "-1.2M ₹" -> 7 chars = 49px.
+    expect(bare.left).toBe(5 + 37)
+    expect(withUnit.left).toBe(5 + 49)
+  })
+
+  it('counts the unit when deciding a vertical band can hold a label', () => {
+    // 15 months at 600px is a 36.8px band. "409.1K" fits it; "409.1K ₹" does
+    // not, so the labels come off rather than printing over each other.
+    const rows: DataRow[] = Array.from({ length: 15 }, (_, i) => ({
+      month: `${2025 + Math.floor(i / 12)}-${String((i % 12) + 1).padStart(2, '0')}`,
+      revenue: 400000 + i * 9100,
+    }))
+    const months = (series: { key: string; label: string; format?: 'currency'; unit?: string }) =>
+      block('bar', rows, { key: 'month', label: 'Month' }, [series])
+
+    render(months({ key: 'revenue', label: 'Revenue' }))
+    expect(labelListsOfChart(0)).toBe(1)
+
+    captured.length = 0
+    render(months({ key: 'revenue', label: 'Revenue', format: 'currency', unit: '₹' }))
+    expect(labelListsOfChart(0)).toBe(0)
   })
 
   it('draws no zero line when every value shares a sign', () => {

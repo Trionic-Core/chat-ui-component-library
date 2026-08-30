@@ -2551,6 +2551,55 @@ function formatAxisTick(value) {
 function formatTooltipValue(value) {
   return formatValue(value, "number");
 }
+function formatSeriesValue(value, series, { compact }) {
+  if (series.format === "percent") return formatValue(value, "percent");
+  return formatWithUnit(
+    value,
+    compact ? "compact" : series.format ?? "number",
+    series.unit
+  );
+}
+function seriesValueLabel(value, series) {
+  return formatSeriesValue(value, series, { compact: true });
+}
+function longestValueLabel(data, series) {
+  let longest = 0;
+  for (const row of data) {
+    for (const field of series) {
+      const value = row[field.key];
+      if (value === null || value === void 0 || value === "") continue;
+      if (!Number.isFinite(Number(value))) continue;
+      longest = Math.max(longest, seriesValueLabel(value, field).length);
+    }
+  }
+  return longest;
+}
+function axisUnitFor(series) {
+  const first = series[0]?.unit;
+  if (!first) return void 0;
+  return series.every((field) => field.unit === first) ? first : void 0;
+}
+function axisFieldFor(series) {
+  const percent = series.length > 0 && series.every((field) => field.format === "percent");
+  return {
+    key: "",
+    label: "",
+    format: percent ? "percent" : void 0,
+    unit: axisUnitFor(series)
+  };
+}
+function makeAxisTickFormatter(series) {
+  const field = axisFieldFor(series);
+  return (value) => formatSeriesValue(value, field, { compact: true });
+}
+function makeTooltipValueFormatter(series) {
+  const only = series.length === 1 ? series[0] : void 0;
+  const byKey = new Map(series.map((field) => [field.key, field]));
+  return (value, _name, item) => {
+    const field = only ?? byKey.get(String(item?.dataKey ?? ""));
+    return field ? formatSeriesValue(value, field, { compact: false }) : formatTooltipValue(value);
+  };
+}
 function formatTooltipLabel(label) {
   return String(label ?? "");
 }
@@ -2962,6 +3011,15 @@ function useCategoryTicks({
     };
   }, [data, xKey, plotWidth, charPx]);
 }
+function useSeriesFormatters(series) {
+  return useMemo(
+    () => ({
+      tick: makeAxisTickFormatter(series),
+      tooltip: makeTooltipValueFormatter(series)
+    }),
+    [series]
+  );
+}
 function ChartEmpty({ label = "No data", reason }) {
   return /* @__PURE__ */ jsx(
     "div",
@@ -3021,22 +3079,15 @@ function BarChart({
       }
     };
   }, [categories, layout.maxChars, layout.bandPx]);
-  const valueLabel = useMemo(() => makeValueLabel(horizontal), [horizontal]);
+  const valueLabels = useMemo(
+    () => series.map((field) => makeValueLabel(horizontal, field)),
+    [series, horizontal]
+  );
+  const formatters = useSeriesFormatters(series);
   const seriesKeys = useMemo(() => series.map((field) => field.key), [series]);
   const signs = useMemo(() => valueSigns(data, seriesKeys), [data, seriesKeys]);
   const mixedSigns = signs.positive && signs.negative;
-  const longestValueChars = useMemo(() => {
-    let longest = 0;
-    for (const row of data) {
-      for (const key of seriesKeys) {
-        const value = row[key];
-        if (value === null || value === void 0 || value === "") continue;
-        if (!Number.isFinite(Number(value))) continue;
-        longest = Math.max(longest, formatAxisTick(value).length);
-      }
-    }
-    return longest;
-  }, [data, seriesKeys]);
+  const longestValueChars = useMemo(() => longestValueLabel(data, series), [data, series]);
   if (!data.length || !x.key || seriesCount === 0) {
     return /* @__PURE__ */ jsx(ChartEmpty, {});
   }
@@ -3085,7 +3136,7 @@ function BarChart({
                       ...CHART_X_AXIS,
                       type: "number",
                       domain: BAR_VALUE_DOMAIN,
-                      tickFormatter: formatAxisTick,
+                      tickFormatter: formatters.tick,
                       orientation: mode === "expanded" ? "top" : "bottom"
                     }
                   ),
@@ -3107,7 +3158,7 @@ function BarChart({
                       type: "number",
                       width: "auto",
                       domain: BAR_VALUE_DOMAIN,
-                      tickFormatter: formatAxisTick
+                      tickFormatter: formatters.tick
                     }
                   )
                 ] }),
@@ -3116,7 +3167,7 @@ function BarChart({
                   {
                     cursor: false,
                     contentStyle: CHART_TOOLTIP_STYLE,
-                    formatter: formatTooltipValue,
+                    formatter: formatters.tooltip,
                     labelFormatter: verticalTicks.tooltipLabelFormatter
                   }
                 ),
@@ -3134,7 +3185,7 @@ function BarChart({
                     isAnimationActive: layout.animate,
                     animationDuration: CHART_ANIMATION.duration,
                     animationEasing: CHART_ANIMATION.easing,
-                    children: showValueLabels && /* @__PURE__ */ jsx(LabelList, { dataKey: s.key, content: valueLabel })
+                    children: showValueLabels && /* @__PURE__ */ jsx(LabelList, { dataKey: s.key, content: valueLabels[index] })
                   },
                   s.key
                 ))
@@ -3159,7 +3210,8 @@ function toBarRect(viewBox) {
 function normalize(origin, extent) {
   return extent < 0 ? [origin + extent, -extent] : [origin, extent];
 }
-function makeValueLabel(horizontal) {
+function makeValueLabel(horizontal, field) {
+  const print = (value) => seriesValueLabel(value, field);
   return function BarValueLabel(props) {
     const rect = toBarRect(props.viewBox);
     const raw = props.value;
@@ -3176,7 +3228,7 @@ function makeValueLabel(horizontal) {
           dy: above ? "1em" : "-0.4em",
           textAnchor: "middle",
           ...CHART_VALUE_LABEL_STYLE,
-          children: formatAxisTick(value)
+          children: print(value)
         }
       );
     }
@@ -3189,12 +3241,13 @@ function makeValueLabel(horizontal) {
         dy: "0.32em",
         textAnchor: anchor.textAnchor,
         ...CHART_VALUE_LABEL_STYLE,
-        children: formatAxisTick(value)
+        children: print(value)
       }
     );
   };
 }
 function LineChart2({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX }) {
+  const formatters = useSeriesFormatters(series);
   const ticks = useCategoryTicks({
     data,
     xKey: x.key,
@@ -3225,13 +3278,13 @@ function LineChart2({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX }
             interval: ticks.interval
           }
         ),
-        /* @__PURE__ */ jsx(YAxis, { ...CHART_Y_AXIS, width: "auto", tickFormatter: formatAxisTick }),
+        /* @__PURE__ */ jsx(YAxis, { ...CHART_Y_AXIS, width: "auto", tickFormatter: formatters.tick }),
         /* @__PURE__ */ jsx(
           Tooltip,
           {
             cursor: false,
             contentStyle: CHART_TOOLTIP_STYLE,
-            formatter: formatTooltipValue,
+            formatter: formatters.tooltip,
             labelFormatter: ticks.tooltipLabelFormatter
           }
         ),
@@ -3258,6 +3311,7 @@ function LineChart2({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX }
 }
 function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX }) {
   const uid = useId();
+  const formatters = useSeriesFormatters(series);
   const ticks = useCategoryTicks({
     data,
     xKey: x.key,
@@ -3303,13 +3357,13 @@ function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX })
             interval: ticks.interval
           }
         ),
-        /* @__PURE__ */ jsx(YAxis, { ...CHART_Y_AXIS, width: "auto", tickFormatter: formatAxisTick }),
+        /* @__PURE__ */ jsx(YAxis, { ...CHART_Y_AXIS, width: "auto", tickFormatter: formatters.tick }),
         /* @__PURE__ */ jsx(
           Tooltip,
           {
             cursor: false,
             contentStyle: CHART_TOOLTIP_STYLE,
-            formatter: formatTooltipValue,
+            formatter: formatters.tooltip,
             labelFormatter: ticks.tooltipLabelFormatter
           }
         ),
@@ -3347,6 +3401,7 @@ function readSlices(rows) {
 function PieChart({ data, x, series, options, donut = false }) {
   const valueKey = series[0]?.key;
   const valueLabel = series[0]?.label ?? "";
+  const formatters = useSeriesFormatters(series);
   const { slices, invalid } = useMemo(() => {
     if (!data.length || !x.key || !valueKey) return { slices: [], invalid: false };
     return readSlices(
@@ -3404,7 +3459,7 @@ function PieChart({ data, x, series, options, donut = false }) {
             ))
           }
         ),
-        /* @__PURE__ */ jsx(Tooltip, { contentStyle: CHART_TOOLTIP_STYLE, formatter: formatTooltipValue }),
+        /* @__PURE__ */ jsx(Tooltip, { contentStyle: CHART_TOOLTIP_STYLE, formatter: formatters.tooltip }),
         showLegend && // Intentionally diverges from chartLegendProps(): the pie legend is
         // bottom-aligned with circle swatches, since its slices are otherwise
         // unlabeled. `labelStyle` matters for the same reason it does there —
@@ -3424,6 +3479,7 @@ function PieChart({ data, x, series, options, donut = false }) {
   ) });
 }
 function ScatterChart({ data, x, series, options }) {
+  const formatters = useSeriesFormatters(series);
   if (!data.length || !x.key || series.length === 0) {
     return /* @__PURE__ */ jsx(ChartEmpty, { label: "Configure X-axis and a measure for the scatter plot" });
   }
@@ -3447,13 +3503,21 @@ function ScatterChart({ data, x, series, options }) {
             tickFormatter: formatAxisTick
           }
         ),
-        /* @__PURE__ */ jsx(YAxis, { ...CHART_Y_AXIS, type: "number", width: "auto", tickFormatter: formatAxisTick }),
+        /* @__PURE__ */ jsx(
+          YAxis,
+          {
+            ...CHART_Y_AXIS,
+            type: "number",
+            width: "auto",
+            tickFormatter: formatters.tick
+          }
+        ),
         /* @__PURE__ */ jsx(
           Tooltip,
           {
             cursor: { strokeDasharray: "3 3" },
             contentStyle: CHART_TOOLTIP_STYLE,
-            formatter: formatTooltipValue
+            formatter: formatters.tooltip
           }
         ),
         showLegend && /* @__PURE__ */ jsx(Legend, { ...chartLegendProps() }),
@@ -3595,6 +3659,7 @@ var CAP_RATIO = 0.55;
 var MAX_STAGGER_STEPS = 10;
 function BoxPlotChart({ data, x, series }) {
   const resolution = useMemo(() => resolveBoxPlotSeries(series), [series]);
+  const valueField = useMemo(() => axisFieldFor(series), [series]);
   const parse = useMemo(() => parseBoxPlotRows(data, x.key), [data, x.key]);
   if (!resolution.fields) {
     return /* @__PURE__ */ jsx(
@@ -3614,6 +3679,7 @@ function BoxPlotChart({ data, x, series }) {
       boxes: parse.boxes,
       category: x,
       measure: resolution.fields.median,
+      valueField,
       omitted: parse.omitted
     }
   );
@@ -3628,16 +3694,24 @@ function emptyLabel(rejection) {
       return "No data";
   }
 }
-function BoxPlotSurface({ boxes, category, measure, omitted }) {
+function BoxPlotSurface({ boxes, category, measure, valueField, omitted }) {
   const [host, size] = useElementSize();
   const [activeIndex, setActiveIndex] = useState(null);
   const color = getChartColor(0);
+  const printTick = useCallback(
+    (value) => formatSeriesValue(value, valueField, { compact: true }),
+    [valueField]
+  );
+  const printValue = useCallback(
+    (value) => formatSeriesValue(value, valueField, { compact: false }),
+    [valueField]
+  );
   const geometry = useMemo(() => {
     const domain = boxPlotDomain(boxes);
     const ticks2 = valueAxisTicks(domain);
-    const layout2 = computeBoxPlotLayout(size.width, size.height, boxes.length, ticks2.map(formatAxisTick));
+    const layout2 = computeBoxPlotLayout(size.width, size.height, boxes.length, ticks2.map(printTick));
     return { ticks: ticks2, layout: layout2, scale: makeValueScale(domain, layout2.plotTop, layout2.plotHeight) };
-  }, [boxes, size.width, size.height]);
+  }, [boxes, size.width, size.height, printTick]);
   const { ticks, layout, scale } = geometry;
   const categoryLabels = useMemo(() => {
     const indices = boxes.map((_, index) => index).filter((index) => index % layout.labelStride === 0);
@@ -3689,7 +3763,7 @@ function BoxPlotSurface({ boxes, category, measure, omitted }) {
                     fontSize: CHART_Y_AXIS.fontSize,
                     fontFamily: CHART_Y_AXIS.fontFamily,
                     fill: CHART_Y_AXIS.stroke,
-                    children: formatAxisTick(tick)
+                    children: printTick(tick)
                   }
                 )
               ] }, tick);
@@ -3703,6 +3777,7 @@ function BoxPlotSurface({ boxes, category, measure, omitted }) {
                 layout,
                 scale,
                 category,
+                printValue,
                 isActive: index === activeIndex,
                 onActivate: setActiveIndex,
                 onDeactivate: clearActive
@@ -3729,6 +3804,7 @@ function BoxPlotSurface({ boxes, category, measure, omitted }) {
         BoxTooltip,
         {
           box: active.box,
+          printValue,
           x: bandCenter(layout, active.index),
           y: scale(active.box.q_max),
           containerWidth: size.width
@@ -3758,6 +3834,7 @@ function BoxMark({
   layout,
   scale,
   category,
+  printValue,
   isActive,
   onActivate,
   onDeactivate
@@ -3777,7 +3854,7 @@ function BoxMark({
     {
       role: "img",
       tabIndex: 0,
-      "aria-label": describeBox(box, category),
+      "aria-label": describeBox(box, category, printValue),
       className: "cxc-boxplot-mark focus:outline-none",
       style: { animationDelay: `${Math.min(index, MAX_STAGGER_STEPS) * 40}ms` },
       onPointerEnter: activate,
@@ -3848,8 +3925,8 @@ function BoxMark({
     }
   );
 }
-function describeBox(box, category) {
-  return `${category.label} ${box.category}: minimum ${formatTooltipValue(box.q_min)}, lower quartile ${formatTooltipValue(box.q1)}, median ${formatTooltipValue(box.median)}, upper quartile ${formatTooltipValue(box.q3)}, maximum ${formatTooltipValue(box.q_max)}`;
+function describeBox(box, category, printValue) {
+  return `${category.label} ${box.category}: minimum ${printValue(box.q_min)}, lower quartile ${printValue(box.q1)}, median ${printValue(box.median)}, upper quartile ${printValue(box.q3)}, maximum ${printValue(box.q_max)}`;
 }
 var TOOLTIP_ROWS = [
   { key: "q_max", label: "Max" },
@@ -3862,6 +3939,7 @@ var TOOLTIP_WIDTH = 148;
 var TOOLTIP_FLIP_THRESHOLD = 96;
 function BoxTooltip({
   box,
+  printValue,
   x,
   y,
   containerWidth
@@ -3885,7 +3963,7 @@ function BoxTooltip({
         /* @__PURE__ */ jsx("p", { className: "mb-1 truncate font-medium", style: { color: "var(--cx-text-primary)" }, children: box.category }),
         TOOLTIP_ROWS.map((row) => /* @__PURE__ */ jsxs("div", { className: "flex justify-between gap-3", children: [
           /* @__PURE__ */ jsx("span", { style: { color: "var(--cx-text-muted)" }, children: row.label }),
-          /* @__PURE__ */ jsx("span", { style: { color: "var(--cx-text-primary)" }, children: formatTooltipValue(box[row.key]) })
+          /* @__PURE__ */ jsx("span", { style: { color: "var(--cx-text-primary)" }, children: printValue(box[row.key]) })
         ] }, row.key))
       ]
     }
@@ -4029,6 +4107,9 @@ function ChartBlock({ block }) {
   );
   const total = block.data.length;
   const shown = inlineBlock.data.length;
+  const totalCount = block.total_count ?? total;
+  const hasMoreThanEmbedded = totalCount > total;
+  const showViewAll = shown < total;
   const title = (block.title ?? "").trim() || deriveTitle(block.x, block.series) || "Chart";
   const csvColumns = useMemo(
     () => [{ key: block.x.key, label: block.x.label }, ...block.series.map((s) => ({ key: s.key, label: s.label }))],
@@ -4058,7 +4139,7 @@ function ChartBlock({ block }) {
         children: /* @__PURE__ */ jsx(ChartDispatch, { block: inlineBlock, mode: "inline", width, plan: plan ?? void 0 })
       }
     ),
-    shown < total && // Every cut is printed. The renderer never drops a row silently, and
+    (showViewAll || hasMoreThanEmbedded) && // Every cut is printed. The renderer never drops a row silently, and
     // the wire order is kept — an ORDER BY ranking IS the answer.
     /* @__PURE__ */ jsxs(
       "div",
@@ -4070,19 +4151,22 @@ function ChartBlock({ block }) {
             "Showing ",
             shown,
             " of ",
-            total
+            total,
+            hasMoreThanEmbedded ? ` (${totalCount.toLocaleString()} total)` : ""
           ] }),
-          /* @__PURE__ */ jsx("span", { "aria-hidden": "true", children: "\xB7" }),
-          /* @__PURE__ */ jsx(
-            "button",
-            {
-              type: "button",
-              onClick: openExpand,
-              className: "font-medium hover:underline focus:outline-none focus-visible:ring-2",
-              style: { color: "var(--cx-accent)" },
-              children: "View all"
-            }
-          )
+          showViewAll && /* @__PURE__ */ jsxs(Fragment, { children: [
+            /* @__PURE__ */ jsx("span", { "aria-hidden": "true", children: "\xB7" }),
+            /* @__PURE__ */ jsx(
+              "button",
+              {
+                type: "button",
+                onClick: openExpand,
+                className: "font-medium hover:underline focus:outline-none focus-visible:ring-2",
+                style: { color: "var(--cx-accent)" },
+                children: "View all"
+              }
+            )
+          ] })
         ]
       }
     ),
