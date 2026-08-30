@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useRef, useState } from 'react'
+import { type RefObject, useCallback, useMemo, useRef, useState } from 'react'
 import { Card } from '../ui/card'
 import { Dialog } from '../ui/dialog'
 import { DownloadIcon } from '../ui/icons'
@@ -15,8 +15,9 @@ import {
   deriveTitle,
   planBarLayout,
 } from '../charts/chart-layout'
-import { measureCharPx } from '../charts/label-fit'
-import { useElementWidth } from '../hooks/use-element-width'
+import { labelSample } from '../charts/label-fit'
+import { useCharPx } from '../hooks/use-char-px'
+import { useElementSize } from '../hooks/use-element-size'
 import { rowsToCsv, downloadCsv } from '../csv'
 
 /* ------------------------------------------------------------------
@@ -42,6 +43,7 @@ function useBarPlan(
   block: ChartBlockType,
   width: number,
   mode: ChartRenderMode,
+  charPx: number,
 ): BarLayoutPlan | null {
   const options = useMemo(() => chartOptionsFor(block), [block])
   return useMemo(() => {
@@ -54,17 +56,37 @@ function useBarPlan(
       mode,
       seriesCount: block.series.length,
       stacked: options.stacked ?? false,
-      charPx: measureCharPx(),
+      charPx,
     })
-  }, [block, options, width, mode])
+  }, [block, options, width, mode, charPx])
+}
+
+/**
+ * The two things only a MOUNTED host can answer: how wide the chart is, and
+ * how wide its own labels are in the host's own font.
+ */
+function useHostMetrics(
+  ref: RefObject<HTMLDivElement | null>,
+  block: ChartBlockType,
+  fallbackWidth: number,
+): { width: number; charPx: number } {
+  const { width } = useElementSize(ref, {
+    width: fallbackWidth,
+    height: VERTICAL_CHART_HEIGHT_PX,
+  })
+  const sample = useMemo(
+    () => labelSample(block.data.map((row) => String(row[block.x.key] ?? ''))),
+    [block.data, block.x.key],
+  )
+  return { width, charPx: useCharPx(ref, sample) }
 }
 
 export function ChartBlock({ block }: ChartBlockProps) {
   const [expanded, setExpanded] = useState(false)
   const hostRef = useRef<HTMLDivElement>(null)
-  const width = useElementWidth(hostRef, DEFAULT_CHART_WIDTH_PX)
+  const { width, charPx } = useHostMetrics(hostRef, block, DEFAULT_CHART_WIDTH_PX)
 
-  const plan = useBarPlan(block, width, 'inline')
+  const plan = useBarPlan(block, width, 'inline', charPx)
 
   // Only horizontal bars are sliced. Every other chart type draws one mark per
   // row inside a fixed box, so its legibility does not depend on the row COUNT
@@ -123,7 +145,13 @@ export function ChartBlock({ block }: ChartBlockProps) {
         data-cxc-shown={shown}
         data-cxc-total={total}
       >
-        <ChartDispatch block={inlineBlock} mode="inline" width={width} plan={plan ?? undefined} />
+        <ChartDispatch
+          block={inlineBlock}
+          mode="inline"
+          width={width}
+          charPx={charPx}
+          plan={plan ?? undefined}
+        />
       </div>
 
       {(showViewAll || hasMoreThanEmbedded) && (
@@ -168,8 +196,8 @@ export function ChartBlock({ block }: ChartBlockProps) {
  */
 function ExpandedChart({ block }: ChartBlockProps) {
   const hostRef = useRef<HTMLDivElement>(null)
-  const width = useElementWidth(hostRef, EXPANDED_CHART_WIDTH_PX)
-  const plan = useBarPlan(block, width, 'expanded')
+  const { width, charPx } = useHostMetrics(hostRef, block, EXPANDED_CHART_WIDTH_PX)
+  const plan = useBarPlan(block, width, 'expanded', charPx)
 
   return (
     <div
@@ -185,7 +213,13 @@ function ExpandedChart({ block }: ChartBlockProps) {
       data-cxc-shown={block.data.length}
       data-cxc-total={block.data.length}
     >
-      <ChartDispatch block={block} mode="expanded" width={width} plan={plan ?? undefined} />
+      <ChartDispatch
+        block={block}
+        mode="expanded"
+        width={width}
+        charPx={charPx}
+        plan={plan ?? undefined}
+      />
     </div>
   )
 }

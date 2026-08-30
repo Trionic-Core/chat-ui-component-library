@@ -1,11 +1,14 @@
-import { describe, expect, it } from 'vitest'
+import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   CHAR_PX,
+  FALLBACK_FONT,
   MIN_LABEL_WIDTH,
+  chartAxisFont,
   fitCategoryLabels,
   fitCategoryLabelsReport,
   fitLabel,
   fitLabelBothEnds,
+  labelSample,
   measureCharPx,
   wrapLabel,
 } from './label-fit'
@@ -145,15 +148,102 @@ describe('wrapLabel — two lines only when they show the whole label', () => {
   })
 })
 
+describe('labelSample — measure the text that will actually be drawn', () => {
+  it('takes the longest labels, which are the ones that decide the fit', () => {
+    const sample = labelSample(['a', 'bbbb', 'cc', 'ddddddd'], 2)
+    expect(sample).toBe('dddddddbbbb')
+  })
+
+  it('falls back to a Latin alphabet when there is nothing to measure', () => {
+    expect(labelSample([]).length).toBeGreaterThan(0)
+    expect(labelSample(['', ''])).toBe(labelSample([]))
+  })
+
+  it('keeps a non-Latin script intact, which is the whole point', () => {
+    // Devanagari and CJK run far wider than the Latin estimate. Measuring the
+    // real labels is what stops the fitter truncating against a fiction.
+    const sample = labelSample(['अंधेरी पश्चिम', '中央倉庫'])
+    expect(sample).toContain('अंधेरी')
+    expect(sample).toContain('中央倉庫')
+  })
+})
+
+describe('chartAxisFont', () => {
+  afterEach(() => vi.unstubAllGlobals())
+
+  it('falls back when there is no element or no window', () => {
+    expect(chartAxisFont(null)).toBe(FALLBACK_FONT)
+    expect(chartAxisFont(undefined)).toBe(FALLBACK_FONT)
+  })
+
+  it('reads the family the host actually renders in', () => {
+    // The literal "sans-serif" measured a face the client never sees; the host
+    // app sets --cxc-font-sans to its own brand font.
+    vi.stubGlobal('window', {
+      getComputedStyle: () => ({ fontFamily: 'Satoshi, system-ui, sans-serif' }),
+    })
+    expect(chartAxisFont({} as Element)).toBe('12px Satoshi, system-ui, sans-serif')
+  })
+
+  it('falls back when the element reports no family at all', () => {
+    vi.stubGlobal('window', { getComputedStyle: () => ({ fontFamily: '' }) })
+    expect(chartAxisFont({} as Element)).toBe(FALLBACK_FONT)
+  })
+})
+
 describe('measureCharPx', () => {
+  /** Calls the fake canvas received, so memoization is observable. */
+  let calls: { font: string; text: string }[]
+
+  /** A canvas whose glyphs are exactly `per` px wide, so the maths is visible. */
+  function stubCanvas(per: number, context: unknown = undefined) {
+    calls = []
+    const ctx = { font: '', measureText: (text: string) => {
+      calls.push({ font: ctx.font, text })
+      return { width: text.length * per }
+    } }
+    vi.stubGlobal('document', {
+      createElement: () => ({ getContext: () => (context === undefined ? ctx : context) }),
+    })
+  }
+
+  afterEach(() => vi.unstubAllGlobals())
+
   it('falls back to the Latin estimate without a DOM', () => {
-    // vitest runs in the node environment: there is no document to measure in,
-    // and the estimate is what the SSR render and these tests both use.
+    // The node environment has no document, which is also the SSR case.
     expect(measureCharPx()).toBe(CHAR_PX)
   })
 
-  it('memoizes per font string', () => {
-    expect(measureCharPx('11px monospace')).toBe(measureCharPx('11px monospace'))
+  it('measures the sample in the font it was given', () => {
+    stubCanvas(9)
+    expect(measureCharPx('12px Brand', 'अंधेरी')).toBe(9)
+    expect(calls).toEqual([{ font: '12px Brand', text: 'अंधेरी' }])
+  })
+
+  it('memoizes per font AND per sample, not per font alone', () => {
+    // Both halves were wrong before: a fixed font and a fixed Latin sample.
+    stubCanvas(9)
+    measureCharPx('12px Memo', 'aaaa')
+    measureCharPx('12px Memo', 'aaaa')
+    expect(calls).toHaveLength(1)
+
+    measureCharPx('12px Memo', 'bbbb')
+    expect(calls).toHaveLength(2)
+
+    measureCharPx('12px Other', 'aaaa')
+    expect(calls).toHaveLength(3)
+  })
+
+  it('falls back when the canvas gives no 2d context', () => {
+    stubCanvas(9, null)
+    expect(measureCharPx('12px NoCtx', 'abcd')).toBe(CHAR_PX)
+  })
+
+  it('falls back rather than trusting a zero or non-finite measurement', () => {
+    vi.stubGlobal('document', {
+      createElement: () => ({ getContext: () => ({ font: '', measureText: () => ({ width: 0 }) }) }),
+    })
+    expect(measureCharPx('12px Zero', 'abcd')).toBe(CHAR_PX)
   })
 })
 

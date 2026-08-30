@@ -38,13 +38,16 @@ import {
   VALUE_AXIS_ESTIMATE_PX,
   VALUE_LABEL_LINE_PX,
   planBarLayout,
+  shouldAnimate,
   valueLabelAnchor,
   valueLabelReservePx,
   valueSigns,
+  hasMixedSigns,
   verticalValueLabelsFit,
 } from './chart-layout'
-import { fitCategoryLabels, measureCharPx } from './label-fit'
+import { CHAR_PX, fitCategoryLabels } from './label-fit'
 import { makeCategoryTick } from './category-tick'
+import { usePrefersReducedMotion } from '../hooks/use-prefers-reduced-motion'
 import { useCategoryTicks } from './use-category-ticks'
 import { useSeriesFormatters } from './use-series-formatters'
 import { ChartEmpty } from './chart-empty'
@@ -77,11 +80,12 @@ export function BarChart({
   mode = 'inline',
   width = DEFAULT_CHART_WIDTH_PX,
   chartType = 'bar',
+  charPx = CHAR_PX,
   plan,
 }: ChartProps) {
   const stacked = options?.stacked ?? false
   const seriesCount = series.length
-  const charPx = measureCharPx()
+  const reducedMotion = usePrefersReducedMotion()
 
   const resolved = useMemo(
     () =>
@@ -136,7 +140,7 @@ export function BarChart({
 
   const seriesKeys = useMemo(() => series.map((field) => field.key), [series])
   const signs = useMemo(() => valueSigns(data, seriesKeys), [data, seriesKeys])
-  const mixedSigns = signs.positive && signs.negative
+  const mixedSigns = hasMixedSigns(signs)
 
   // Both the band-width test and the margin reserve are sized from the text
   // that will actually print — the same seriesValueLabel() the labels paint,
@@ -157,12 +161,16 @@ export function BarChart({
   // Reserve the room the labels hang in. Without it the LONGEST bar — the one
   // the reader came for — is the one whose number gets clipped by the plot edge.
   const reserve = showValueLabels ? valueLabelReservePx(longestValueChars, charPx) : 0
+  // A label hangs off the OUTER end of its bar, so which side needs room is a
+  // question about the sign — on both axes. Reserving the top for a vertical
+  // chart regardless of sign gave a negative column's label, which hangs BELOW
+  // the bar, no room at all.
+  const grows = (side: 'positive' | 'negative') => showValueLabels && signs[side]
   const chartMargin = {
-    top: !horizontal && reserve > 0 ? DEFAULT_MARGIN_PX + VALUE_LABEL_LINE_PX : DEFAULT_MARGIN_PX,
-    right: horizontal && signs.positive ? DEFAULT_MARGIN_PX + reserve : DEFAULT_MARGIN_PX,
-    bottom: DEFAULT_MARGIN_PX,
-    // Negative bars grow leftwards, so their labels need the room on that side.
-    left: horizontal && signs.negative ? DEFAULT_MARGIN_PX + reserve : DEFAULT_MARGIN_PX,
+    top: !horizontal && grows('positive') ? DEFAULT_MARGIN_PX + VALUE_LABEL_LINE_PX : DEFAULT_MARGIN_PX,
+    right: horizontal && grows('positive') ? DEFAULT_MARGIN_PX + reserve : DEFAULT_MARGIN_PX,
+    bottom: !horizontal && grows('negative') ? DEFAULT_MARGIN_PX + VALUE_LABEL_LINE_PX : DEFAULT_MARGIN_PX,
+    left: horizontal && grows('negative') ? DEFAULT_MARGIN_PX + reserve : DEFAULT_MARGIN_PX,
   }
   const categoryAxis = {
     ...CHART_Y_AXIS,
@@ -247,7 +255,9 @@ export function BarChart({
               // A 1K bar beside a 1.2M bar rounds to nothing. A 2px sliver is
               // honest because the value label prints the number beside it.
               minPointSize={2}
-              isAnimationActive={layout.animate}
+              // MARKS, not rows: a grouped chart draws one rectangle per row
+              // PER SERIES, and it is the rectangles that cost the frame.
+              isAnimationActive={shouldAnimate(data.length * seriesCount) && !reducedMotion}
               animationDuration={CHART_ANIMATION.duration}
               animationEasing={CHART_ANIMATION.easing}
             >

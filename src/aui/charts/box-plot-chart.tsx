@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { useCallback, useMemo, useRef, useState } from 'react'
 import {
   CHART_X_AXIS,
   CHART_Y_AXIS,
@@ -9,7 +9,10 @@ import {
 import { getChartColor } from '../chart-colors'
 import type { ChartFieldRef } from '../aui-types'
 import type { ChartProps } from './types'
-import { axisFieldFor, formatSeriesValue } from './chart-helpers'
+import { shouldAnimate } from './chart-layout'
+import { useSeriesFormatters, type SeriesFormatters } from './use-series-formatters'
+import { useElementSize } from '../hooks/use-element-size'
+import { CHAR_PX } from './label-fit'
 import { ChartEmpty } from './chart-empty'
 import { fitCategoryLabels } from './label-fit'
 import {
@@ -46,12 +49,12 @@ const CAP_RATIO = 0.55
 /** Boxes past this index share the last entrance delay, so a wide chart still settles quickly. */
 const MAX_STAGGER_STEPS = 10
 
-export function BoxPlotChart({ data, x, series }: ChartProps) {
+export function BoxPlotChart({ data, x, series, charPx = CHAR_PX }: ChartProps) {
   const resolution = useMemo(() => resolveBoxPlotSeries(series), [series])
-  // The five quartiles are one measure seen five ways, so the value axis takes
-  // a unit only when all five series agree on it (axisFieldFor); a disagreement
-  // means the payload is inconsistent, and an axis cannot be in two units.
-  const valueField = useMemo(() => axisFieldFor(series), [series])
+  // The same formatters every other chart takes. Their shared-field rule is
+  // exactly the one a box plot needs: five quartiles are ONE measure seen five
+  // ways, so the axis carries a unit only when all five series agree on it.
+  const formatters = useSeriesFormatters(series)
   const parse = useMemo(() => parseBoxPlotRows(data, x.key), [data, x.key])
 
   if (!resolution.fields) {
@@ -72,7 +75,8 @@ export function BoxPlotChart({ data, x, series }: ChartProps) {
       boxes={parse.boxes}
       category={x}
       measure={resolution.fields.median}
-      valueField={valueField}
+      formatters={formatters}
+      charPx={charPx}
       omitted={parse.omitted}
     />
   )
@@ -95,31 +99,46 @@ interface BoxPlotSurfaceProps {
   boxes: BoxStat[]
   category: ChartFieldRef
   measure: ChartFieldRef
-  /** Format and unit the whole value axis speaks in — see axisFieldFor. */
-  valueField: ChartFieldRef
+  /** Shared value formatters — the same hook every chart takes them from. */
+  formatters: SeriesFormatters
+  /** Character width measured on the host, in the host's own font. */
+  charPx: number
   omitted: number
 }
 
-function BoxPlotSurface({ boxes, category, measure, valueField, omitted }: BoxPlotSurfaceProps) {
-  const [host, size] = useElementSize()
+function BoxPlotSurface({
+  boxes,
+  category,
+  measure,
+  formatters,
+  charPx,
+  omitted,
+}: BoxPlotSurfaceProps) {
+  // The shared observer. recharts' ResponsiveContainer does this job for the
+  // other wrappers, but its size context is not public API, so a hand-drawn
+  // chart cannot read it without depending on internals.
+  const host = useRef<HTMLDivElement>(null)
+  const size = useElementSize(host, CHART_INITIAL_DIMENSION)
   const [activeIndex, setActiveIndex] = useState<number | null>(null)
 
   const color = getChartColor(0)
-  const printTick = useCallback(
-    (value: number) => formatSeriesValue(value, valueField, { compact: true }),
-    [valueField],
-  )
-  const printValue = useCallback(
-    (value: number) => formatSeriesValue(value, valueField, { compact: false }),
-    [valueField],
-  )
+  // The entrance is a staggered CSS animation (globals.css already silences it
+  // under prefers-reduced-motion), so the only gate left is the mark count —
+  // the same one every other chart asks for.
+  const animate = shouldAnimate(boxes.length)
 
   const geometry = useMemo(() => {
     const domain = boxPlotDomain(boxes)
     const ticks = valueAxisTicks(domain)
-    const layout = computeBoxPlotLayout(size.width, size.height, boxes.length, ticks.map(printTick))
+    const layout = computeBoxPlotLayout(
+      size.width,
+      size.height,
+      boxes.length,
+      ticks.map(formatters.tick),
+      charPx,
+    )
     return { ticks, layout, scale: makeValueScale(domain, layout.plotTop, layout.plotHeight) }
-  }, [boxes, size.width, size.height, printTick])
+  }, [boxes, size.width, size.height, formatters, charPx])
 
   const { ticks, layout, scale } = geometry
 
@@ -176,7 +195,7 @@ function BoxPlotSurface({ boxes, category, measure, valueField, omitted }: BoxPl
                   fontFamily={CHART_Y_AXIS.fontFamily}
                   fill={CHART_Y_AXIS.stroke}
                 >
-                  {printTick(tick)}
+                  {formatters.tick(tick)}
                 </text>
               </g>
             )
@@ -191,7 +210,8 @@ function BoxPlotSurface({ boxes, category, measure, valueField, omitted }: BoxPl
               layout={layout}
               scale={scale}
               category={category}
-              printValue={printValue}
+              printValue={formatters.value}
+              animate={animate}
               isActive={index === activeIndex}
               onActivate={setActiveIndex}
               onDeactivate={clearActive}
@@ -217,7 +237,7 @@ function BoxPlotSurface({ boxes, category, measure, valueField, omitted }: BoxPl
         {active && (
           <BoxTooltip
             box={active.box}
-            printValue={printValue}
+            printValue={formatters.value}
             x={bandCenter(layout, active.index)}
             y={scale(active.box.q_max)}
             containerWidth={size.width}
@@ -249,6 +269,7 @@ interface BoxMarkProps {
   scale: (value: number) => number
   category: ChartFieldRef
   printValue: (value: number) => string
+  animate: boolean
   isActive: boolean
   onActivate: (index: number) => void
   onDeactivate: () => void
@@ -262,6 +283,7 @@ function BoxMark({
   scale,
   category,
   printValue,
+  animate,
   isActive,
   onActivate,
   onDeactivate,
@@ -286,8 +308,8 @@ function BoxMark({
       role="img"
       tabIndex={0}
       aria-label={describeBox(box, category, printValue)}
-      className="cxc-boxplot-mark focus:outline-none"
-      style={{ animationDelay: `${Math.min(index, MAX_STAGGER_STEPS) * 40}ms` }}
+      className={animate ? 'cxc-boxplot-mark focus:outline-none' : 'focus:outline-none'}
+      style={animate ? { animationDelay: `${Math.min(index, MAX_STAGGER_STEPS) * 40}ms` } : undefined}
       onPointerEnter={activate}
       onPointerDown={activate}
       onFocus={activate}
@@ -429,31 +451,4 @@ function BoxTooltip({
 
 /* -------------------------------- Sizing ------------------------------- */
 
-/**
- * Measure the host element, falling back to the shared first-frame dimensions.
- *
- * Same job recharts' ResponsiveContainer does for the other wrappers, but its
- * size context is not part of the public API, so a custom child cannot read it
- * without depending on internals. The fallback keeps server rendering and the
- * pre-observer first frame from drawing at 0 x 0.
- */
-function useElementSize() {
-  const ref = useRef<HTMLDivElement>(null)
-  const [size, setSize] = useState<{ width: number; height: number }>({
-    ...CHART_INITIAL_DIMENSION,
-  })
 
-  useEffect(() => {
-    const node = ref.current
-    if (!node || typeof ResizeObserver === 'undefined') return
-
-    const observer = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect
-      if (width > 0 && height > 0) setSize({ width, height })
-    })
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [])
-
-  return [ref, size] as const
-}

@@ -224,16 +224,18 @@ export interface BoxPlotLayout {
  *
  * `axisTickLabels` sizes the value-axis column from the text that will actually
  * be printed — a fixed column would clip "1.2M" or waste a third of a
- * 360px-wide chat column on "12".
+ * 360px-wide chat column on "12". `charPx` is the width measured on the host in
+ * the host's own font; the Latin estimate stands in when there is none.
  */
 export function computeBoxPlotLayout(
   width: number,
   height: number,
   categoryCount: number,
   axisTickLabels: string[],
+  charPx: number = CHAR_PX,
 ): BoxPlotLayout {
   const widestTick = axisTickLabels.reduce((longest, label) => Math.max(longest, label.length), 0)
-  const plotLeft = Math.min(width * 0.4, widestTick * CHAR_PX + AXIS_LABEL_GAP)
+  const plotLeft = Math.min(width * 0.4, widestTick * charPx + AXIS_LABEL_GAP)
   const plotWidth = Math.max(0, width - plotLeft - PLOT_PADDING_RIGHT)
   const plotHeight = Math.max(0, height - PLOT_PADDING_TOP - CATEGORY_AXIS_HEIGHT)
 
@@ -250,7 +252,7 @@ export function computeBoxPlotLayout(
   // "2026-01" printing identically. The box plot draws its own SVG and reads
   // the stride differently, so the merge is a separate change.
   const labelStride = Math.max(1, Math.ceil(MIN_LABEL_WIDTH / Math.max(1, bandWidth)))
-  const labelMaxChars = Math.max(1, Math.floor((bandWidth * labelStride - 4) / CHAR_PX))
+  const labelMaxChars = Math.max(1, Math.floor((bandWidth * labelStride - 4) / charPx))
 
   return {
     plotLeft,

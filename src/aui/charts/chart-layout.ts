@@ -13,6 +13,7 @@
  * ----------------------------------------------------------------*/
 
 import type { ChartFieldRef, ChartType, DataRow } from '../aui-types'
+import { CHART_AXIS_FONT_SIZE, CHART_VALUE_LABEL_FONT_SIZE } from '../chart-theme'
 import { CHAR_PX } from './label-fit'
 
 /* ------------------------------ Constants ------------------------------ */
@@ -37,7 +38,7 @@ export const INLINE_MIN_HEIGHT_PX = 200
 export const VERTICAL_CHART_HEIGHT_PX = 256
 /** Below this chart width a value label beside the bar has nowhere to go. */
 export const VALUE_LABEL_MIN_WIDTH_PX = 360
-/** Above this row count the entrance animation delays the first readable frame. */
+/** Above this many marks the entrance animation delays the first readable frame. */
 export const ANIMATION_MAX_ROWS = 30
 /** Pie/donut slices drawn before the tail collapses into one "Other" slice. */
 export const MAX_SLICES = 8
@@ -80,6 +81,20 @@ export const AXIS_LABEL_PADDING_PX = 12
 export const ORDERED_SAMPLE_LIMIT = 50
 /** Share of sampled x values that must be ordered to lock the axis direction. */
 export const ORDERED_RATIO = 0.8
+
+/**
+ * Whether a chart of `marks` marks may play its entrance animation.
+ *
+ * The only animation rule in the renderer. 100 rectangles at 800ms delays the
+ * first readable frame on a low-end device, and the animation carries nothing
+ * the static chart does not — so past the cap it simply does not run. Every
+ * chart asks this one function; a local copy is what let scatter animate 500
+ * points unchecked. The reader's own reduced-motion setting is the other gate
+ * (usePrefersReducedMotion) and is applied on top.
+ */
+export function shouldAnimate(marks: number): boolean {
+  return marks <= ANIMATION_MAX_ROWS
+}
 
 /**
  * Regular thinning for a category axis that cannot print every tick.
@@ -177,7 +192,6 @@ export interface CategoryLayout {
   maxChars: number
   interval: CategoryTickInterval
   showValueLabels: boolean
-  animate: boolean
 }
 
 /**
@@ -231,7 +245,6 @@ export function categoryLayout({
     // their labels would land on top of one another. Grouped series pay for
     // their labels with a taller band (see bandHeight).
     showValueLabels: !stacked && bandPx >= MIN_BAND_PX && width >= VALUE_LABEL_MIN_WIDTH_PX,
-    animate: shownRows <= ANIMATION_MAX_ROWS,
   }
 }
 
@@ -277,10 +290,14 @@ export function verticalCategoryTicks({
 }: VerticalCategoryTicksInput): VerticalCategoryTicks {
   const bandPx = Math.max(1, plotWidth / Math.max(1, rows))
   const needed = Math.max(1, Math.ceil((longestLabelChars * charPx + TICK_GAP_PX) / bandPx))
+  // Ticks printed = floor((rows - 1) / stride) + 1, so keeping MIN_VISIBLE_TICKS
+  // of them allows a stride of (rows - 1) / (MIN_VISIBLE_TICKS - 1). Dividing by
+  // MIN_VISIBLE_TICKS instead forced MORE ticks than the floor demands, and
+  // every extra tick is characters taken off the label budget.
   const stride =
     rows < MIN_VISIBLE_TICKS
       ? 1
-      : Math.min(needed, Math.max(1, Math.floor(rows / MIN_VISIBLE_TICKS)))
+      : Math.min(needed, Math.max(1, Math.floor((rows - 1) / (MIN_VISIBLE_TICKS - 1))))
 
   return {
     stride,
@@ -294,12 +311,13 @@ export function verticalCategoryTicks({
 }
 
 /**
- * Ratio of the value-label font to the axis font (11px against 12px).
+ * Ratio of the value-label font to the axis font, from the theme itself.
  *
- * The label sits inside the plot next to the mark it describes, so it is one
- * step down from the axis — see CHART_VALUE_LABEL_STYLE.
+ * CHAR_PX is calibrated at the AXIS size, so every value-label width has to be
+ * scaled by this. Retyping "11 / 12" here would silently stop matching the
+ * moment either font size in chart-theme.ts moved.
  */
-export const VALUE_LABEL_FONT_RATIO = 11 / 12
+export const VALUE_LABEL_FONT_RATIO = CHART_VALUE_LABEL_FONT_SIZE / CHART_AXIS_FONT_SIZE
 
 /**
  * Whether a value label fits inside a VERTICAL bar's band.
@@ -488,9 +506,14 @@ export function valueSigns(data: DataRow[], keys: string[]): ValueSigns {
   return { positive, negative }
 }
 
-/** Whether any two plotted values straddle zero (drives the zero reference line). */
-export function hasMixedSigns(data: DataRow[], keys: string[]): boolean {
-  const { positive, negative } = valueSigns(data, keys)
+/**
+ * Whether the values straddle zero — the zero reference line's rule.
+ *
+ * Takes the signs rather than re-reading the rows: the caller already has them
+ * (it needs each side separately for the label margins), and scanning twice is
+ * two chances for the two answers to disagree.
+ */
+export function hasMixedSigns({ positive, negative }: ValueSigns): boolean {
   return positive && negative
 }
 

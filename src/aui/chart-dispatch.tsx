@@ -1,8 +1,9 @@
 /* ------------------------------------------------------------------
  * Chart dispatcher
  *
- * Maps the emitted ChartBlock (closed chart_type enum + snake_case
- * options) onto the five chart wrappers and their camelCase ChartProps.
+ * Maps the emitted ChartBlock (closed chart_type enum + snake_case options)
+ * onto the six chart wrappers — bar, line, area, pie, scatter, box plot — and
+ * their camelCase ChartProps.
  * The enum carries presentation variants (bar_stacked, bar_horizontal,
  * donut, ...) that collapse onto a base component plus options here, so
  * the wrappers stay variant-free.
@@ -50,9 +51,11 @@ interface ChartDispatchProps {
   width?: number
   /** Bar-family layout the block already decided (and sliced `data` to match). */
   plan?: BarLayoutPlan
+  /** Character width measured on the block's host, in the host's own font. */
+  charPx?: number
 }
 
-export function ChartDispatch({ block, mode, width, plan }: ChartDispatchProps) {
+export function ChartDispatch({ block, mode, width, plan, charPx }: ChartDispatchProps) {
   const props: ChartProps = {
     data: block.data,
     x: block.x,
@@ -61,6 +64,7 @@ export function ChartDispatch({ block, mode, width, plan }: ChartDispatchProps) 
     mode,
     width,
     chartType: block.chart_type,
+    charPx,
     plan,
   }
 

@@ -4,7 +4,7 @@ import { fileURLToPath } from 'node:url'
 import { createElement } from 'react'
 import { renderToStaticMarkup } from 'react-dom/server'
 import { beforeEach, describe, expect, it, vi } from 'vitest'
-import type { ChartBlock, ChartType, DataRow } from '../aui-types'
+import type { ChartBlock, ChartFieldRef, ChartType, DataRow } from '../aui-types'
 import { ChartDispatch } from '../chart-dispatch'
 import {
   BAR_VALUE_DOMAIN,
@@ -32,8 +32,15 @@ import {
  * own and the part that regressed.
  * ----------------------------------------------------------------*/
 
-const { captured } = vi.hoisted(() => ({
+const { captured, motion } = vi.hoisted(() => ({
   captured: [] as { type: string; props: Record<string, unknown> }[],
+  // Mutable so one file can render both states of the setting. Defaults off,
+  // so every other test in this file sees the ordinary path.
+  motion: { reduced: false },
+}))
+
+vi.mock('../hooks/use-prefers-reduced-motion', () => ({
+  usePrefersReducedMotion: () => motion.reduced,
 }))
 
 vi.mock('recharts', async () => {
@@ -130,6 +137,7 @@ function tooltip() {
 
 beforeEach(() => {
   captured.length = 0
+  motion.reduced = false
 })
 
 describe('value axis — reachable without hover', () => {
@@ -380,29 +388,42 @@ describe('pie and donut refuse what a pie cannot say', () => {
     expect(all('Cell')).toHaveLength(8)
   })
 
-  it('refuses negative values instead of drawing a false whole', () => {
+  it('names the cause when it refuses: a negative share', () => {
     // `Number(v) || 0` used to coerce these into a confident, meaningless pie.
+    // The three causes are told apart because the reader can act on the
+    // difference — a negative value is a question about the measure, a zero
+    // total is a question about the filter.
     const html = renderHtml(block('pie', [
       { month: 'Gain', revenue: 40 },
       { month: 'Loss', revenue: -25 },
     ]))
-    expect(html).toContain('data-cxc-empty-reason="pie_invalid_values"')
+    expect(html).toContain('data-cxc-empty-reason="pie_negative_values"')
+    expect(html).toContain('cannot be negative')
   })
 
-  it('refuses a total of zero, which has no whole to divide', () => {
+  it('names the cause when it refuses: no whole to divide', () => {
     const html = renderHtml(block('pie', [
       { month: 'A', revenue: 0 },
       { month: 'B', revenue: 0 },
     ]))
-    expect(html).toContain('data-cxc-empty-reason="pie_invalid_values"')
+    expect(html).toContain('data-cxc-empty-reason="pie_zero_total"')
+    expect(html).toContain('add up to zero')
   })
 
-  it('refuses a non-numeric measure rather than plotting it as zero', () => {
+  it('names the cause when it refuses: a value that is not a number', () => {
     const html = renderHtml(block('pie', [
       { month: 'A', revenue: 'n/a' },
       { month: 'B', revenue: 10 },
     ]))
-    expect(html).toContain('data-cxc-empty-reason="pie_invalid_values"')
+    expect(html).toContain('data-cxc-empty-reason="pie_non_numeric_values"')
+    expect(html).toContain('not a number')
+  })
+
+  it('gives each cause its own sentence, never a shared one', () => {
+    const negative = renderHtml(block('pie', [{ month: 'A', revenue: -1 }]))
+    const zero = renderHtml(block('pie', [{ month: 'A', revenue: 0 }]))
+    const text = (html: string) => html.replace(/<[^>]*>/g, '')
+    expect(text(negative)).not.toBe(text(zero))
   })
 
   it('still treats a blank cell as a missing measurement, not a contradiction', () => {
@@ -530,17 +551,170 @@ describe('formatter factories are built once, not per render', () => {
     'box-plot-chart.tsx',
   ]
 
-  it.each(CHARTS)('%s builds no factory inside its JSX', (file) => {
+  it.each(CHARTS)('%s builds no formatter inside a formatter prop', (file) => {
+    // The exact regression: `tickFormatter={makeAxisTickFormatter(series)}`
+    // allocates on every render. Scoped to the four props that take one, so a
+    // legitimate factory call elsewhere is not caught by accident.
     const source = readFileSync(join(CHART_DIR, file), 'utf8')
-    // `prop={makeSomething(...)}` — a factory call in a prop position.
-    expect(source).not.toMatch(/=\{make[A-Z][A-Za-z]*\(/)
+    expect(source).not.toMatch(/\b(tickFormatter|formatter|labelFormatter|tick)=\{[a-zA-Z]+\(/)
   })
 
-  it.each(['bar-chart.tsx', 'line-chart.tsx', 'area-chart.tsx', 'scatter-chart.tsx', 'pie-chart.tsx'])(
-    '%s takes its value formatters from the shared hook',
-    (file) => {
-      const source = readFileSync(join(CHART_DIR, file), 'utf8')
-      expect(source).toContain('useSeriesFormatters')
-    },
-  )
+  it.each(CHARTS)('%s CALLS the shared hook, not merely imports it', (file) => {
+    const source = readFileSync(join(CHART_DIR, file), 'utf8')
+    expect(source).toMatch(/useSeriesFormatters\(/)
+  })
+
+  it.each(CHARTS)('%s asks shouldAnimate() rather than keeping its own cap', (file) => {
+    // The cap was hand-copied into three charts, missing from a fourth, and
+    // dead in a fifth. One function, asked by all six.
+    const source = readFileSync(join(CHART_DIR, file), 'utf8')
+    expect(source).toMatch(/shouldAnimate\(/)
+    expect(source).not.toContain('ANIMATION_MAX_ROWS')
+  })
+
+  it.each(CHARTS)('%s builds no formatter of its own', (file) => {
+    // The box plot kept a private useCallback pair over axisFieldFor until the
+    // hook grew a `value` formatter for it. Six charts, one source.
+    const source = readFileSync(join(CHART_DIR, file), 'utf8')
+    expect(source).not.toMatch(/\bformatSeriesValue\(|\baxisFieldFor\(/)
+  })
+})
+
+describe('scatter — x is a measure, so it carries its own format and unit', () => {
+  const POINTS: DataRow[] = [{ spend: 1234567, revenue: 4567890 }]
+
+  function scatter(x: ChartFieldRef, series: ChartFieldRef[]) {
+    render({
+      type: 'chart',
+      chart_type: 'scatter',
+      x,
+      series,
+      data: POINTS,
+    })
+  }
+
+  const SPEND = { key: 'spend', label: 'Spend', format: 'currency' as const, unit: '₹' }
+  const REVENUE = { key: 'revenue', label: 'Revenue', format: 'currency' as const, unit: '$' }
+
+  it('formats the x axis in x\'s own terms', () => {
+    // Every other chart's x is a CATEGORY and takes no unit. A scatter's x is a
+    // second measure, and it can be in a different unit from y.
+    scatter(SPEND, [REVENUE])
+    const axes = all('XAxis')
+    expect(tick(axes[0].props)(1234567)).toBe('1.2M ₹')
+  })
+
+  it('keeps the y axis in the series\' terms, not x\'s', () => {
+    scatter(SPEND, [REVENUE])
+    expect(tick(one('YAxis'))(4567890)).toBe('4.6M $')
+  })
+
+  it('resolves the tooltip across both axes', () => {
+    scatter(SPEND, [REVENUE])
+    const format = tooltip()
+    expect(format(1234567, 'Spend', { dataKey: 'spend' })).toBe('1,234,567 ₹')
+    expect(format(4567890, 'Revenue', { dataKey: 'revenue' })).toBe('4,567,890 $')
+  })
+
+  it('leaves a bare x axis bare', () => {
+    scatter({ key: 'spend', label: 'Spend' }, [{ key: 'revenue', label: 'Revenue' }])
+    expect(tick(all('XAxis')[0].props)(1234567)).toBe('1.2M')
+  })
+})
+
+describe('reduced motion is an instruction, not a hint', () => {
+  /** Each chart type and the primitive that carries its animation flag. */
+  const MARKS = [
+    ['bar', 'Bar'],
+    ['line', 'Line'],
+    ['area', 'Area'],
+    ['pie', 'Pie'],
+    ['scatter', 'Scatter'],
+  ] as const
+
+  /** Three rows: far under the animation cap, so only the setting can be why. */
+  const SMALL: DataRow[] = [
+    { month: 'Jan', revenue: 1 },
+    { month: 'Feb', revenue: 2 },
+    { month: 'Mar', revenue: 3 },
+  ]
+
+  it.each(MARKS)('%s animates when the reader has asked for nothing', (chartType, mark) => {
+    motion.reduced = false
+    render(block(chartType, SMALL))
+    expect(one(mark).isAnimationActive).toBe(true)
+  })
+
+  it.each(MARKS)('%s refuses to animate under reduced motion', (chartType, mark) => {
+    // For a reader with vestibular sensitivity this is not decoration, it is a
+    // symptom trigger — and the entrance carries nothing the static chart does
+    // not. Three rows, so the row cap cannot be the reason.
+    motion.reduced = true
+    render(block(chartType, SMALL))
+    expect(one(mark).isAnimationActive).toBe(false)
+  })
+
+  it('still refuses on row count alone when the setting is off', () => {
+    motion.reduced = false
+    const dense: DataRow[] = Array.from({ length: 40 }, (_, i) => ({ month: `M${i}`, revenue: i }))
+    render(block('bar', dense))
+    expect(one('Bar').isAnimationActive).toBe(false)
+  })
+})
+
+describe('the animation cap counts MARKS, not rows', () => {
+  it.each([
+    ['bar', 'Bar'],
+    ['line', 'Line'],
+    ['area', 'Area'],
+  ] as const)('%s counts one mark per row per series', (chartType, mark) => {
+    // 12 rows is well under the cap; 12 rows x 3 series is 36 rectangles or
+    // three 12-point paths, and it is the marks that cost the first frame.
+    const rows: DataRow[] = Array.from({ length: 12 }, (_, i) => ({
+      month: `M${i}`,
+      revenue: i,
+      cost: i,
+      units: i,
+    }))
+    const three = [
+      { key: 'revenue', label: 'Revenue' },
+      { key: 'cost', label: 'Cost' },
+      { key: 'units', label: 'Units' },
+    ]
+
+    render(block(chartType, rows))
+    expect(all(mark)[0].props.isAnimationActive).toBe(true)
+
+    captured.length = 0
+    render(block(chartType, rows, { series: three }))
+    expect(all(mark)[0].props.isAnimationActive).toBe(false)
+  })
+})
+
+describe('pie refusal precedence is fixed, not row order', () => {
+  it.each([
+    ['the bad number first', [{ month: 'A', revenue: 'n/a' }, { month: 'B', revenue: -5 }]],
+    ['the negative first', [{ month: 'A', revenue: -5 }, { month: 'B', revenue: 'n/a' }]],
+  ])('reports the non-numeric cell with %s', (_name, rows) => {
+    // Row order must not decide the message: the same data re-sorted would
+    // otherwise be explained two different ways.
+    const html = renderHtml(block('pie', rows as DataRow[]))
+    expect(html).toContain('data-cxc-empty-reason="pie_non_numeric_values"')
+  })
+
+  it('reports the negative share only once every value is a number', () => {
+    const html = renderHtml(block('pie', [
+      { month: 'A', revenue: 10 },
+      { month: 'B', revenue: -5 },
+    ]))
+    expect(html).toContain('data-cxc-empty-reason="pie_negative_values"')
+  })
+
+  it('reports the empty total only once the values are all usable', () => {
+    const html = renderHtml(block('pie', [
+      { month: 'A', revenue: 0 },
+      { month: 'B', revenue: 0 },
+    ]))
+    expect(html).toContain('data-cxc-empty-reason="pie_zero_total"')
+  })
 })

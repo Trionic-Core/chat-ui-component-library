@@ -223,7 +223,7 @@ describe('a 62-row ranking, inline', () => {
     // One bar at -1.2M puts the rest under a pixel; a touch device has no
     // hover, so without this the reader gets no figure at all.
     render(RANKING())
-    expect(all('LabelList').length).toBeGreaterThanOrEqual(1)
+    expect(labelListsOfChart(0)).toBe(1)
     expect(all('Bar')[0].props.minPointSize).toBe(2)
   })
 
@@ -294,6 +294,48 @@ describe('a 62-row ranking, inline', () => {
   it('draws no zero line when every value shares a sign', () => {
     render(RANKING())
     expect(all('ReferenceLine')).toHaveLength(0)
+  })
+
+  it('reserves the bottom for a negative column\'s label, not the top', () => {
+    // A vertical bar's label hangs ABOVE a positive column and BELOW a negative
+    // one. The margin used to reserve the top whenever labels were on at all,
+    // so a loss column's number had nowhere to go and clipped.
+    const losses: DataRow[] = Array.from({ length: 8 }, (_, i) => ({
+      month: `${2026}-${String(i + 1).padStart(2, '0')}`,
+      revenue: -(400000 + i * 9100),
+    }))
+    render(block('bar', losses, { key: 'month', label: 'Month' }, [
+      { key: 'revenue', label: 'Revenue' },
+    ]))
+    const margin = all('BarChart')[0].props.margin as Record<string, number>
+    expect(margin.bottom).toBeGreaterThan(margin.top)
+    expect(margin.top).toBe(5)
+  })
+
+  it('reserves the top for a positive column\'s label', () => {
+    const gains: DataRow[] = Array.from({ length: 8 }, (_, i) => ({
+      month: `${2026}-${String(i + 1).padStart(2, '0')}`,
+      revenue: 400000 + i * 9100,
+    }))
+    render(block('bar', gains, { key: 'month', label: 'Month' }, [
+      { key: 'revenue', label: 'Revenue' },
+    ]))
+    const margin = all('BarChart')[0].props.margin as Record<string, number>
+    expect(margin.top).toBeGreaterThan(margin.bottom)
+    expect(margin.bottom).toBe(5)
+  })
+
+  it('reserves both ends when a vertical chart crosses zero', () => {
+    const mixed: DataRow[] = Array.from({ length: 8 }, (_, i) => ({
+      month: `${2026}-${String(i + 1).padStart(2, '0')}`,
+      revenue: i < 4 ? 400000 + i * 9100 : -(400000 + i * 9100),
+    }))
+    render(block('bar', mixed, { key: 'month', label: 'Month' }, [
+      { key: 'revenue', label: 'Revenue' },
+    ]))
+    const margin = all('BarChart')[0].props.margin as Record<string, number>
+    expect(margin.top).toBeGreaterThan(5)
+    expect(margin.bottom).toBeGreaterThan(5)
   })
 
   it('draws a zero line once the data crosses zero', () => {

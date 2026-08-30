@@ -139,6 +139,18 @@ export function makeAxisTickFormatter(series: ChartFieldRef[]): (value: unknown)
 }
 
 /**
+ * Full-precision formatter for the SHARED value field — the axis's own terms.
+ *
+ * For a readout that has no per-entry series to resolve: a box plot prints five
+ * numbers of ONE measure, so there is no dataKey to look up, only the unit the
+ * five series agree on.
+ */
+export function makeValueFormatter(series: ChartFieldRef[]): (value: unknown) => string {
+  const field = axisFieldFor(series)
+  return (value: unknown) => formatSeriesValue(value, field, { compact: false })
+}
+
+/**
  * One tooltip entry carries the key of the series it came from.
  *
  * `unknown` because recharts types dataKey as string | number | accessor

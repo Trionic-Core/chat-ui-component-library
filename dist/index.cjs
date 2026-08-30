@@ -2186,11 +2186,13 @@ function Card({ padding = "md", className, style, children, ...props }) {
 }
 
 // src/aui/chart-theme.ts
+var CHART_AXIS_FONT_SIZE = 12;
+var CHART_VALUE_LABEL_FONT_SIZE = 11;
 var CHART_X_AXIS = {
   tickLine: false,
   axisLine: false,
   tickMargin: 10,
-  fontSize: 12,
+  fontSize: CHART_AXIS_FONT_SIZE,
   fontFamily: "inherit",
   stroke: "var(--cx-text-muted)"
 };
@@ -2198,7 +2200,7 @@ var CHART_Y_AXIS = {
   tickLine: false,
   axisLine: false,
   tickMargin: 8,
-  fontSize: 12,
+  fontSize: CHART_AXIS_FONT_SIZE,
   fontFamily: "inherit",
   stroke: "var(--cx-text-muted)"
 };
@@ -2239,7 +2241,7 @@ var CHART_ZERO_LINE_STYLE = {
   strokeOpacity: 0.5
 };
 var CHART_VALUE_LABEL_STYLE = {
-  fontSize: 11,
+  fontSize: CHART_VALUE_LABEL_FONT_SIZE,
   fontFamily: "inherit",
   fill: "var(--cx-text-secondary)"
 };
@@ -2547,9 +2549,6 @@ function chartLegendProps() {
     }
   };
 }
-function formatAxisTick(value) {
-  return formatValue(value, "compact");
-}
 function formatTooltipValue(value) {
   return formatValue(value, "number");
 }
@@ -2593,6 +2592,10 @@ function axisFieldFor(series) {
 function makeAxisTickFormatter(series) {
   const field = axisFieldFor(series);
   return (value) => formatSeriesValue(value, field, { compact: true });
+}
+function makeValueFormatter(series) {
+  const field = axisFieldFor(series);
+  return (value) => formatSeriesValue(value, field, { compact: false });
 }
 function makeTooltipValueFormatter(series) {
   const only = series.length === 1 ? series[0] : void 0;
@@ -2671,24 +2674,41 @@ function wrapLabel(label, maxChars, maxLines = 2) {
   if (current) lines.push(current);
   return lines.length > 1 && lines.length <= maxLines ? lines : null;
 }
-var MEASUREMENT_SAMPLE = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
-var AXIS_FONT = "12px sans-serif";
+var LATIN_SAMPLE = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789";
+var SAMPLE_LABEL_COUNT = 5;
+var FALLBACK_FONT = `${CHART_AXIS_FONT_SIZE}px sans-serif`;
+function chartAxisFont(element) {
+  if (!element || typeof window === "undefined" || !window.getComputedStyle) return FALLBACK_FONT;
+  const family = window.getComputedStyle(element).fontFamily;
+  if (!family) return FALLBACK_FONT;
+  return `${CHART_AXIS_FONT_SIZE}px ${family}`;
+}
+function labelSample(labels, count = SAMPLE_LABEL_COUNT) {
+  const longest = [...labels].filter((label) => label.length > 0).sort((a, b) => b.length - a.length).slice(0, Math.max(1, count));
+  return longest.length > 0 ? longest.join("") : LATIN_SAMPLE;
+}
 var measured = /* @__PURE__ */ new Map();
-function measureCharPx(font = AXIS_FONT) {
-  const cached = measured.get(font);
+function measureCharPx(font = FALLBACK_FONT, sample = LATIN_SAMPLE) {
+  const key = `${font}\0${sample}`;
+  const cached = measured.get(key);
   if (cached !== void 0) return cached;
-  const width = measureSample(font);
-  measured.set(font, width);
+  const width = measureSample(font, sample);
+  measured.set(key, width);
   return width;
 }
-function measureSample(font) {
-  if (typeof document === "undefined") return CHAR_PX;
+function invalidateCharPx(font) {
+  for (const key of [...measured.keys()]) {
+    if (key.startsWith(`${font}\0`)) measured.delete(key);
+  }
+}
+function measureSample(font, sample) {
+  if (typeof document === "undefined" || sample.length === 0) return CHAR_PX;
   const context = document.createElement("canvas").getContext("2d");
   if (!context) return CHAR_PX;
   context.font = font;
-  const width = context.measureText(MEASUREMENT_SAMPLE).width;
+  const width = context.measureText(sample).width;
   if (!Number.isFinite(width) || width <= 0) return CHAR_PX;
-  return width / MEASUREMENT_SAMPLE.length;
+  return width / sample.length;
 }
 
 // src/aui/charts/chart-layout.ts
@@ -2720,6 +2740,9 @@ var VALUE_AXIS_ESTIMATE_PX = 48;
 var AXIS_LABEL_PADDING_PX = 12;
 var ORDERED_SAMPLE_LIMIT = 50;
 var ORDERED_RATIO = 0.8;
+function shouldAnimate(marks) {
+  return marks <= ANIMATION_MAX_ROWS;
+}
 var EQUIDISTANT_INTERVAL = "equidistantPreserveStart";
 var FLIPPABLE_CHART_TYPES = /* @__PURE__ */ new Set([
   "bar",
@@ -2779,8 +2802,7 @@ function categoryLayout({
     // Stacked segments share one band and can each be a few pixels wide, so
     // their labels would land on top of one another. Grouped series pay for
     // their labels with a taller band (see bandHeight).
-    showValueLabels: !stacked && bandPx >= MIN_BAND_PX && width >= VALUE_LABEL_MIN_WIDTH_PX,
-    animate: shownRows <= ANIMATION_MAX_ROWS
+    showValueLabels: !stacked && bandPx >= MIN_BAND_PX && width >= VALUE_LABEL_MIN_WIDTH_PX
   };
 }
 function verticalCategoryTicks({
@@ -2791,7 +2813,7 @@ function verticalCategoryTicks({
 }) {
   const bandPx = Math.max(1, plotWidth / Math.max(1, rows));
   const needed = Math.max(1, Math.ceil((longestLabelChars * charPx + TICK_GAP_PX) / bandPx));
-  const stride = rows < MIN_VISIBLE_TICKS ? 1 : Math.min(needed, Math.max(1, Math.floor(rows / MIN_VISIBLE_TICKS)));
+  const stride = rows < MIN_VISIBLE_TICKS ? 1 : Math.min(needed, Math.max(1, Math.floor((rows - 1) / (MIN_VISIBLE_TICKS - 1))));
   return {
     stride,
     // recharts counts the ticks it SKIPS between two printed ones.
@@ -2802,7 +2824,7 @@ function verticalCategoryTicks({
     )
   };
 }
-var VALUE_LABEL_FONT_RATIO = 11 / 12;
+var VALUE_LABEL_FONT_RATIO = CHART_VALUE_LABEL_FONT_SIZE / CHART_AXIS_FONT_SIZE;
 function verticalValueLabelsFit(plotWidth, marks, longestValueChars, charPx = CHAR_PX) {
   if (longestValueChars <= 0 || marks <= 0) return false;
   const bandWidth = plotWidth / marks;
@@ -2881,6 +2903,9 @@ function valueSigns(data, keys) {
     }
   }
   return { positive, negative };
+}
+function hasMixedSigns({ positive, negative }) {
+  return positive && negative;
 }
 function deriveTitle(x, series) {
   const measures = series.map((field) => field.label?.trim()).filter((label) => Boolean(label)).join(", ");
@@ -2977,6 +3002,19 @@ function makeCategoryTick({ fitted, maxChars, allowWrap }) {
     );
   };
 }
+var QUERY = "(prefers-reduced-motion: reduce)";
+function usePrefersReducedMotion() {
+  const [reduced, setReduced] = react.useState(false);
+  react.useEffect(() => {
+    if (typeof window === "undefined" || typeof window.matchMedia !== "function") return;
+    const query = window.matchMedia(QUERY);
+    setReduced(query.matches);
+    const onChange = (event) => setReduced(event.matches);
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+  return reduced;
+}
 function useCategoryTicks({
   data,
   xKey,
@@ -3017,7 +3055,8 @@ function useSeriesFormatters(series) {
   return react.useMemo(
     () => ({
       tick: makeAxisTickFormatter(series),
-      tooltip: makeTooltipValueFormatter(series)
+      tooltip: makeTooltipValueFormatter(series),
+      value: makeValueFormatter(series)
     }),
     [series]
   );
@@ -3044,11 +3083,12 @@ function BarChart({
   mode = "inline",
   width = DEFAULT_CHART_WIDTH_PX,
   chartType = "bar",
+  charPx = CHAR_PX,
   plan
 }) {
   const stacked = options?.stacked ?? false;
   const seriesCount = series.length;
-  const charPx = measureCharPx();
+  const reducedMotion = usePrefersReducedMotion();
   const resolved = react.useMemo(
     () => plan ?? planBarLayout({
       chartType,
@@ -3088,7 +3128,7 @@ function BarChart({
   const formatters = useSeriesFormatters(series);
   const seriesKeys = react.useMemo(() => series.map((field) => field.key), [series]);
   const signs = react.useMemo(() => valueSigns(data, seriesKeys), [data, seriesKeys]);
-  const mixedSigns = signs.positive && signs.negative;
+  const mixedSigns = hasMixedSigns(signs);
   const longestValueChars = react.useMemo(() => longestValueLabel(data, series), [data, series]);
   if (!data.length || !x.key || seriesCount === 0) {
     return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, {});
@@ -3097,12 +3137,12 @@ function BarChart({
   const seriesLabels = series.map((s) => s.label).join(", ");
   const showValueLabels = layout.showValueLabels && (horizontal || verticalValueLabelsFit(plotWidth, data.length * seriesCount, longestValueChars, charPx));
   const reserve = showValueLabels ? valueLabelReservePx(longestValueChars, charPx) : 0;
+  const grows = (side) => showValueLabels && signs[side];
   const chartMargin = {
-    top: !horizontal && reserve > 0 ? DEFAULT_MARGIN_PX + VALUE_LABEL_LINE_PX : DEFAULT_MARGIN_PX,
-    right: horizontal && signs.positive ? DEFAULT_MARGIN_PX + reserve : DEFAULT_MARGIN_PX,
-    bottom: DEFAULT_MARGIN_PX,
-    // Negative bars grow leftwards, so their labels need the room on that side.
-    left: horizontal && signs.negative ? DEFAULT_MARGIN_PX + reserve : DEFAULT_MARGIN_PX
+    top: !horizontal && grows("positive") ? DEFAULT_MARGIN_PX + VALUE_LABEL_LINE_PX : DEFAULT_MARGIN_PX,
+    right: horizontal && grows("positive") ? DEFAULT_MARGIN_PX + reserve : DEFAULT_MARGIN_PX,
+    bottom: !horizontal && grows("negative") ? DEFAULT_MARGIN_PX + VALUE_LABEL_LINE_PX : DEFAULT_MARGIN_PX,
+    left: horizontal && grows("negative") ? DEFAULT_MARGIN_PX + reserve : DEFAULT_MARGIN_PX
   };
   const categoryAxis = {
     ...CHART_Y_AXIS,
@@ -3184,7 +3224,7 @@ function BarChart({
                     radius: 4,
                     stackId: stacked ? "stack" : void 0,
                     minPointSize: 2,
-                    isAnimationActive: layout.animate,
+                    isAnimationActive: shouldAnimate(data.length * seriesCount) && !reducedMotion,
                     animationDuration: CHART_ANIMATION.duration,
                     animationEasing: CHART_ANIMATION.easing,
                     children: showValueLabels && /* @__PURE__ */ jsxRuntime.jsx(recharts.LabelList, { dataKey: s.key, content: valueLabels[index] })
@@ -3248,20 +3288,21 @@ function makeValueLabel(horizontal, field) {
     );
   };
 }
-function LineChart2({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX }) {
+function LineChart2({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX, charPx = CHAR_PX }) {
   const formatters = useSeriesFormatters(series);
+  const reducedMotion = usePrefersReducedMotion();
   const ticks = useCategoryTicks({
     data,
     xKey: x.key,
     plotWidth: Math.max(1, width - VALUE_AXIS_ESTIMATE_PX),
-    charPx: measureCharPx()
+    charPx
   });
   if (!data.length || !x.key || series.length === 0) {
     return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, {});
   }
   const showLegend = shouldShowLegend(series.length, options?.showLegend);
   const seriesLabels = series.map((s) => s.label).join(", ");
-  const animate = data.length <= ANIMATION_MAX_ROWS;
+  const animate = shouldAnimate(data.length * series.length) && !reducedMotion;
   return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxRuntime.jsxs(
     recharts.LineChart,
     {
@@ -3311,21 +3352,22 @@ function LineChart2({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX }
     }
   ) });
 }
-function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX }) {
+function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX, charPx = CHAR_PX }) {
   const uid = react.useId();
   const formatters = useSeriesFormatters(series);
+  const reducedMotion = usePrefersReducedMotion();
   const ticks = useCategoryTicks({
     data,
     xKey: x.key,
     plotWidth: Math.max(1, width - VALUE_AXIS_ESTIMATE_PX),
-    charPx: measureCharPx()
+    charPx
   });
   if (!data.length || !x.key || series.length === 0) {
     return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, {});
   }
   const showLegend = shouldShowLegend(series.length, options?.showLegend);
   const seriesLabels = series.map((s) => s.label).join(", ");
-  const animate = data.length <= ANIMATION_MAX_ROWS;
+  const animate = shouldAnimate(data.length * series.length) && !reducedMotion;
   return /* @__PURE__ */ jsxRuntime.jsx(recharts.ResponsiveContainer, { width: "100%", height: "100%", initialDimension: CHART_INITIAL_DIMENSION, children: /* @__PURE__ */ jsxRuntime.jsxs(
     recharts.AreaChart,
     {
@@ -3392,20 +3434,28 @@ function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX })
   ) });
 }
 function readSlices(rows) {
-  let total = 0;
-  for (const slice of rows) {
-    if (!Number.isFinite(slice.value) || slice.value < 0) return { slices: [], invalid: true };
-    total += slice.value;
+  if (rows.some((slice) => !Number.isFinite(slice.value))) {
+    return { slices: [], rejection: "pie_non_numeric_values" };
   }
-  if (!(total > 0)) return { slices: [], invalid: true };
-  return { slices: collapseSlices(rows, MAX_SLICES), invalid: false };
+  if (rows.some((slice) => slice.value < 0)) {
+    return { slices: [], rejection: "pie_negative_values" };
+  }
+  const total = rows.reduce((sum, slice) => sum + slice.value, 0);
+  if (!(total > 0)) return { slices: [], rejection: "pie_zero_total" };
+  return { slices: collapseSlices(rows, MAX_SLICES), rejection: null };
 }
+var REJECTION_LABEL = {
+  pie_negative_values: "These values cannot be drawn as a pie: a share of a whole cannot be negative.",
+  pie_non_numeric_values: "These values cannot be drawn as a pie: one of them is not a number.",
+  pie_zero_total: "These values cannot be drawn as a pie: they add up to zero, so there is no whole to divide."
+};
 function PieChart({ data, x, series, options, donut = false }) {
   const valueKey = series[0]?.key;
   const valueLabel = series[0]?.label ?? "";
   const formatters = useSeriesFormatters(series);
-  const { slices, invalid } = react.useMemo(() => {
-    if (!data.length || !x.key || !valueKey) return { slices: [], invalid: false };
+  const reducedMotion = usePrefersReducedMotion();
+  const { slices, rejection } = react.useMemo(() => {
+    if (!data.length || !x.key || !valueKey) return { slices: [], rejection: null };
     return readSlices(
       data.map((row) => {
         const raw = row[valueKey];
@@ -3417,14 +3467,8 @@ function PieChart({ data, x, series, options, donut = false }) {
       })
     );
   }, [data, x.key, valueKey]);
-  if (invalid) {
-    return /* @__PURE__ */ jsxRuntime.jsx(
-      ChartEmpty,
-      {
-        label: "These values cannot be drawn as a pie: a share of a whole cannot be negative.",
-        reason: "pie_invalid_values"
-      }
-    );
+  if (rejection) {
+    return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, { label: REJECTION_LABEL[rejection], reason: rejection });
   }
   if (!slices.length) {
     return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, { label: "No data available" });
@@ -3448,7 +3492,7 @@ function PieChart({ data, x, series, options, donut = false }) {
             outerRadius: "80%",
             paddingAngle: 2,
             strokeWidth: 0,
-            isAnimationActive: slices.length <= ANIMATION_MAX_ROWS,
+            isAnimationActive: shouldAnimate(slices.length) && !reducedMotion,
             animationDuration: CHART_ANIMATION.duration,
             animationEasing: CHART_ANIMATION.easing,
             children: slices.map((slice, index) => /* @__PURE__ */ jsxRuntime.jsx(
@@ -3481,7 +3525,12 @@ function PieChart({ data, x, series, options, donut = false }) {
   ) });
 }
 function ScatterChart({ data, x, series, options }) {
+  const xOnly = react.useMemo(() => [x], [x]);
+  const bothAxes = react.useMemo(() => [x, ...series], [x, series]);
+  const xFormatters = useSeriesFormatters(xOnly);
   const formatters = useSeriesFormatters(series);
+  const tooltipFormatters = useSeriesFormatters(bothAxes);
+  const reducedMotion = usePrefersReducedMotion();
   if (!data.length || !x.key || series.length === 0) {
     return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, { label: "Configure X-axis and a measure for the scatter plot" });
   }
@@ -3502,7 +3551,7 @@ function ScatterChart({ data, x, series, options }) {
             dataKey: x.key,
             type: "number",
             name: x.label,
-            tickFormatter: formatAxisTick
+            tickFormatter: xFormatters.tick
           }
         ),
         /* @__PURE__ */ jsxRuntime.jsx(
@@ -3519,7 +3568,7 @@ function ScatterChart({ data, x, series, options }) {
           {
             cursor: { strokeDasharray: "3 3" },
             contentStyle: CHART_TOOLTIP_STYLE,
-            formatter: formatters.tooltip
+            formatter: tooltipFormatters.tooltip
           }
         ),
         showLegend && /* @__PURE__ */ jsxRuntime.jsx(recharts.Legend, { ...chartLegendProps() }),
@@ -3530,7 +3579,7 @@ function ScatterChart({ data, x, series, options }) {
             dataKey: s.key,
             data,
             fill: getChartColor(index),
-            isAnimationActive: true,
+            isAnimationActive: shouldAnimate(data.length * series.length) && !reducedMotion,
             animationDuration: CHART_ANIMATION.duration,
             animationEasing: CHART_ANIMATION.easing
           },
@@ -3539,6 +3588,27 @@ function ScatterChart({ data, x, series, options }) {
       ]
     }
   ) });
+}
+function useElementSize(ref, fallback) {
+  const [size, setSize] = react.useState(fallback);
+  react.useEffect(() => {
+    const element = ref.current;
+    if (!element) return;
+    if (typeof window === "undefined" || typeof ResizeObserver === "undefined") {
+      const { width, height } = element.getBoundingClientRect();
+      if (width > 0 && height > 0) setSize({ width, height });
+      return;
+    }
+    const observer = new ResizeObserver((entries) => {
+      const box = entries[0]?.contentRect;
+      if (box && box.width > 0 && box.height > 0) {
+        setSize({ width: box.width, height: box.height });
+      }
+    });
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [ref, fallback.width, fallback.height]);
+  return size;
 }
 
 // src/aui/charts/box-plot-geometry.ts
@@ -3630,16 +3700,16 @@ var PLOT_PADDING_RIGHT = 8;
 var MIN_BOX_WIDTH = 6;
 var MAX_BOX_WIDTH = 44;
 var BOX_WIDTH_RATIO = 0.62;
-function computeBoxPlotLayout(width, height, categoryCount, axisTickLabels) {
+function computeBoxPlotLayout(width, height, categoryCount, axisTickLabels, charPx = CHAR_PX) {
   const widestTick = axisTickLabels.reduce((longest, label) => Math.max(longest, label.length), 0);
-  const plotLeft = Math.min(width * 0.4, widestTick * CHAR_PX + AXIS_LABEL_GAP);
+  const plotLeft = Math.min(width * 0.4, widestTick * charPx + AXIS_LABEL_GAP);
   const plotWidth = Math.max(0, width - plotLeft - PLOT_PADDING_RIGHT);
   const plotHeight = Math.max(0, height - PLOT_PADDING_TOP - CATEGORY_AXIS_HEIGHT);
   const bands = Math.max(1, categoryCount);
   const bandWidth = plotWidth / bands;
   const boxWidth = Math.min(MAX_BOX_WIDTH, Math.max(MIN_BOX_WIDTH, bandWidth * BOX_WIDTH_RATIO));
   const labelStride = Math.max(1, Math.ceil(MIN_LABEL_WIDTH / Math.max(1, bandWidth)));
-  const labelMaxChars = Math.max(1, Math.floor((bandWidth * labelStride - 4) / CHAR_PX));
+  const labelMaxChars = Math.max(1, Math.floor((bandWidth * labelStride - 4) / charPx));
   return {
     plotLeft,
     plotTop: PLOT_PADDING_TOP,
@@ -3659,9 +3729,9 @@ var BOX_STROKE_WIDTH = 1.5;
 var MEDIAN_STROKE_WIDTH = 2;
 var CAP_RATIO = 0.55;
 var MAX_STAGGER_STEPS = 10;
-function BoxPlotChart({ data, x, series }) {
+function BoxPlotChart({ data, x, series, charPx = CHAR_PX }) {
   const resolution = react.useMemo(() => resolveBoxPlotSeries(series), [series]);
-  const valueField = react.useMemo(() => axisFieldFor(series), [series]);
+  const formatters = useSeriesFormatters(series);
   const parse = react.useMemo(() => parseBoxPlotRows(data, x.key), [data, x.key]);
   if (!resolution.fields) {
     return /* @__PURE__ */ jsxRuntime.jsx(
@@ -3681,7 +3751,8 @@ function BoxPlotChart({ data, x, series }) {
       boxes: parse.boxes,
       category: x,
       measure: resolution.fields.median,
-      valueField,
+      formatters,
+      charPx,
       omitted: parse.omitted
     }
   );
@@ -3696,24 +3767,31 @@ function emptyLabel(rejection) {
       return "No data";
   }
 }
-function BoxPlotSurface({ boxes, category, measure, valueField, omitted }) {
-  const [host, size] = useElementSize();
+function BoxPlotSurface({
+  boxes,
+  category,
+  measure,
+  formatters,
+  charPx,
+  omitted
+}) {
+  const host = react.useRef(null);
+  const size = useElementSize(host, CHART_INITIAL_DIMENSION);
   const [activeIndex, setActiveIndex] = react.useState(null);
   const color = getChartColor(0);
-  const printTick = react.useCallback(
-    (value) => formatSeriesValue(value, valueField, { compact: true }),
-    [valueField]
-  );
-  const printValue = react.useCallback(
-    (value) => formatSeriesValue(value, valueField, { compact: false }),
-    [valueField]
-  );
+  const animate = shouldAnimate(boxes.length);
   const geometry = react.useMemo(() => {
     const domain = boxPlotDomain(boxes);
     const ticks2 = valueAxisTicks(domain);
-    const layout2 = computeBoxPlotLayout(size.width, size.height, boxes.length, ticks2.map(printTick));
+    const layout2 = computeBoxPlotLayout(
+      size.width,
+      size.height,
+      boxes.length,
+      ticks2.map(formatters.tick),
+      charPx
+    );
     return { ticks: ticks2, layout: layout2, scale: makeValueScale(domain, layout2.plotTop, layout2.plotHeight) };
-  }, [boxes, size.width, size.height, printTick]);
+  }, [boxes, size.width, size.height, formatters, charPx]);
   const { ticks, layout, scale } = geometry;
   const categoryLabels = react.useMemo(() => {
     const indices = boxes.map((_, index) => index).filter((index) => index % layout.labelStride === 0);
@@ -3765,7 +3843,7 @@ function BoxPlotSurface({ boxes, category, measure, valueField, omitted }) {
                     fontSize: CHART_Y_AXIS.fontSize,
                     fontFamily: CHART_Y_AXIS.fontFamily,
                     fill: CHART_Y_AXIS.stroke,
-                    children: printTick(tick)
+                    children: formatters.tick(tick)
                   }
                 )
               ] }, tick);
@@ -3779,7 +3857,8 @@ function BoxPlotSurface({ boxes, category, measure, valueField, omitted }) {
                 layout,
                 scale,
                 category,
-                printValue,
+                printValue: formatters.value,
+                animate,
                 isActive: index === activeIndex,
                 onActivate: setActiveIndex,
                 onDeactivate: clearActive
@@ -3806,7 +3885,7 @@ function BoxPlotSurface({ boxes, category, measure, valueField, omitted }) {
         BoxTooltip,
         {
           box: active.box,
-          printValue,
+          printValue: formatters.value,
           x: bandCenter(layout, active.index),
           y: scale(active.box.q_max),
           containerWidth: size.width
@@ -3837,6 +3916,7 @@ function BoxMark({
   scale,
   category,
   printValue,
+  animate,
   isActive,
   onActivate,
   onDeactivate
@@ -3857,8 +3937,8 @@ function BoxMark({
       role: "img",
       tabIndex: 0,
       "aria-label": describeBox(box, category, printValue),
-      className: "cxc-boxplot-mark focus:outline-none",
-      style: { animationDelay: `${Math.min(index, MAX_STAGGER_STEPS) * 40}ms` },
+      className: animate ? "cxc-boxplot-mark focus:outline-none" : "focus:outline-none",
+      style: animate ? { animationDelay: `${Math.min(index, MAX_STAGGER_STEPS) * 40}ms` } : void 0,
       onPointerEnter: activate,
       onPointerDown: activate,
       onFocus: activate,
@@ -3971,23 +4051,6 @@ function BoxTooltip({
     }
   );
 }
-function useElementSize() {
-  const ref = react.useRef(null);
-  const [size, setSize] = react.useState({
-    ...CHART_INITIAL_DIMENSION
-  });
-  react.useEffect(() => {
-    const node = ref.current;
-    if (!node || typeof ResizeObserver === "undefined") return;
-    const observer = new ResizeObserver(([entry]) => {
-      const { width, height } = entry.contentRect;
-      if (width > 0 && height > 0) setSize({ width, height });
-    });
-    observer.observe(node);
-    return () => observer.disconnect();
-  }, []);
-  return [ref, size];
-}
 function chartOptionsFor(block) {
   const stacked = block.options?.stacked ?? (block.chart_type === "bar_stacked" || block.chart_type === "area_stacked");
   const orientation = block.options?.orientation ?? (block.chart_type === "bar_horizontal" ? "vertical" : void 0);
@@ -3997,7 +4060,7 @@ function chartOptionsFor(block) {
     orientation
   };
 }
-function ChartDispatch({ block, mode, width, plan }) {
+function ChartDispatch({ block, mode, width, plan, charPx }) {
   const props = {
     data: block.data,
     x: block.x,
@@ -4006,6 +4069,7 @@ function ChartDispatch({ block, mode, width, plan }) {
     mode,
     width,
     chartType: block.chart_type,
+    charPx,
     plan
   };
   switch (block.chart_type) {
@@ -4031,24 +4095,31 @@ function ChartDispatch({ block, mode, width, plan }) {
       return /* @__PURE__ */ jsxRuntime.jsx(ChartEmpty, { label: "Unsupported chart type" });
   }
 }
-function useElementWidth(ref, fallback = DEFAULT_CHART_WIDTH_PX) {
-  const [width, setWidth] = react.useState(fallback);
+function useCharPx(ref, sample) {
+  const [charPx, setCharPx] = react.useState(CHAR_PX);
   react.useEffect(() => {
     const element = ref.current;
     if (!element) return;
-    if (typeof window === "undefined" || typeof ResizeObserver === "undefined") {
-      const measured2 = element.getBoundingClientRect().width;
-      if (measured2 > 0) setWidth(measured2);
-      return;
-    }
-    const observer = new ResizeObserver((entries) => {
-      const measured2 = entries[0]?.contentRect.width ?? 0;
-      if (measured2 > 0) setWidth(measured2);
-    });
-    observer.observe(element);
-    return () => observer.disconnect();
-  }, [ref, fallback]);
-  return width;
+    let cancelled = false;
+    const measure = () => {
+      if (!cancelled) setCharPx(measureCharPx(chartAxisFont(element), sample));
+    };
+    measure();
+    const fonts = typeof document === "undefined" ? void 0 : document.fonts;
+    if (!fonts) return;
+    const remeasure = () => {
+      if (cancelled) return;
+      invalidateCharPx(chartAxisFont(element));
+      measure();
+    };
+    void fonts.ready?.then(remeasure);
+    fonts.addEventListener?.("loadingdone", remeasure);
+    return () => {
+      cancelled = true;
+      fonts.removeEventListener?.("loadingdone", remeasure);
+    };
+  }, [ref, sample]);
+  return charPx;
 }
 
 // src/aui/csv.ts
@@ -4081,7 +4152,7 @@ function downloadCsv(filename, content) {
   document.body.removeChild(link);
   URL.revokeObjectURL(url);
 }
-function useBarPlan(block, width, mode) {
+function useBarPlan(block, width, mode, charPx) {
   const options = react.useMemo(() => chartOptionsFor(block), [block]);
   return react.useMemo(() => {
     if (!BAR_CHART_TYPES.has(block.chart_type)) return null;
@@ -4093,15 +4164,26 @@ function useBarPlan(block, width, mode) {
       mode,
       seriesCount: block.series.length,
       stacked: options.stacked ?? false,
-      charPx: measureCharPx()
+      charPx
     });
-  }, [block, options, width, mode]);
+  }, [block, options, width, mode, charPx]);
+}
+function useHostMetrics(ref, block, fallbackWidth) {
+  const { width } = useElementSize(ref, {
+    width: fallbackWidth,
+    height: VERTICAL_CHART_HEIGHT_PX
+  });
+  const sample = react.useMemo(
+    () => labelSample(block.data.map((row) => String(row[block.x.key] ?? ""))),
+    [block.data, block.x.key]
+  );
+  return { width, charPx: useCharPx(ref, sample) };
 }
 function ChartBlock({ block }) {
   const [expanded, setExpanded] = react.useState(false);
   const hostRef = react.useRef(null);
-  const width = useElementWidth(hostRef, DEFAULT_CHART_WIDTH_PX);
-  const plan = useBarPlan(block, width, "inline");
+  const { width, charPx } = useHostMetrics(hostRef, block, DEFAULT_CHART_WIDTH_PX);
+  const plan = useBarPlan(block, width, "inline", charPx);
   const shownRows = plan?.horizontal ? plan.layout.shownRows : block.data.length;
   const inlineBlock = react.useMemo(
     () => shownRows < block.data.length ? { ...block, data: block.data.slice(0, shownRows) } : block,
@@ -4138,7 +4220,16 @@ function ChartBlock({ block }) {
         style: { height: plan?.horizontal ? plan.layout.hostHeight : VERTICAL_CHART_HEIGHT_PX },
         "data-cxc-shown": shown,
         "data-cxc-total": total,
-        children: /* @__PURE__ */ jsxRuntime.jsx(ChartDispatch, { block: inlineBlock, mode: "inline", width, plan: plan ?? void 0 })
+        children: /* @__PURE__ */ jsxRuntime.jsx(
+          ChartDispatch,
+          {
+            block: inlineBlock,
+            mode: "inline",
+            width,
+            charPx,
+            plan: plan ?? void 0
+          }
+        )
       }
     ),
     (showViewAll || hasMoreThanEmbedded) && // Every cut is printed. The renderer never drops a row silently, and
@@ -4177,8 +4268,8 @@ function ChartBlock({ block }) {
 }
 function ExpandedChart({ block }) {
   const hostRef = react.useRef(null);
-  const width = useElementWidth(hostRef, EXPANDED_CHART_WIDTH_PX);
-  const plan = useBarPlan(block, width, "expanded");
+  const { width, charPx } = useHostMetrics(hostRef, block, EXPANDED_CHART_WIDTH_PX);
+  const plan = useBarPlan(block, width, "expanded", charPx);
   return /* @__PURE__ */ jsxRuntime.jsx(
     "div",
     {
@@ -4191,7 +4282,16 @@ function ExpandedChart({ block }) {
       ),
       "data-cxc-shown": block.data.length,
       "data-cxc-total": block.data.length,
-      children: /* @__PURE__ */ jsxRuntime.jsx(ChartDispatch, { block, mode: "expanded", width, plan: plan ?? void 0 })
+      children: /* @__PURE__ */ jsxRuntime.jsx(
+        ChartDispatch,
+        {
+          block,
+          mode: "expanded",
+          width,
+          charPx,
+          plan: plan ?? void 0
+        }
+      )
     }
   );
 }

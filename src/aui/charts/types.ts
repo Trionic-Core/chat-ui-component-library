@@ -47,6 +47,11 @@ export interface ChartProps {
   /** The wire chart_type, which the orientation policy reads. */
   chartType?: ChartType
   /**
+   * Mean character width measured on the mounted host, in the host's own font
+   * and over this chart's own labels. The Latin estimate when unmeasured.
+   */
+  charPx?: number
+  /**
    * Layout decided by the block, which sliced `data` to match it.
    *
    * Bar family only. Recomputing it here would disagree with the block the

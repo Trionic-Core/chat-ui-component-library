@@ -21,6 +21,7 @@ import {
   hasMixedSigns,
   isOrderedAxis,
   planBarLayout,
+  shouldAnimate,
   shouldFlipToHorizontal,
   valueLabelAnchor,
   valueLabelReservePx,
@@ -73,10 +74,16 @@ describe('host height follows the category count', () => {
     expect(single(4, 600, 'inline').shownRows).toBe(4)
   })
 
-  it('survives a zero-row block without producing a negative height', () => {
-    const layout = single(0, 600, 'expanded')
+  it.each([0, -1, -100])('clamps a %i-row block instead of going negative', (rows) => {
+    const layout = single(rows, 600, 'expanded')
     expect(layout.shownRows).toBe(0)
     expect(layout.hostHeight).toBe(CHART_CHROME_PX)
+  })
+
+  it('clamps a negative row count inline too', () => {
+    const layout = single(-5, 600, 'inline')
+    expect(layout.shownRows).toBe(0)
+    expect(layout.hostHeight).toBe(INLINE_MIN_HEIGHT_PX)
   })
 })
 
@@ -214,10 +221,13 @@ describe('value labels and animation', () => {
   })
 
   it('animates a short chart and refuses a long one', () => {
-    // 100 rectangles at 800ms delay the first readable frame on a phone.
-    expect(single(62, 600, 'inline').animate).toBe(true)
-    expect(single(ANIMATION_MAX_ROWS, 600, 'expanded').animate).toBe(true)
-    expect(single(ANIMATION_MAX_ROWS + 1, 600, 'expanded').animate).toBe(false)
+    // 100 rectangles at 800ms delay the first readable frame on a phone. One
+    // function, asked by all six charts — a local copy is what let scatter
+    // animate 500 points unchecked.
+    expect(shouldAnimate(1)).toBe(true)
+    expect(shouldAnimate(ANIMATION_MAX_ROWS)).toBe(true)
+    expect(shouldAnimate(ANIMATION_MAX_ROWS + 1)).toBe(false)
+    expect(shouldAnimate(500)).toBe(false)
   })
 })
 
@@ -337,22 +347,21 @@ describe('hasMixedSigns — the zero line only appears when zero is crossed', ()
   ]
 
   it('is false when every value shares a sign', () => {
-    expect(hasMixedSigns(rows, ['margin'])).toBe(false)
-    expect(hasMixedSigns(rows, ['units'])).toBe(false)
+    expect(hasMixedSigns(valueSigns(rows, ['margin']))).toBe(false)
+    expect(hasMixedSigns(valueSigns(rows, ['units']))).toBe(false)
   })
 
   it('is true once one series straddles zero', () => {
-    expect(hasMixedSigns([...rows, { margin: 40 }], ['margin'])).toBe(true)
+    expect(hasMixedSigns(valueSigns([...rows, { margin: 40 }], ['margin']))).toBe(true)
   })
 
   it('is true when two series disagree in sign', () => {
-    expect(hasMixedSigns(rows, ['margin', 'units'])).toBe(true)
+    expect(hasMixedSigns(valueSigns(rows, ['margin', 'units']))).toBe(true)
   })
 
   it('ignores unusable cells rather than reading them as zero', () => {
-    expect(hasMixedSigns([{ margin: -5 }, { margin: null }, { margin: 'n/a' }], ['margin'])).toBe(
-      false,
-    )
+    const signs = valueSigns([{ margin: -5 }, { margin: null }, { margin: 'n/a' }], ['margin'])
+    expect(hasMixedSigns(signs)).toBe(false)
   })
 })
 
@@ -537,15 +546,27 @@ describe('verticalCategoryTicks — the stride comes from the longest label', ()
     for (const label of result.labels) expect(label).not.toContain('…')
   })
 
-  it('caps the stride so one long label cannot empty the axis', () => {
-    // A 40-character outlier would ask for a stride of 13. The cap holds it to
-    // rows / MIN_VISIBLE_TICKS, so that label truncates and the axis still
-    // names four places — the documented trade-off.
+  it('caps the stride at the widest one that still names four places', () => {
+    // A 37-character outlier asks for a stride of 13. The cap is the largest
+    // stride that still prints MIN_VISIBLE_TICKS — floor((rows-1)/(ticks-1)),
+    // which is 7 here, not 6: dividing by the tick count instead forced a
+    // fifth tick nobody asked for and took characters off every label.
     const labels = MONTHS.map((label, i) => (i === 0 ? 'Consolidated Head Office Warehouse 01' : label))
     const result = printed(540, labels)
-    expect(result.stride).toBe(24 / MIN_VISIBLE_TICKS)
+    expect(result.stride).toBe(7)
     expect(result.labels.length).toBe(MIN_VISIBLE_TICKS)
     expect(result.labels[0]).toContain('…')
+  })
+
+  it('never prints fewer ticks than the floor, at any row count', () => {
+    for (let rows = MIN_VISIBLE_TICKS; rows <= 120; rows++) {
+      const { stride } = verticalCategoryTicks({
+        plotWidth: 200,
+        rows,
+        longestLabelChars: 40,
+      })
+      expect(Math.floor((rows - 1) / stride) + 1).toBeGreaterThanOrEqual(MIN_VISIBLE_TICKS)
+    }
   })
 
   it('never thins an axis with fewer rows than it must name', () => {

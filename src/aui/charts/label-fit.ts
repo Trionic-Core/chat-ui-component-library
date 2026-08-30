@@ -1,3 +1,5 @@
+import { CHART_AXIS_FONT_SIZE } from '../chart-theme'
+
 /* ------------------------------------------------------------------
  * Category-label fitting — shared by every chart that prints a category axis.
  *
@@ -11,13 +13,16 @@
  * ----------------------------------------------------------------*/
 
 /**
- * Approximate advance width of one character at the axis font size (12px),
+ * Approximate advance width of one Latin character at the axis font size,
  * used wherever a real measurement is unavailable (SSR, node tests).
  *
  * A wrong estimate costs an ellipsis, never the truth: the tick's <title> and
  * the tooltip always carry the full label.
  */
 export const CHAR_PX = 6.6
+
+/** The axis font size these estimates are calibrated against. */
+export { CHART_AXIS_FONT_SIZE }
 
 /**
  * Narrowest category label worth printing: about six characters plus air.
@@ -118,40 +123,90 @@ export function wrapLabel(label: string, maxChars: number, maxLines = 2): string
 
 /* --------------------------- Text measurement --------------------------- */
 
-/** Latin letters plus digits: the alphabet client labels are mostly made of. */
-const MEASUREMENT_SAMPLE = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+/** Latin letters plus digits — the fallback sample when there are no labels. */
+const LATIN_SAMPLE = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
 
-/** Matches the axis font in chart-theme.ts (12px, inherited family). */
-export const AXIS_FONT = '12px sans-serif'
+/** Labels taken into a measurement sample. The longest carry the width. */
+const SAMPLE_LABEL_COUNT = 5
+
+/** Last-resort font when no element can be read (SSR, tests). */
+export const FALLBACK_FONT = `${CHART_AXIS_FONT_SIZE}px sans-serif`
+
+/**
+ * The canvas font string for a chart's axis text, read off a mounted element.
+ *
+ * The family has to come from the DOM: the axis inherits it, and the host app
+ * sets --cxc-font-sans to its own brand face. A literal "sans-serif" here
+ * measures a font the client never sees.
+ */
+export function chartAxisFont(element: Element | null | undefined): string {
+  if (!element || typeof window === 'undefined' || !window.getComputedStyle) return FALLBACK_FONT
+
+  const family = window.getComputedStyle(element).fontFamily
+  if (!family) return FALLBACK_FONT
+  return `${CHART_AXIS_FONT_SIZE}px ${family}`
+}
+
+/**
+ * A measurement sample built from the labels that will actually be drawn.
+ *
+ * The longest few, because they are the ones that decide whether the axis
+ * fits. Measuring a Latin alphabet while painting Devanagari, Arabic or CJK
+ * under-counts every label by a factor the fitter then truncates against.
+ */
+export function labelSample(labels: string[], count: number = SAMPLE_LABEL_COUNT): string {
+  const longest = [...labels]
+    .filter((label) => label.length > 0)
+    .sort((a, b) => b.length - a.length)
+    .slice(0, Math.max(1, count))
+  return longest.length > 0 ? longest.join('') : LATIN_SAMPLE
+}
 
 const measured = new Map<string, number>()
 
 /**
- * Average character width for `font`, measured in the browser.
+ * Mean character width of `sample` in `font`, measured on a canvas.
  *
- * Devanagari, Arabic and CJK run far wider than the Latin estimate, so a fixed
- * 6.6px either clips a Hindi outlet name or wastes a third of a phone-width
- * chart on an English one. Measuring costs one canvas per font for the life of
- * the page; without a DOM (SSR, node tests) the estimate stands.
+ * Both arguments matter and both are memoized: the font because a client's
+ * brand face is not the estimate's face, the sample because a script's mean
+ * advance is a property of the script, not of the alphabet this library
+ * happens to ship. Without a DOM (server rendering, node tests) the Latin
+ * estimate stands — a wrong estimate costs an ellipsis, never the truth,
+ * since the tick's <title> and the tooltip always carry the full label.
  */
-export function measureCharPx(font: string = AXIS_FONT): number {
-  const cached = measured.get(font)
+export function measureCharPx(font: string = FALLBACK_FONT, sample: string = LATIN_SAMPLE): number {
+  const key = `${font}\u0000${sample}`
+  const cached = measured.get(key)
   if (cached !== undefined) return cached
 
-  const width = measureSample(font)
-  measured.set(font, width)
+  const width = measureSample(font, sample)
+  measured.set(key, width)
   return width
 }
 
-function measureSample(font: string): number {
-  if (typeof document === 'undefined') return CHAR_PX
+/**
+ * Drop every measurement taken in `font`.
+ *
+ * The cache is permanent by design — a font's metrics do not change — with one
+ * exception: a measurement taken BEFORE a web font finished loading was taken
+ * in the fallback face, and would otherwise be believed for the life of the
+ * page. useCharPx calls this once the document reports its fonts ready.
+ */
+export function invalidateCharPx(font: string): void {
+  for (const key of [...measured.keys()]) {
+    if (key.startsWith(`${font}\u0000`)) measured.delete(key)
+  }
+}
+
+function measureSample(font: string, sample: string): number {
+  if (typeof document === 'undefined' || sample.length === 0) return CHAR_PX
 
   const context = document.createElement('canvas').getContext('2d')
   if (!context) return CHAR_PX
 
   context.font = font
-  const width = context.measureText(MEASUREMENT_SAMPLE).width
+  const width = context.measureText(sample).width
   if (!Number.isFinite(width) || width <= 0) return CHAR_PX
 
-  return width / MEASUREMENT_SAMPLE.length
+  return width / sample.length
 }

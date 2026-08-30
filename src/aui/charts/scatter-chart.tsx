@@ -1,3 +1,4 @@
+import { useMemo } from 'react'
 import {
   ScatterChart as RechartsScatterChart,
   Scatter,
@@ -21,9 +22,10 @@ import type { ChartProps } from './types'
 import {
   shouldShowLegend,
   chartLegendProps,
-  formatAxisTick,
 
 } from './chart-helpers'
+import { shouldAnimate } from './chart-layout'
+import { usePrefersReducedMotion } from '../hooks/use-prefers-reduced-motion'
 import { useSeriesFormatters } from './use-series-formatters'
 import { ChartEmpty } from './chart-empty'
 
@@ -35,7 +37,15 @@ import { ChartEmpty } from './chart-empty'
  * correlating two measures.
  */
 export function ScatterChart({ data, x, series, options }: ChartProps) {
+  // A scatter's x IS a measure, not a category, so it carries its own format
+  // and unit — the only chart where the x axis is formatted at all. The tooltip
+  // spans both axes, so it resolves over x AND the series.
+  const xOnly = useMemo(() => [x], [x])
+  const bothAxes = useMemo(() => [x, ...series], [x, series])
+  const xFormatters = useSeriesFormatters(xOnly)
   const formatters = useSeriesFormatters(series)
+  const tooltipFormatters = useSeriesFormatters(bothAxes)
+  const reducedMotion = usePrefersReducedMotion()
 
   if (!data.length || !x.key || series.length === 0) {
     return <ChartEmpty label="Configure X-axis and a measure for the scatter plot" />
@@ -57,7 +67,7 @@ export function ScatterChart({ data, x, series, options }: ChartProps) {
           dataKey={x.key}
           type="number"
           name={x.label}
-          tickFormatter={formatAxisTick}
+          tickFormatter={xFormatters.tick}
         />
         <YAxis
           {...CHART_Y_AXIS}
@@ -69,7 +79,7 @@ export function ScatterChart({ data, x, series, options }: ChartProps) {
         <Tooltip
           cursor={{ strokeDasharray: '3 3' }}
           contentStyle={CHART_TOOLTIP_STYLE}
-          formatter={formatters.tooltip}
+          formatter={tooltipFormatters.tooltip}
         />
 
         {showLegend && <Legend {...chartLegendProps()} />}
@@ -81,7 +91,9 @@ export function ScatterChart({ data, x, series, options }: ChartProps) {
             dataKey={s.key}
             data={data}
             fill={getChartColor(index)}
-            isAnimationActive
+            // A scatter draws one point per row PER SERIES, so the mark count
+            // is what the cap has to see — 3 series of 40 rows is 120 marks.
+            isAnimationActive={shouldAnimate(data.length * series.length) && !reducedMotion}
             animationDuration={CHART_ANIMATION.duration}
             animationEasing={CHART_ANIMATION.easing}
           />

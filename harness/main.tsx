@@ -75,6 +75,12 @@ const GROUPED_ROWS: DataRow[] = [
   wholesale: 60000 + ((i * 37) % 50) * 1000,
 }))
 
+/** (f) scatter — the only chart whose x is a MEASURE, in its own currency. */
+const SPEND_ROWS: DataRow[] = Array.from({ length: 40 }, (_, i) => {
+  const spend = 40000 + i * 21000 + ((i * 37) % 11) * 4000
+  return { spend, revenue: Math.round(spend * (2.4 + Math.sin(i / 3) * 0.6)) }
+})
+
 /* ---------------------------- The blocks --------------------------- */
 
 const CASES: { id: string; caption: string; block: ChartBlock }[] = [
@@ -116,6 +122,18 @@ const CASES: { id: string; caption: string; block: ChartBlock }[] = [
         { key: 'cost', label: 'Cost' },
       ],
       data: MONTH_ROWS,
+    },
+  },
+  {
+    id: 'f-scatter',
+    caption: '(f) scatter · x is a measure too · currency ₹ on both axes',
+    block: {
+      type: 'chart',
+      chart_type: 'scatter',
+      title: 'Revenue against marketing spend',
+      x: { key: 'spend', label: 'Marketing Spend', format: 'currency', unit: '₹' },
+      series: [{ key: 'revenue', label: 'Revenue', format: 'currency', unit: '₹' }],
+      data: SPEND_ROWS,
     },
   },
   {
@@ -164,8 +182,16 @@ function selectedCases() {
   return CASES.filter((entry) => entry.id === wanted)
 }
 
+/** `?width=600` renders that column alone, for a tight screenshot. */
+function selectedColumns() {
+  const wanted = Number(new URLSearchParams(window.location.search).get('width'))
+  const match = COLUMNS.filter((column) => column.chartWidth === wanted)
+  return match.length > 0 ? match : COLUMNS
+}
+
 function Harness() {
   const cases = selectedCases()
+  const columns = selectedColumns()
 
   return (
     <main
@@ -195,7 +221,7 @@ function Harness() {
             {caption}
           </h2>
           <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
-            {COLUMNS.map((column) => (
+            {columns.map((column) => (
               <div
                 key={column.chartWidth}
                 data-harness-column={column.chartWidth}

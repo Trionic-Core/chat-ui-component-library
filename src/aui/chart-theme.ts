@@ -6,13 +6,26 @@
 // ---------------------------------------------------------------------------
 
 /**
+ * Axis tick font size. Named because three other things are derived from it:
+ * the canvas font string the label fitter measures with, the value-label size
+ * below, and the ratio between them.
+ */
+export const CHART_AXIS_FONT_SIZE = 12
+
+/**
+ * The number printed beside a mark, one step down from the axis — it sits
+ * inside the plot next to what it describes, so it must read without competing.
+ */
+export const CHART_VALUE_LABEL_FONT_SIZE = 11
+
+/**
  * XAxis props — clean labels, no clutter.
  */
 export const CHART_X_AXIS = {
   tickLine: false,
   axisLine: false,
   tickMargin: 10,
-  fontSize: 12,
+  fontSize: CHART_AXIS_FONT_SIZE,
   fontFamily: 'inherit',
   stroke: 'var(--cx-text-muted)',
 } as const
@@ -24,7 +37,7 @@ export const CHART_Y_AXIS = {
   tickLine: false,
   axisLine: false,
   tickMargin: 8,
-  fontSize: 12,
+  fontSize: CHART_AXIS_FONT_SIZE,
   fontFamily: 'inherit',
   stroke: 'var(--cx-text-muted)',
 } as const
@@ -100,14 +113,9 @@ export const CHART_ZERO_LINE_STYLE = {
   strokeOpacity: 0.5,
 } as const
 
-/**
- * The number printed beside a bar.
- *
- * One step down from the axis size: it sits inside the plot area next to the
- * mark it describes, so it needs to be readable without competing with it.
- */
+/** The value label's paint props — see CHART_VALUE_LABEL_FONT_SIZE. */
 export const CHART_VALUE_LABEL_STYLE = {
-  fontSize: 11,
+  fontSize: CHART_VALUE_LABEL_FONT_SIZE,
   fontFamily: 'inherit',
   fill: 'var(--cx-text-secondary)',
 } as const

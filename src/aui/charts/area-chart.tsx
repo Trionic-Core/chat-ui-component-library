@@ -24,12 +24,9 @@ import {
   chartLegendProps,
   seriesDotProp,
 } from './chart-helpers'
-import {
-  ANIMATION_MAX_ROWS,
-  DEFAULT_CHART_WIDTH_PX,
-  VALUE_AXIS_ESTIMATE_PX,
-} from './chart-layout'
-import { measureCharPx } from './label-fit'
+import { DEFAULT_CHART_WIDTH_PX, VALUE_AXIS_ESTIMATE_PX, shouldAnimate } from './chart-layout'
+import { CHAR_PX } from './label-fit'
+import { usePrefersReducedMotion } from '../hooks/use-prefers-reduced-motion'
 import { useCategoryTicks } from './use-category-ticks'
 import { useSeriesFormatters } from './use-series-formatters'
 import { ChartEmpty } from './chart-empty'
@@ -43,7 +40,7 @@ import { ChartEmpty } from './chart-empty'
  * The value axis is always drawn — see the note on LineChart: a touch device
  * has no hover, so a tooltip-only chart hides its own numbers there.
  */
-export function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX }: ChartProps) {
+export function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX, charPx = CHAR_PX }: ChartProps) {
   // Per-instance prefix so two AreaCharts with the same series key don't collide
   // on a document-global <linearGradient id> (and its url(#...) fill reference).
   const uid = useId()
@@ -51,11 +48,12 @@ export function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDT
   // The x axis is a category axis, so which labels print and how wide each may
   // be is the same question a vertical bar chart asks. One answer, one hook.
   const formatters = useSeriesFormatters(series)
+  const reducedMotion = usePrefersReducedMotion()
   const ticks = useCategoryTicks({
     data,
     xKey: x.key,
     plotWidth: Math.max(1, width - VALUE_AXIS_ESTIMATE_PX),
-    charPx: measureCharPx(),
+    charPx,
   })
 
   if (!data.length || !x.key || series.length === 0) {
@@ -64,7 +62,8 @@ export function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDT
 
   const showLegend = shouldShowLegend(series.length, options?.showLegend)
   const seriesLabels = series.map((s) => s.label).join(', ')
-  const animate = data.length <= ANIMATION_MAX_ROWS
+  // MARKS, not rows: each series is its own path with its own animation.
+  const animate = shouldAnimate(data.length * series.length) && !reducedMotion
 
   return (
     <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
