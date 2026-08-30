@@ -541,6 +541,64 @@ const {
 
 ---
 
+## Agentic UI (AUI)
+
+`AuiView` renders the `ViewSpec` blocks the agent emits — KPI cards, charts, tables, text and
+actions. See **[INTEGRATION.md](./INTEGRATION.md)** for the protocol and the host wiring.
+
+### Chart legibility (v0.8.0)
+
+Charts apply a legibility policy automatically. The agent chooses the question, the chart type
+and the labels; the renderer decides how much room those need. No wire change and no host
+configuration — a chart that used to draw 62 categories into a fixed 256px box now reads.
+
+What the renderer does on its own:
+
+| Behaviour | Rule |
+|---|---|
+| **Height from the data** | A horizontal bar chart is `rows x 28px + 46px`, not a fixed box. |
+| **Inline cap** | 12 categories inline, in wire order. The footer prints `Showing 12 of 100 · 20 · 50 · All`, and each step is a button that grows the chart in place — the height cap is the DEFAULT step's, so past it the height is the reader's choice. Steps a result cannot fill are not offered (a 30-row result shows `20 · All`), and the expand control always opens every row. |
+| **Orientation** | A `bar`/`bar_grouped`/`bar_stacked` chart flips to horizontal bars past 12 categories, or past 6 with labels over 12 characters. **Never when the axis is ordered** — dates, year-months, years, month+year and finite numbers all carry meaning in their sequence, so a monthly chart and a store-number chart both keep reading left to right (judged on the values, never on the column name). The host records a flip in `data-cxc-layout="flipped"`. |
+| **Labels** | Fitted to the axis the chart actually has, and fitted as a SET: when a prefix is shared ("Variant #12…"), the whole set switches to middle truncation so each label still identifies its bar. Character width is MEASURED on the mounted host — the host's own font, over this chart's own labels — so a brand face or a Devanagari/Arabic/CJK axis is fitted to its real width, not to a Latin estimate. The full label is in a `<title>` and in the tooltip. |
+| **Ticks** | Every tick on a horizontal bar chart; on a vertical category axis one tick every N bands, where N is what the LONGEST label needs (`ceil((chars x charPx + 8) / band)`) — so the surviving labels print whole instead of truncating into each other — capped so at least 4 ticks remain, and handed to recharts as a numeric `interval` rather than a string it would re-derive from the truncated text. |
+| **Value labels** | Printed on every bar once the band is 22px and the chart is 360px wide — a touch device has no hover. Off for stacked series (segments would overlap) and for a vertical bar whose band is narrower than the number. The chart reserves margin on whichever side the labels hang, so the longest bar's number is not clipped. |
+| **Zero line** | Drawn only when the data crosses zero. Bars stay linear and zero-anchored; there is no log scale on a bar. |
+| **Pie / donut** | Above 8 slices the tail collapses into one `Other (k categories)` slice. A pie is refused rather than drawn as a false whole when the values cannot be parts of one — each cause named separately in `data-cxc-empty-reason`: `pie_negative_values`, `pie_non_numeric_values`, `pie_zero_total`. |
+| **Title** | Derived as `"<series labels> by <x label>"` when the block carries no title. Never the literal "Chart". |
+| **Animation** | One rule for all six charts (`shouldAnimate`): off above 30 **marks**, and off entirely under `prefers-reduced-motion`. Marks are what is drawn, not rows — rows x series for bar, line, area and scatter (12 rows of 3 series is 36 marks); slices for a pie; one box per row for a box plot, whose entrance is CSS and is silenced by the same media query in `styles.css`. |
+
+The renderer never re-sorts, never drops a row silently, and never adds an "Other" bar to a
+ranking (that would be a number the agent never computed). Every threshold is a named constant in
+`src/aui/charts/chart-layout.ts`:
+
+```
+BAND_PX 28   MIN_BAND_PX 22   INLINE_MAX_CATEGORIES 12   CHART_CHROME_PX 46
+INLINE_MIN_HEIGHT_PX 200      VERTICAL_CHART_HEIGHT_PX 256
+AXIS_MIN_WIDTH_PX 72          AXIS_MAX_WIDTH_RATIO 0.4    LABEL_MAX_CHARS 28
+FLIP_MIN_CATEGORIES 12        FLIP_LONG_LABEL_CATEGORIES 6 / FLIP_LONG_LABEL_CHARS 12
+VALUE_LABEL_MIN_WIDTH_PX 360  ANIMATION_MAX_ROWS 30        MAX_SLICES 8
+TICK_GAP_PX 8                 MIN_VISIBLE_TICKS 4
+```
+
+Diagnostics on the chart host: `data-cxc-shown`, `data-cxc-total`, `data-cxc-layout`.
+
+### Chart series format and unit (v0.8.0)
+
+Three optional wire fields, all additive — a producer that omits them renders exactly as before:
+
+| Field | Meaning |
+|---|---|
+| `series[].format` | The `ValueFormat` this measure renders in, the same field `TableColumn` carries, so one measure looks identical in a KPI card, a table cell and a chart. Ignored on `x`. |
+| `series[].unit` | The client's own symbol or code (`₹`, `$`, `AED`). The formatter bakes in no locale currency, so the unit is the only thing that carries it: the axis prints `1.2M ₹` and the tooltip `1,234,567 ₹`. A `percent` series takes neither — its format already prints `%`. Ignored on the `x` of a CATEGORY chart; a `scatter`'s `x` is a second measure, so it carries and renders its own pair. |
+| `total_count` | Rows the query produced, when that is more than the rows embedded here. Mirrors `TableBlock.total_count`; the footer then reads `Showing 12 of 62 (340 total)`. |
+
+One value axis is shared, so it prints a unit only when **every** series agrees on one. With mixed
+units the axis goes bare and each value label and tooltip entry carries its own series' unit — the
+series is resolved per tooltip entry from recharts' `dataKey`, never assumed. A box plot's value axis
+takes a unit only when all five quartile series agree.
+
+---
+
 ## Theming
 
 The library uses CSS custom properties with the `--cxc-` prefix. Override them at any scope:

@@ -74,6 +74,14 @@ export interface MetricGroupBlock {
 export interface ChartFieldRef {
   key: string
   label: string
+  // The same format/unit pair TableColumn carries, so one measure renders
+  // identically in a KPI card, a table cell and a chart. Meaningful on a
+  // SERIES; the x axis never carries them — the builder does not write them
+  // there, and the renderer ignores them if a producer ever does.
+  format?: ValueFormat
+  // Currency/measure symbol or code (₹, $, AED). The formatter bakes in no
+  // locale currency, so the unit is the only thing that carries it.
+  unit?: string
 }
 
 export interface ChartBlockOptions {
@@ -90,6 +98,17 @@ export interface ChartBlock {
   x: ChartFieldRef
   series: ChartFieldRef[]
   options?: ChartBlockOptions
+  /**
+   * Rows the query produced, when that is more than the rows embedded here.
+   *
+   * Mirrors TableBlock.total_count. Today the producer always sets it equal to
+   * the embedded row count — the execution row guard bounds the read before the
+   * count is taken, and a governed shape refuses an overflow rather than
+   * truncating — so "(N total)" is a contract for a future producer, not
+   * something a client can observe yet. The renderer prints it only when it
+   * genuinely exceeds the embedded rows.
+   */
+  total_count?: number
 }
 
 /* ------------------------------ Table ---------------------------- */

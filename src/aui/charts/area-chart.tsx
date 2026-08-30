@@ -20,13 +20,15 @@ import {
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
 import {
-  shortenLabel,
   shouldShowLegend,
   chartLegendProps,
-  formatAxisTick,
-  formatTooltipValue,
   seriesDotProp,
 } from './chart-helpers'
+import { DEFAULT_CHART_WIDTH_PX, VALUE_AXIS_ESTIMATE_PX, shouldAnimate } from './chart-layout'
+import { CHAR_PX } from './label-fit'
+import { usePrefersReducedMotion } from '../hooks/use-prefers-reduced-motion'
+import { useCategoryTicks } from './use-category-ticks'
+import { useSeriesFormatters } from './use-series-formatters'
 import { ChartEmpty } from './chart-empty'
 
 /**
@@ -38,10 +40,21 @@ import { ChartEmpty } from './chart-empty'
  * The value axis is always drawn — see the note on LineChart: a touch device
  * has no hover, so a tooltip-only chart hides its own numbers there.
  */
-export function AreaChart({ data, x, series, options }: ChartProps) {
+export function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX, charPx = CHAR_PX }: ChartProps) {
   // Per-instance prefix so two AreaCharts with the same series key don't collide
   // on a document-global <linearGradient id> (and its url(#...) fill reference).
   const uid = useId()
+
+  // The x axis is a category axis, so which labels print and how wide each may
+  // be is the same question a vertical bar chart asks. One answer, one hook.
+  const formatters = useSeriesFormatters(series)
+  const reducedMotion = usePrefersReducedMotion()
+  const ticks = useCategoryTicks({
+    data,
+    xKey: x.key,
+    plotWidth: Math.max(1, width - VALUE_AXIS_ESTIMATE_PX),
+    charPx,
+  })
 
   if (!data.length || !x.key || series.length === 0) {
     return <ChartEmpty />
@@ -49,6 +62,8 @@ export function AreaChart({ data, x, series, options }: ChartProps) {
 
   const showLegend = shouldShowLegend(series.length, options?.showLegend)
   const seriesLabels = series.map((s) => s.label).join(', ')
+  // MARKS, not rows: each series is its own path with its own animation.
+  const animate = shouldAnimate(data.length * series.length) && !reducedMotion
 
   return (
     <ResponsiveContainer width="100%" height="100%" initialDimension={CHART_INITIAL_DIMENSION}>
@@ -74,10 +89,21 @@ export function AreaChart({ data, x, series, options }: ChartProps) {
         </defs>
 
         <CartesianGrid {...CHART_GRID_STYLE} />
-        <XAxis {...CHART_X_AXIS} dataKey={x.key} tickFormatter={shortenLabel} />
-        <YAxis {...CHART_Y_AXIS} width="auto" tickFormatter={formatAxisTick} />
+        <XAxis
+          {...CHART_X_AXIS}
+          dataKey={x.key}
+          tickFormatter={ticks.tickFormatter}
+          tick={ticks.tick}
+          interval={ticks.interval}
+        />
+        <YAxis {...CHART_Y_AXIS} width="auto" tickFormatter={formatters.tick} />
 
-        <Tooltip cursor={false} contentStyle={CHART_TOOLTIP_STYLE} formatter={formatTooltipValue} />
+        <Tooltip
+          cursor={false}
+          contentStyle={CHART_TOOLTIP_STYLE}
+          formatter={formatters.tooltip}
+          labelFormatter={ticks.tooltipLabelFormatter}
+        />
 
         {showLegend && <Legend {...chartLegendProps()} />}
 
@@ -92,7 +118,7 @@ export function AreaChart({ data, x, series, options }: ChartProps) {
             strokeWidth={2}
             dot={seriesDotProp(data, s.key)}
             stackId={options?.stacked ? 'stack' : undefined}
-            isAnimationActive
+            isAnimationActive={animate}
             animationDuration={CHART_ANIMATION.duration}
             animationEasing={CHART_ANIMATION.easing}
           />

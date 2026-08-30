@@ -93,6 +93,24 @@ describe('check-aui-contract guard — fails on drift', () => {
     expect(output).toContain('surface_id')
   })
 
+  it('fails when an optional contract field (ChartFieldRef.unit) is removed', () => {
+    // Optional on the wire, not optional in the type: without it a client
+    // silently stops being able to read the unit the backend already sends.
+    const drifted = canonicalSrc.replace(/\n\s*unit\?: string\n\}/, '\n}')
+    expect(drifted).not.toBe(canonicalSrc)
+    const { ok, output } = runGuard(drifted)
+    expect(ok).toBe(false)
+    expect(output).toContain('ChartFieldRef.unit')
+  })
+
+  it('fails when ChartBlock.total_count is removed', () => {
+    const drifted = canonicalSrc.replace(/\n\s*total_count\?: number\n\}\n\n\/\* -+ Table/, '\n}\n\n/* ------------------------------ Table')
+    expect(drifted).not.toBe(canonicalSrc)
+    const { ok, output } = runGuard(drifted)
+    expect(ok).toBe(false)
+    expect(output).toContain('ChartBlock.total_count')
+  })
+
   it('fails when an inline union (TableColumn.align) drifts', () => {
     const drifted = canonicalSrc.replace(
       /align\?:\s*'left' \| 'right' \| 'center'/,

@@ -7,9 +7,6 @@ import {
   bandCenter,
   boxPlotDomain,
   computeBoxPlotLayout,
-  fitCategoryLabels,
-  fitLabel,
-  fitLabelBothEnds,
   makeValueScale,
   parseBoxPlotRows,
   resolveBoxPlotSeries,
@@ -259,67 +256,5 @@ describe('computeBoxPlotLayout — readable at phone width', () => {
       expect(Number.isFinite(value)).toBe(true)
     }
     expect(layout.plotWidth).toBe(0)
-  })
-})
-
-describe('fitLabel', () => {
-  it('leaves a short label alone', () => {
-    expect(fitLabel('North', 10)).toBe('North')
-  })
-
-  it('truncates with an ellipsis inside the budget', () => {
-    const fitted = fitLabel('North West Region', 8)
-    expect(fitted).toHaveLength(8)
-    expect(fitted.endsWith('…')).toBe(true)
-  })
-
-  it('degrades to a single character rather than returning nothing', () => {
-    expect(fitLabel('North', 1)).toBe('N')
-  })
-})
-
-describe('fitLabelBothEnds', () => {
-  it('keeps the start and the end inside the budget', () => {
-    const fitted = fitLabelBothEnds('Outlet Number 30', 6)
-    expect(fitted).toHaveLength(6)
-    expect(fitted).toBe('Out…30')
-  })
-
-  it('leaves a label that already fits alone', () => {
-    expect(fitLabelBothEnds('North', 10)).toBe('North')
-  })
-
-  it('degrades rather than returning nothing', () => {
-    expect(fitLabelBothEnds('North', 2)).toBe('No')
-    expect(fitLabelBothEnds('North', 0)).toBe('N')
-  })
-})
-
-describe('fitCategoryLabels — labels must still identify their box', () => {
-  it('keeps the start when that is already distinguishing', () => {
-    expect(fitCategoryLabels(['Andheri West', 'Bandra', 'Colaba'], 9)).toEqual([
-      'Andheri …',
-      'Bandra',
-      'Colaba',
-    ])
-  })
-
-  it('switches to middle truncation when prefixes collide', () => {
-    // The real-data failure: "Region 1".."Region 12" all truncate to "Regio…",
-    // so six labels print and none of them says which box it belongs to.
-    const labels = ['Region 1', 'Region 2', 'Region 12']
-    expect(fitCategoryLabels(labels, 6)).toEqual(['Reg… 1', 'Reg… 2', 'Reg…12'])
-    expect(new Set(fitCategoryLabels(labels, 6)).size).toBe(3)
-  })
-
-  it('preserves genuinely duplicated categories rather than inventing a difference', () => {
-    const fitted = fitCategoryLabels(['Region 1', 'Region 1'], 6)
-    expect(fitted[0]).toBe(fitted[1])
-  })
-
-  it('never exceeds the budget', () => {
-    for (const label of fitCategoryLabels(['SKU-000041', 'SKU-000042', 'SKU-000043'], 7)) {
-      expect(label.length).toBeLessThanOrEqual(7)
-    }
   })
 })
