@@ -82,6 +82,6 @@
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": "https://github.com/Trionic-Core/chat-ui-component-library.git"
+    "url": "git+https://github.com/Trionic-Core/chat-ui-component-library.git"
   }
 }
