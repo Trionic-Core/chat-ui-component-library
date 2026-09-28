@@ -2,7 +2,7 @@
  * AUI (Agentic UI) module — public surface.
  *
  * Renders ui_block ViewSpecs (metric groups, charts, tables, text,
- * actions) emitted by the enterprise agent. The host wires AuiView
+ * actions, files) emitted by the enterprise agent. The host wires AuiView
  * below an assistant message's prose; action buttons call onSendMessage
  * to drive a new chat turn.
  * ----------------------------------------------------------------*/
@@ -20,6 +20,7 @@ export type {
   TableBlock,
   TextBlock,
   ActionsBlock,
+  FileBlock,
   Metric,
   MetricDelta,
   ChartType,
@@ -31,3 +32,4 @@ export type {
   CellValue,
   DataRow,
 } from './aui-types'
+export type { FileHandler, FileStatus } from './file-handler'

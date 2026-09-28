@@ -304,6 +304,7 @@ export function ChatMessage({
                   key={`${spec.surface_id}-${index}`}
                   spec={spec}
                   onSendMessage={send}
+                  files={config.files}
                 />
               ))}
             </div>
