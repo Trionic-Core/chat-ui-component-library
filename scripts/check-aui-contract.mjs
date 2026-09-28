@@ -40,7 +40,10 @@ const CANONICAL = {
   Align: ['left', 'right', 'center'],
   Orientation: ['vertical', 'horizontal'],
   ActionStyle: ['primary', 'secondary'],
-  BlockTypes: ['metric_group', 'chart', 'table', 'text', 'actions'],
+  FileFormat: ['csv', 'pdf', 'docx'],
+  // The state at emission only; failed and expired come from the status route.
+  FileStatus: ['preparing', 'ready'],
+  BlockTypes: ['metric_group', 'chart', 'table', 'text', 'actions', 'file'],
 }
 
 const errors = []
@@ -96,6 +99,8 @@ expectSet(
   CANONICAL.Orientation,
 )
 expectSet('ActionItem.style', inlineUnion('ActionItem', 'style\\?'), CANONICAL.ActionStyle)
+expectSet('FileBlock.format', inlineUnion('FileBlock', 'format'), CANONICAL.FileFormat)
+expectSet('FileBlock.status', inlineUnion('FileBlock', 'status'), CANONICAL.FileStatus)
 
 // Block discriminants (the closed catalog) — each block declares `type: '<x>'`.
 const blockTypes = [...src.matchAll(/type:\s*'([^']+)'/g)].map((x) => x[1])
@@ -123,6 +128,7 @@ const REQUIRED_FIELDS = {
   TableBlock: ['columns', 'rows'],
   ViewSpec: ['surface_id', 'version', 'blocks'],
   ActionItem: ['id', 'label', 'on_click'],
+  FileBlock: ['file_id', 'file_name', 'format', 'content_type', 'status', 'expires_at'],
 }
 for (const [iface, fields] of Object.entries(REQUIRED_FIELDS)) {
   const body = interfaceBody(iface)
@@ -142,6 +148,7 @@ const OPTIONAL_FIELDS = {
   ChartBlock: ['total_count'],
   TableColumn: ['format', 'unit'],
   TableBlock: ['total_count'],
+  FileBlock: ['size_bytes', 'row_count', 'truncated', 'title'],
 }
 for (const [iface, fields] of Object.entries(OPTIONAL_FIELDS)) {
   const body = interfaceBody(iface)

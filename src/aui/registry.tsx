@@ -1,10 +1,12 @@
 import type { FC } from 'react'
 import type { Block, BlockType } from './aui-types'
+import type { FileHandler } from './file-handler'
 import { MetricGroupBlock } from './blocks/metric-group-block'
 import { ChartBlock } from './blocks/chart-block'
 import { TableBlock } from './blocks/table-block'
 import { TextBlock } from './blocks/text-block'
 import { ActionsBlock } from './blocks/actions-block'
+import { FileBlockCard } from './blocks/file-block'
 
 /* ------------------------------------------------------------------
  * AUI block registry
@@ -20,6 +22,8 @@ import { ActionsBlock } from './blocks/actions-block'
 export interface BlockRendererProps {
   block: Block
   onSendMessage: (message: string) => void
+  /** The host's file actions; without them a file card shows its details only. */
+  files?: FileHandler
 }
 
 type BlockRenderer = FC<BlockRendererProps>
@@ -39,6 +43,10 @@ const REGISTRY: Record<BlockType, BlockRenderer> = {
     block.type === 'actions' ? (
       <ActionsBlock block={block} onSendMessage={onSendMessage} />
     ) : null,
+  // Keyed by the file, so a surface that swaps one file for another starts a
+  // fresh card instead of showing the old file's status.
+  file: ({ block, files }) =>
+    block.type === 'file' ? <FileBlockCard key={block.file_id} block={block} files={files} /> : null,
 }
 
 /** Resolve a block to its renderer, or null (logged) for an unknown type. */

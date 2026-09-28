@@ -164,8 +164,8 @@ The ones that matter:
 
 A `ViewSpec` (the `ui_block` payload) is `{ surface_id, version, title?, blocks[] }`.
 Each block is one of a **closed catalog**: `metric_group`, `chart`, `table`,
-`text`, `actions`. The library validates every block and **skips** any it can't
-render — a malformed or unknown block never breaks the message.
+`text`, `actions`, `file` (§6). The library validates every block and **skips**
+any it can't render — a malformed or unknown block never breaks the message.
 
 ---
 
@@ -213,7 +213,82 @@ const sessions: SessionAdapter = {
 
 ---
 
-## 6. Branding / theming
+## 6. File downloads (the `file` block)
+
+When a user asks for a file, the agent can export the answer as a CSV, PDF or
+DOCX. The answer then carries a `file` block, and `AuiView` draws a download
+card: the format icon, the title or file name, the size, the row count of a
+CSV ("First N rows" when the export stopped at its row limit) and "Available
+until {date}".
+
+The block has no URL. The library never builds a URL and never sees a
+credential. You give it one `files` object with two actions, and your code
+makes both requests with the same headers as the chat:
+
+| Route | Use |
+|---|---|
+| `GET /v1/enterprise/chat/files/{file_id}` | The file bytes. |
+| `GET /v1/enterprise/chat/files/{file_id}/status` | The state of the file (`preparing`, `ready`, `failed` or `expired`). |
+
+```tsx
+import type { FileHandler, FileStatus } from '@cypherx/chat-ui'
+
+// GET one file route with the chat's headers (X-API-Key, X-Access-Context).
+// On an HTTP error, reject with the code as `status`: the card reads 410 as
+// "Expired" and 404 as "not available".
+async function fileRequest(path: string, signal?: AbortSignal): Promise<Response> {
+  const res = await fetch(`${API_BASE}/v1/enterprise/chat/files/${path}`, { headers: HEADERS, signal })
+  if (!res.ok) throw Object.assign(new Error(`File request failed: ${res.status}`), { status: res.status })
+  return res
+}
+
+const files: FileHandler = {
+  async status(block, signal) {
+    const res = await fileRequest(`${encodeURIComponent(block.file_id)}/status`, signal)
+    return (await res.json()) as FileStatus
+  },
+  async download(block) {
+    // The request needs headers, so a plain <a href> cannot fetch it.
+    const res = await fileRequest(encodeURIComponent(block.file_id))
+    const url = URL.createObjectURL(await res.blob())
+    const link = document.createElement('a')
+    link.href = url
+    link.download = block.file_name
+    document.body.appendChild(link)
+    link.click()
+    link.remove()
+    setTimeout(() => URL.revokeObjectURL(url), 0)
+  },
+}
+
+// Full widget:    <ChatProvider onSend={send} files={files}> … </ChatProvider>
+// Renderer only:  <AuiView spec={spec} onSendMessage={onSend} files={files} />
+```
+
+What the card does:
+
+| State | The card shows | Download button |
+|---|---|---|
+| `preparing` | "Preparing…". It reads the status at once, every 2 s for 30 s, then every 10 s. | No |
+| `ready` | The size, the rows and "Available until {date}". | Yes |
+| `failed` | The sentence from the status route, for example "The export queue is busy. Try again in a few minutes." | No |
+| `expired` | "Expired" — `expires_at` is past, the status says `expired`, or the download answered 410. | No |
+
+- The card stops the status reads on `ready`, `failed` or `expired`, and when it
+  unmounts. It aborts the read in flight through `signal`.
+- A PDF or DOCX arrives `ready`, so the card never reads its status.
+- The history replay keeps the first state of a block, so an old CSV says
+  `preparing`. The card reads its status once, sees `ready`, and stops.
+- While `download` runs, the button is busy. If `download` rejects with another
+  code, the card shows "Download failed. Try again." and keeps the button.
+- Without `files`, the card shows the details only: no button and no status
+  reads.
+- The install must have chat file exports turned on. Old clients (0.8.0) skip
+  the `file` block and log one warning.
+
+---
+
+## 7. Branding / theming
 
 Everything visible — colors, typography, radius, shadows, and the **chart
 palette** — is a CSS variable (`--cxc-*`). Override them under your own scope to
@@ -240,7 +315,7 @@ and colour-vision-deficiency separation between adjacent slots. THEMING.md
 
 ---
 
-## 7. Extensibility
+## 8. Extensibility
 
 The protocol is built to grow **without you writing rendering code**:
 
