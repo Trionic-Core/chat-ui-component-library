@@ -543,8 +543,17 @@ const {
 
 ## Agentic UI (AUI)
 
-`AuiView` renders the `ViewSpec` blocks the agent emits — KPI cards, charts, tables, text and
-actions. See **[INTEGRATION.md](./INTEGRATION.md)** for the protocol and the host wiring.
+`AuiView` renders the `ViewSpec` blocks the agent emits — KPI cards, charts, tables, text,
+actions and file downloads. See **[INTEGRATION.md](./INTEGRATION.md)** for the protocol and the host wiring.
+
+### File downloads (v0.9.0)
+
+A `file` block is a CSV, PDF or DOCX the agent exported. `AuiView` draws a download card for it.
+The library never knows the file URL or your credentials: pass a `FileHandler`
+(`{ download(block), status(block, signal) }`) as `AuiView.files`, or as `ChatConfig.files` for the
+full widget. A CSV arrives `preparing`; the card reads its status every 2 s for 30 s, then every
+10 s, until it is ready, failed or expired. Without a handler the card shows the details only.
+INTEGRATION.md §6 has the adapter for the `/v1/enterprise/chat/files/{file_id}` routes.
 
 ### Chart legibility (v0.8.0)
 

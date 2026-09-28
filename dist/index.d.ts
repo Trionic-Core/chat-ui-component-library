@@ -97,7 +97,30 @@ interface ActionsBlock {
     type: 'actions';
     actions: ActionItem[];
 }
-type Block = MetricGroupBlock | ChartBlock | TableBlock | TextBlock | ActionsBlock;
+/**
+ * A generated file (CSV, PDF or DOCX) the reader can download.
+ *
+ * Only the export tool emits it. It carries no URL: the host builds the
+ * request from `file_id` (see FileHandler). `status` is the state when the
+ * block was sent — a CSV starts `preparing` (it runs in the background), a
+ * report is `ready`. `failed` and `expired` come from the status route, never
+ * from this block. The optional fields are defaults on the backend model, which
+ * sends them as null until the file is ready.
+ */
+interface FileBlock {
+    type: 'file';
+    file_id: string;
+    file_name: string;
+    format: 'csv' | 'pdf' | 'docx';
+    content_type: string;
+    status: 'preparing' | 'ready';
+    size_bytes?: number | null;
+    row_count?: number | null;
+    truncated?: boolean;
+    expires_at: string;
+    title?: string | null;
+}
+type Block = MetricGroupBlock | ChartBlock | TableBlock | TextBlock | ActionsBlock | FileBlock;
 type BlockType = Block['type'];
 interface ViewSpec {
     surface_id: string;
@@ -109,6 +132,40 @@ interface ViewSpec {
 declare function isValidBlock(value: unknown): value is Block;
 /** True when `value` is a structurally valid ViewSpec (blocks array present). */
 declare function isValidViewSpec(value: unknown): value is ViewSpec;
+
+/** The body of `GET /v1/enterprise/chat/files/{file_id}/status`. */
+interface FileStatus {
+    file_id: string;
+    status: 'preparing' | 'ready' | 'failed' | 'expired';
+    file_name: string;
+    format: string;
+    content_type: string;
+    size_bytes: number | null;
+    row_count: number | null;
+    truncated: boolean;
+    expires_at: string;
+    error_type: string | null;
+    /** One user sentence for a failed file. */
+    error: string | null;
+}
+/**
+ * The two host actions the file card needs. Pass it as `AuiView.files`, or as
+ * `ChatConfig.files` when the library renders the messages.
+ *
+ * On an HTTP error, reject with an error that carries the code as `status`
+ * (for example `Object.assign(new Error('Gone'), { status: 410 })`). The card
+ * reads 410 as "Expired" and 404 as "not available"; any other rejection is a
+ * failed attempt that the reader can retry.
+ */
+interface FileHandler {
+    /** Download the file (`GET .../files/{file_id}`) and hand it to the browser. */
+    download: (block: FileBlock) => void | Promise<void>;
+    /**
+     * Read the file's status (`GET .../files/{file_id}/status`). The card aborts
+     * `signal` when it unmounts; pass it to `fetch`.
+     */
+    status: (block: FileBlock, signal: AbortSignal) => Promise<FileStatus>;
+}
 
 interface ChatMessage$1 {
     id: string;
@@ -408,6 +465,14 @@ interface ChatConfig {
      * anything else.
      */
     voiceStatus?: VoiceStatus;
+    /**
+     * Optional file handler. When provided, a file card in an assistant message
+     * gets its Download button, and a CSV that is still preparing reads its
+     * status until it is ready. Both requests run in the consumer's own fetch,
+     * so the headers (X-API-Key, X-Access-Context) stay with the consumer.
+     * Without it the card shows the file's details only.
+     */
+    files?: FileHandler;
     /**
      * When true, the LAST user message renders an Edit affordance and the LAST
      * assistant message renders a Regenerate affordance. Both submit via
@@ -743,7 +808,7 @@ interface ChatProviderProps extends ChatConfig {
  * consumption loop for streaming messages. Supports cancellation via
  * generator.return().
  */
-declare function ChatProvider({ children, onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, enableRegenerate, }: ChatProviderProps): react_jsx_runtime.JSX.Element;
+declare function ChatProvider({ children, onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, files, enableRegenerate, }: ChatProviderProps): react_jsx_runtime.JSX.Element;
 
 /**
  * ChatContainer v0.2.0 — main layout shell.
@@ -1128,8 +1193,10 @@ declare function LanguagePicker({ disabled, size, className }: LanguagePickerPro
 interface AuiViewProps {
     spec: ViewSpec;
     onSendMessage: (message: string) => void;
+    /** The host's file actions. Without them a file card shows its details only. */
+    files?: FileHandler;
 }
-declare function AuiView({ spec, onSendMessage }: AuiViewProps): react_jsx_runtime.JSX.Element | null;
+declare function AuiView({ spec, onSendMessage, files }: AuiViewProps): react_jsx_runtime.JSX.Element | null;
 
 /**
  * Access the chat context. Must be used within a <ChatProvider>.
@@ -1318,4 +1385,4 @@ declare function blobToWav(blob: Blob): Promise<Blob>;
  */
 declare const MAX_RECORDING_SECONDS = 58;
 
-export { ActionIndicator, type ActionIndicatorProps, type ActionItem, type ActionsBlock, AuiView, type AuiViewProps, type Block, type BlockType, type CellValue, ChainOfThought, type ChainOfThoughtProps, type ChartBlock, type ChartBlockOptions, type ChartFieldRef, type ChartType, type ChatAction, type ChatConfig, ChatContainer, type ChatContainerProps, type ChatContextValue, type ChatEvent, ChatInput, type ChatInputProps, ChatMessage, type ChatMessage$1 as ChatMessageData, type ChatMessageProps, ChatProvider, type ChatSendFn, type ChatSession, ChatWidget, type ChatWidgetProps, CodeBlock, type CodeBlockProps, type DataRow, type DictationState, EmptyState, type EmptyStateProps, type FeedbackData, type FeedbackHandler, FeedbackPopover, type FeedbackPopoverProps, type FeedbackRating, type FeedbackReasonCategory, type FileAttachment, FollowupsCard, type FollowupsCardProps, type FollowupsData, type LanguageOption, LanguagePicker, type LanguagePickerProps, type LanguageSearchIndex, MAX_RECORDING_SECONDS, MessageActionBar, type MessageActionBarProps, type MessageActionItem, MessageList, type MessageListProps, type Metric, type MetricDelta, type MetricGroupBlock, ModeSwitch, type ModeSwitchOption$1 as ModeSwitchOption, type ModeSwitchProps$1 as ModeSwitchProps, PromptInput, type PromptInputProps, type RecorderStatus, type SSEStreamConfig, type SessionAdapter, SessionList, type SessionListProps, SessionSelector, type SessionSelectorProps, type SpeechState, type SpeechStatus, StreamingText, type StreamingTextProps, TARGET_SAMPLE_RATE, type TableBlock, type TableColumn, type TextBlock, TextShimmer, type TextShimmerProps, ThinkingIndicator, type ThinkingIndicatorProps, type ValueFormat, type ViewSpec, type VoiceHandler, type VoiceLocale, VoiceRecordButton, type VoiceStatus, type VoiceTranscription, WAV_CONTENT_TYPE, blobToWav, canConvertToWav, cn, encodeWav, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText, useVoiceRecorder };
+export { ActionIndicator, type ActionIndicatorProps, type ActionItem, type ActionsBlock, AuiView, type AuiViewProps, type Block, type BlockType, type CellValue, ChainOfThought, type ChainOfThoughtProps, type ChartBlock, type ChartBlockOptions, type ChartFieldRef, type ChartType, type ChatAction, type ChatConfig, ChatContainer, type ChatContainerProps, type ChatContextValue, type ChatEvent, ChatInput, type ChatInputProps, ChatMessage, type ChatMessage$1 as ChatMessageData, type ChatMessageProps, ChatProvider, type ChatSendFn, type ChatSession, ChatWidget, type ChatWidgetProps, CodeBlock, type CodeBlockProps, type DataRow, type DictationState, EmptyState, type EmptyStateProps, type FeedbackData, type FeedbackHandler, FeedbackPopover, type FeedbackPopoverProps, type FeedbackRating, type FeedbackReasonCategory, type FileAttachment, type FileBlock, type FileHandler, type FileStatus, FollowupsCard, type FollowupsCardProps, type FollowupsData, type LanguageOption, LanguagePicker, type LanguagePickerProps, type LanguageSearchIndex, MAX_RECORDING_SECONDS, MessageActionBar, type MessageActionBarProps, type MessageActionItem, MessageList, type MessageListProps, type Metric, type MetricDelta, type MetricGroupBlock, ModeSwitch, type ModeSwitchOption$1 as ModeSwitchOption, type ModeSwitchProps$1 as ModeSwitchProps, PromptInput, type PromptInputProps, type RecorderStatus, type SSEStreamConfig, type SessionAdapter, SessionList, type SessionListProps, SessionSelector, type SessionSelectorProps, type SpeechState, type SpeechStatus, StreamingText, type StreamingTextProps, TARGET_SAMPLE_RATE, type TableBlock, type TableColumn, type TextBlock, TextShimmer, type TextShimmerProps, ThinkingIndicator, type ThinkingIndicatorProps, type ValueFormat, type ViewSpec, type VoiceHandler, type VoiceLocale, VoiceRecordButton, type VoiceStatus, type VoiceTranscription, WAV_CONTENT_TYPE, blobToWav, canConvertToWav, cn, encodeWav, formatRelativeTime, isValidBlock, isValidViewSpec, renderMarkdown, useChat, useChatContext, useChatScroll, useSSEStream, useSessionManager, useStreamingText, useVoiceRecorder };

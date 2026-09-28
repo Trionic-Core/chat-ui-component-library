@@ -1,7 +1,7 @@
 import { createContext, forwardRef, useCallback, useContext, useRef, useState, useEffect, useMemo, Component, useId, useReducer } from 'react';
 import { jsx, jsxs, Fragment } from 'react/jsx-runtime';
 import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
-import { ArrowDown, Sparkles, ChevronDown, ThumbsUp, ThumbsDown, Loader2, Square, Volume2, CheckCircle2, AlertCircle, Lock, Check, X, Circle, Clock, Copy, RotateCcw, Pencil, Mic, Globe, Search, Paperclip, Plus, ArrowUp, MessageSquare, Trash2, PanelLeftClose, PanelLeftOpen, MessageCircle, Minimize2, Maximize2 } from 'lucide-react';
+import { ArrowDown, Sparkles, ChevronDown, ThumbsUp, ThumbsDown, Loader2, Square, Volume2, CheckCircle2, AlertCircle, Lock, Check, X, Circle, Clock, FileType, FileText, FileSpreadsheet, File, Download, Copy, RotateCcw, Pencil, Mic, Globe, Search, Paperclip, Plus, ArrowUp, MessageSquare, Trash2, PanelLeftClose, PanelLeftOpen, MessageCircle, Minimize2, Maximize2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { ResponsiveContainer, ScatterChart as ScatterChart$1, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Scatter, PieChart as PieChart$1, Pie, Cell, AreaChart as AreaChart$1, Area, LineChart, Line, BarChart as BarChart$1, ReferenceLine, Bar, LabelList } from 'recharts';
@@ -441,6 +441,7 @@ function ChatProvider({
   feedback,
   voice,
   voiceStatus,
+  files,
   enableRegenerate = false
 }) {
   const [state, dispatch] = useReducer(chatReducer, {
@@ -463,9 +464,10 @@ function ChatProvider({
       feedback,
       voice,
       voiceStatus,
+      files,
       enableRegenerate
     }),
-    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, enableRegenerate]
+    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, files, enableRegenerate]
   );
   const send = useCallback(
     (message, metadata) => {
@@ -2140,6 +2142,9 @@ function hasTextShape(block) {
 function hasActionsShape(block) {
   return Array.isArray(block.actions);
 }
+function hasFileShape(block) {
+  return typeof block.file_id === "string" && typeof block.file_name === "string" && typeof block.format === "string" && typeof block.expires_at === "string" && (block.status === "preparing" || block.status === "ready");
+}
 function isValidBlock(value) {
   if (!isRecord(value)) return false;
   switch (value.type) {
@@ -2153,6 +2158,8 @@ function isValidBlock(value) {
       return hasTextShape(value);
     case "actions":
       return hasActionsShape(value);
+    case "file":
+      return hasFileShape(value);
     default:
       return false;
   }
@@ -4651,7 +4658,9 @@ var Button = forwardRef(
         className: cn(
           "inline-flex items-center justify-center gap-1.5 rounded-md font-medium",
           "transition-colors duration-150",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+          // An outline, not a ring: the ring is a box-shadow, and the variant's
+          // inline boxShadow overrode it, so keyboard focus was invisible.
+          "focus-visible:[outline:2px_solid_var(--cxc-accent)] focus-visible:outline-offset-2",
           "disabled:pointer-events-none disabled:opacity-50",
           sizeClasses[size],
           className
@@ -4692,12 +4701,258 @@ function ActionButton({
     }
   );
 }
+
+// src/aui/blocks/file-block-state.ts
+var FAST_POLL_MS = 2e3;
+var FAST_POLL_WINDOW_MS = 3e4;
+var SLOW_POLL_MS = 1e4;
+var FAILED_TEXT = "The file could not be created.";
+var UNAVAILABLE_TEXT = "This file is not available.";
+var STATUSES = /* @__PURE__ */ new Set(["preparing", "ready", "failed", "expired"]);
+function nextPollDelayMs(elapsedMs) {
+  return elapsedMs < FAST_POLL_WINDOW_MS ? FAST_POLL_MS : SLOW_POLL_MS;
+}
+function keepsPolling(state) {
+  return state === "preparing";
+}
+function parseTime(iso) {
+  return Date.parse(iso.replace(/(\.\d{3})\d+/, "$1"));
+}
+function isExpired(expiresAt, now) {
+  const at = parseTime(expiresAt);
+  return Number.isFinite(at) && at <= now;
+}
+function isFileStatus(value) {
+  if (typeof value !== "object" || value === null) return false;
+  const body = value;
+  return STATUSES.has(body.status) && typeof body.expires_at === "string";
+}
+function refusalOf(error) {
+  const code = error?.status;
+  return code === 404 || code === 410 ? code : null;
+}
+function fileView(block, status, refusal, now) {
+  const expiresAt = status?.expires_at ?? block.expires_at;
+  const facts = {
+    sizeBytes: status?.size_bytes ?? block.size_bytes ?? null,
+    rowCount: status?.row_count ?? block.row_count ?? null,
+    truncated: status?.truncated ?? block.truncated ?? false,
+    expiresAt
+  };
+  if (refusal === 410 || isExpired(expiresAt, now)) {
+    return { ...facts, state: "expired", error: null };
+  }
+  if (refusal === 404) return { ...facts, state: "failed", error: UNAVAILABLE_TEXT };
+  const state = status?.status ?? block.status;
+  if (state === "failed") return { ...facts, state, error: status?.error || FAILED_TEXT };
+  return { ...facts, state, error: null };
+}
+var SIZE_UNITS = ["B", "KB", "MB", "GB"];
+var ONE_DECIMAL = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+var WHOLE = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+var DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+function formatFileSize(bytes) {
+  if (bytes === null || !Number.isFinite(bytes) || bytes < 0) return null;
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < SIZE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const digits = unit > 0 && value < 10 ? ONE_DECIMAL : WHOLE;
+  return `${digits.format(value)} ${SIZE_UNITS[unit]}`;
+}
+function formatRowCount(rowCount, truncated) {
+  if (rowCount === null || !Number.isFinite(rowCount) || rowCount < 0) return null;
+  const count = WHOLE.format(rowCount);
+  if (truncated) return `First ${count} rows`;
+  return rowCount === 1 ? "1 row" : `${count} rows`;
+}
+function formatExpiry(expiresAt) {
+  const at = parseTime(expiresAt);
+  return Number.isFinite(at) ? DATE.format(at) : null;
+}
+function fileMeta(format, view) {
+  return [
+    format.toUpperCase(),
+    formatFileSize(view.sizeBytes),
+    format === "csv" ? formatRowCount(view.rowCount, view.truncated) : null
+  ].filter(Boolean).join(" \xB7 ");
+}
+var FORMAT_ICON = {
+  csv: FileSpreadsheet,
+  pdf: FileText,
+  docx: FileType
+};
+var ICON = { size: 16, strokeWidth: 1.2, "aria-hidden": true };
+var DOWNLOAD_FAILED_TEXT = "Download failed. Try again.";
+function FileBlockCard({ block, files }) {
+  const { status, refusal, setRefusal } = useFileStatus(block, files);
+  const [busy, setBusy] = useState(false);
+  const [downloadFailed, setDownloadFailed] = useState(false);
+  const reducedMotion = usePrefersReducedMotion();
+  const view = fileView(block, status, refusal, Date.now());
+  const name = block.title || block.file_name;
+  const expired = view.state === "expired";
+  const handleDownload = useCallback(async () => {
+    if (!files) return;
+    setBusy(true);
+    setDownloadFailed(false);
+    try {
+      await files.download(block);
+    } catch (error) {
+      const code = refusalOf(error);
+      if (code === null) setDownloadFailed(true);
+      else setRefusal(code);
+    } finally {
+      setBusy(false);
+    }
+  }, [files, block, setRefusal]);
+  return /* @__PURE__ */ jsxs(Card, { padding: "sm", className: "flex flex-wrap items-start gap-3", children: [
+    /* @__PURE__ */ jsxs("div", { className: "flex min-w-0 grow basis-60 items-start gap-3", children: [
+      /* @__PURE__ */ jsx(
+        FormatTile,
+        {
+          Icon: FORMAT_ICON[block.format] ?? File,
+          pulsing: Boolean(files) && keepsPolling(view.state) && !reducedMotion,
+          dimmed: expired
+        }
+      ),
+      /* @__PURE__ */ jsxs("div", { className: "min-w-0 flex-1", children: [
+        /* @__PURE__ */ jsx(
+          "p",
+          {
+            className: "truncate text-sm font-medium",
+            title: name,
+            style: { color: expired ? "var(--cxc-text-muted)" : "var(--cxc-text)" },
+            children: name
+          }
+        ),
+        /* @__PURE__ */ jsx("p", { className: "text-xs", style: { color: "var(--cxc-text-secondary)" }, children: fileMeta(block.format, view) }),
+        /* @__PURE__ */ jsxs("div", { "aria-live": "polite", className: "text-xs", children: [
+          /* @__PURE__ */ jsx(StatusLine, { view }),
+          downloadFailed && /* @__PURE__ */ jsx("p", { style: { color: "var(--cxc-error)" }, children: DOWNLOAD_FAILED_TEXT })
+        ] })
+      ] })
+    ] }),
+    files && view.state === "ready" && /* @__PURE__ */ jsxs(
+      Button,
+      {
+        variant: "secondary",
+        size: "sm",
+        className: "shrink-0 rounded-lg",
+        onClick: handleDownload,
+        disabled: busy,
+        "aria-busy": busy,
+        "aria-label": `Download ${block.file_name}`,
+        children: [
+          busy ? /* @__PURE__ */ jsx(Spinner, { still: reducedMotion }) : /* @__PURE__ */ jsx(Download, { ...ICON }),
+          "Download"
+        ]
+      }
+    )
+  ] });
+}
+function useFileStatus(block, files) {
+  const [status, setStatus] = useState(null);
+  const [refusal, setRefusal] = useState(null);
+  const latest = useRef({ block, files });
+  useEffect(() => {
+    latest.current = { block, files };
+  });
+  const hasFiles = Boolean(files);
+  const { file_id: fileId, status: sentStatus, expires_at: sentExpiry } = block;
+  useEffect(() => {
+    if (!hasFiles || !keepsPolling(fileView(latest.current.block, null, null, Date.now()).state)) {
+      return;
+    }
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    let timer;
+    async function poll() {
+      const { block: current, files: handler } = latest.current;
+      if (!handler) return;
+      try {
+        const next = await handler.status(current, controller.signal);
+        if (controller.signal.aborted) return;
+        if (!isFileStatus(next)) throw new Error("the status body has no known status");
+        setStatus(next);
+        if (!keepsPolling(fileView(current, next, null, Date.now()).state)) return;
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        const code = refusalOf(error);
+        if (code !== null) {
+          setRefusal(code);
+          return;
+        }
+        console.warn("[aui] file status read failed; the card tries again:", error);
+      }
+      timer = setTimeout(poll, nextPollDelayMs(Date.now() - startedAt));
+    }
+    void poll();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [hasFiles, fileId, sentStatus, sentExpiry]);
+  return { status, refusal, setRefusal };
+}
+function StatusLine({ view }) {
+  switch (view.state) {
+    case "preparing":
+      return /* @__PURE__ */ jsx("p", { style: { color: "var(--cxc-text-muted)" }, children: "Preparing\u2026" });
+    case "ready": {
+      const until = formatExpiry(view.expiresAt);
+      return until ? /* @__PURE__ */ jsxs("p", { style: { color: "var(--cxc-text-muted)" }, children: [
+        "Available until ",
+        until
+      ] }) : null;
+    }
+    case "failed":
+      return /* @__PURE__ */ jsx("p", { style: { color: "var(--cxc-error)" }, children: view.error });
+    case "expired":
+      return /* @__PURE__ */ jsx("p", { style: { color: "var(--cxc-text-muted)" }, children: "Expired" });
+  }
+}
+function FormatTile({
+  Icon,
+  pulsing,
+  dimmed
+}) {
+  return /* @__PURE__ */ jsx(
+    motion.span,
+    {
+      className: "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+      style: {
+        backgroundColor: "var(--cxc-bg-subtle)",
+        color: dimmed ? "var(--cxc-text-muted)" : "var(--cxc-text-secondary)"
+      },
+      animate: { opacity: pulsing ? [1, 0.45, 1] : 1 },
+      transition: pulsing ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 },
+      children: /* @__PURE__ */ jsx(Icon, { ...ICON })
+    }
+  );
+}
+function Spinner({ still }) {
+  return /* @__PURE__ */ jsx(
+    motion.span,
+    {
+      className: "inline-flex",
+      animate: still ? void 0 : { rotate: 360 },
+      transition: { duration: 1, repeat: Infinity, ease: "linear" },
+      children: /* @__PURE__ */ jsx(Loader2, { ...ICON })
+    }
+  );
+}
 var REGISTRY = {
   metric_group: ({ block }) => block.type === "metric_group" ? /* @__PURE__ */ jsx(MetricGroupBlock, { block }) : null,
   chart: ({ block }) => block.type === "chart" ? /* @__PURE__ */ jsx(ChartBlock, { block }) : null,
   table: ({ block }) => block.type === "table" ? /* @__PURE__ */ jsx(TableBlock, { block }) : null,
   text: ({ block }) => block.type === "text" ? /* @__PURE__ */ jsx(TextBlock, { block }) : null,
-  actions: ({ block, onSendMessage }) => block.type === "actions" ? /* @__PURE__ */ jsx(ActionsBlock, { block, onSendMessage }) : null
+  actions: ({ block, onSendMessage }) => block.type === "actions" ? /* @__PURE__ */ jsx(ActionsBlock, { block, onSendMessage }) : null,
+  // Keyed by the file, so a surface that swaps one file for another starts a
+  // fresh card instead of showing the old file's status.
+  file: ({ block, files }) => block.type === "file" ? /* @__PURE__ */ jsx(FileBlockCard, { block, files }, block.file_id) : null
 };
 function resolveBlock(block) {
   const renderer = REGISTRY[block.type];
@@ -4736,7 +4991,7 @@ var BlockErrorBoundary = class extends Component {
     return this.props.children;
   }
 };
-function AuiView({ spec, onSendMessage }) {
+function AuiView({ spec, onSendMessage, files }) {
   const blocks = useMemo(
     () => Array.isArray(spec.blocks) ? spec.blocks.filter(isValidBlock) : [],
     [spec.blocks]
@@ -4753,7 +5008,7 @@ function AuiView({ spec, onSendMessage }) {
         blocks.map((block, index) => {
           const Renderer = resolveBlock(block);
           if (!Renderer) return null;
-          return /* @__PURE__ */ jsx(BlockErrorBoundary, { blockType: block.type, children: /* @__PURE__ */ jsx(Renderer, { block, onSendMessage }) }, `${block.type}-${index}`);
+          return /* @__PURE__ */ jsx(BlockErrorBoundary, { blockType: block.type, children: /* @__PURE__ */ jsx(Renderer, { block, onSendMessage, files }) }, `${block.type}-${index}`);
         })
       ]
     }
@@ -5022,7 +5277,8 @@ function ChatMessage({
             AuiView,
             {
               spec,
-              onSendMessage: send
+              onSendMessage: send,
+              files: config.files
             },
             `${spec.surface_id}-${index}`
           )) }),
