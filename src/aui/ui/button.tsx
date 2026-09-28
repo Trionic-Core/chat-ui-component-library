@@ -50,7 +50,9 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(
         className={cn(
           'inline-flex items-center justify-center gap-1.5 rounded-md font-medium',
           'transition-colors duration-150',
-          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2',
+          // An outline, not a ring: the ring is a box-shadow, and the variant's
+          // inline boxShadow overrode it, so keyboard focus was invisible.
+          'focus-visible:[outline:2px_solid_var(--cxc-accent)] focus-visible:outline-offset-2',
           'disabled:pointer-events-none disabled:opacity-50',
           sizeClasses[size],
           className,
