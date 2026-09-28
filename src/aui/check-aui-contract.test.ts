@@ -111,6 +111,52 @@ describe('check-aui-contract guard — fails on drift', () => {
     expect(output).toContain('ChartBlock.total_count')
   })
 
+  it('fails when the file block leaves the catalog', () => {
+    const drifted = canonicalSrc.replace(/type: 'file'/, "type: 'download'")
+    expect(drifted).not.toBe(canonicalSrc)
+    const { ok, output } = runGuard(drifted)
+    expect(ok).toBe(false)
+    expect(output).toContain('Block discriminants')
+  })
+
+  it('fails when FileBlock.format drifts', () => {
+    const drifted = canonicalSrc.replace(
+      /format: 'csv' \| 'pdf' \| 'docx'/,
+      "format: 'csv' | 'pdf'",
+    )
+    expect(drifted).not.toBe(canonicalSrc)
+    const { ok, output } = runGuard(drifted)
+    expect(ok).toBe(false)
+    expect(output).toContain('FileBlock.format')
+  })
+
+  it('fails when FileBlock.status takes a state only the status route sends', () => {
+    const drifted = canonicalSrc.replace(
+      /status: 'preparing' \| 'ready'/,
+      "status: 'preparing' | 'ready' | 'failed'",
+    )
+    expect(drifted).not.toBe(canonicalSrc)
+    const { ok, output } = runGuard(drifted)
+    expect(ok).toBe(false)
+    expect(output).toContain('FileBlock.status')
+  })
+
+  it('fails when FileBlock loses the id the host downloads by', () => {
+    const drifted = canonicalSrc.replace(/\n\s*file_id: string/, '')
+    expect(drifted).not.toBe(canonicalSrc)
+    const { ok, output } = runGuard(drifted)
+    expect(ok).toBe(false)
+    expect(output).toContain('FileBlock.file_id')
+  })
+
+  it('fails when an optional FileBlock field (truncated) is removed', () => {
+    const drifted = canonicalSrc.replace(/\n\s*truncated\?: boolean/, '')
+    expect(drifted).not.toBe(canonicalSrc)
+    const { ok, output } = runGuard(drifted)
+    expect(ok).toBe(false)
+    expect(output).toContain('FileBlock.truncated')
+  })
+
   it('fails when an inline union (TableColumn.align) drifts', () => {
     const drifted = canonicalSrc.replace(
       /align\?:\s*'left' \| 'right' \| 'center'/,

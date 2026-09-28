@@ -50,6 +50,7 @@ export function ChatProvider({
   feedback,
   voice,
   voiceStatus,
+  files,
   enableRegenerate = false,
 }: ChatProviderProps) {
   const [state, dispatch] = useReducer(chatReducer, {
@@ -74,9 +75,10 @@ export function ChatProvider({
       feedback,
       voice,
       voiceStatus,
+      files,
       enableRegenerate,
     }),
-    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, enableRegenerate]
+    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, files, enableRegenerate]
   )
 
   const send = useCallback(

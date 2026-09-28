@@ -1,5 +1,6 @@
 import type { ReactNode } from 'react'
 import type { ViewSpec } from './aui/aui-types'
+import type { FileHandler } from './aui/file-handler'
 
 // ============================================================================
 // Core Message Types
@@ -350,6 +351,15 @@ export interface ChatConfig {
    * anything else.
    */
   voiceStatus?: VoiceStatus
+
+  /**
+   * Optional file handler. When provided, a file card in an assistant message
+   * gets its Download button, and a CSV that is still preparing reads its
+   * status until it is ready. Both requests run in the consumer's own fetch,
+   * so the headers (X-API-Key, X-Access-Context) stay with the consumer.
+   * Without it the card shows the file's details only.
+   */
+  files?: FileHandler
 
   /**
    * When true, the LAST user message renders an Edit affordance and the LAST

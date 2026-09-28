@@ -1,6 +1,7 @@
 import { useMemo } from 'react'
 import type { Block, ViewSpec } from './aui-types'
 import { isValidBlock } from './aui-types'
+import type { FileHandler } from './file-handler'
 import { resolveBlock } from './registry'
 import { BlockErrorBoundary } from './block-error-boundary'
 
@@ -14,14 +15,17 @@ import { BlockErrorBoundary } from './block-error-boundary'
  *
  * `onSendMessage` threads the action loop: an actions-block button
  * sends its `send_message` as a new chat turn via the host's send path.
+ * `files` gives a file card its download button and status reads.
  * ----------------------------------------------------------------*/
 
 export interface AuiViewProps {
   spec: ViewSpec
   onSendMessage: (message: string) => void
+  /** The host's file actions. Without them a file card shows its details only. */
+  files?: FileHandler
 }
 
-export function AuiView({ spec, onSendMessage }: AuiViewProps) {
+export function AuiView({ spec, onSendMessage, files }: AuiViewProps) {
   // Drop malformed blocks once, up front (the third reliability layer).
   const blocks = useMemo<Block[]>(
     () => (Array.isArray(spec.blocks) ? spec.blocks.filter(isValidBlock) : []),
@@ -47,7 +51,7 @@ export function AuiView({ spec, onSendMessage }: AuiViewProps) {
         if (!Renderer) return null
         return (
           <BlockErrorBoundary key={`${block.type}-${index}`} blockType={block.type}>
-            <Renderer block={block} onSendMessage={onSendMessage} />
+            <Renderer block={block} onSendMessage={onSendMessage} files={files} />
           </BlockErrorBoundary>
         )
       })}
