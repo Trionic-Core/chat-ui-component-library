@@ -293,6 +293,16 @@ Individual message renderer (user or assistant).
 | `onRetry` | `() => void` | `undefined` | Retry callback for errored messages |
 | `className` | `string` | `undefined` | Additional CSS classes |
 
+Markdown tables retain a minimum width of `12rem` per column and scroll inside
+the message when needed. Cells are top-aligned, and the table's scroll region
+supports keyboard focus. Keep `@cypherx/chat-ui/styles.css` loaded; custom message
+renderers using `renderMarkdown()` must also place its output inside a
+`.cxc-markdown` element. Avoid overriding the table's cell widths or its scroll
+wrapper with global table styles.
+
+For the React table regression fixtures, run `npm run harness` and open
+`http://localhost:5199/markdown-tables.html`.
+
 ### `<PromptInput>` (v0.2.0)
 
 ChatGPT-style two-row input: textarea on top, action bar on bottom. The action bar puts attachments and `addonSlot` on the left, and the dictation language chip plus one circular control on the right — mic while there is nothing to send, otherwise send/stop. See [Voice](#voice-v050) for the swap rules.

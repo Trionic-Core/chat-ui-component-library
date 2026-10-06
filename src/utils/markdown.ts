@@ -22,7 +22,7 @@ const ALLOWED_ATTR_MAP: Record<string, Set<string>> = {
   a: new Set(['href', 'target', 'rel', 'class']),
   pre: new Set(['class', 'data-language']),
   code: new Set(['class', 'data-language']),
-  div: new Set(['class']),
+  div: new Set(['class', 'role', 'aria-label', 'tabindex']),
   span: new Set(['class']),
   td: new Set(['class']),
   th: new Set(['class']),
@@ -249,7 +249,7 @@ export function renderMarkdown(markdown: string): string {
         i++
       }
 
-      let tableHtml = '<div class="cxc-table-scroll"><table><thead><tr>'
+      let tableHtml = '<div class="cxc-table-scroll" role="region" aria-label="Table" tabindex="0"><table><thead><tr>'
       for (const cell of headerCells) {
         tableHtml += `<th>${processInline(cell)}</th>`
       }

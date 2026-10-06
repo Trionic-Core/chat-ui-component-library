@@ -990,7 +990,7 @@ var ALLOWED_ATTR_MAP = {
   a: /* @__PURE__ */ new Set(["href", "target", "rel", "class"]),
   pre: /* @__PURE__ */ new Set(["class", "data-language"]),
   code: /* @__PURE__ */ new Set(["class", "data-language"]),
-  div: /* @__PURE__ */ new Set(["class"]),
+  div: /* @__PURE__ */ new Set(["class", "role", "aria-label", "tabindex"]),
   span: /* @__PURE__ */ new Set(["class"]),
   td: /* @__PURE__ */ new Set(["class"]),
   th: /* @__PURE__ */ new Set(["class"])
@@ -1122,7 +1122,7 @@ function renderMarkdown(markdown) {
         tableRows.push(cells);
         i++;
       }
-      let tableHtml = '<div class="cxc-table-scroll"><table><thead><tr>';
+      let tableHtml = '<div class="cxc-table-scroll" role="region" aria-label="Table" tabindex="0"><table><thead><tr>';
       for (const cell of headerCells) {
         tableHtml += `<th>${processInline(cell)}</th>`;
       }
