@@ -31,14 +31,20 @@ In both cases you end up with: a **registry URL** and a **token**.
 
 Versioning is **SemVer on the public API** — the `ViewSpec`/`ChatEvent` types and
 the component props are the contract. Breaking either = major bump. The
-`check:contract` guard + `prepublishOnly` run automatically (`check:contract &&
-lint && build`), so a drifted wire contract can never be published.
+`prepublishOnly` runs lint, build, tests and the contract guard automatically.
+The build generates both `dist/styles.css` and the standalone
+`dist/markdown.css`, using the pinned Tailwind CLI from the lockfile.
 
 ```bash
 # 1. bump version
 npm version minor            # or patch / major
 
-# 2. publish (prepublishOnly runs check:contract + lint + build first)
+# 2. verify the shipped layouts (install browser runtimes once)
+npx playwright install chromium webkit
+npm run build
+npm run test:layout
+
+# 3. publish (prepublishOnly runs lint, build, tests and the contract guard)
 npm publish                  # uses the registry from .npmrc / publishConfig
 ```
 
@@ -49,10 +55,17 @@ A tag-triggered workflow is included. Set repo secrets:
 - `NPM_TOKEN` — the publish token from step A.
 - `NPM_REGISTRY_URL` *(optional)* — defaults to `https://registry.npmjs.org`.
 
-Then publish by pushing a tag:
+The workflow runs browser layout checks before publishing. Trigger it with a
+`chat-ui-v*` tag that matches `package.json`, for example:
 ```bash
 git tag chat-ui-v0.4.0 && git push origin chat-ui-v0.4.0
 ```
+
+A plain `v*` tag (such as `v0.8.1`, which `npm version` normally creates) does
+**not** match this workflow. A merged PR, version commit, or tag alone is not
+proof that the package was published. Confirm the Publish workflow succeeded
+or verify the version in the configured registry, then have consumers upgrade
+both JS and CSS and invalidate copied/cached assets.
 
 ---
 

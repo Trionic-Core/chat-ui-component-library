@@ -20,7 +20,8 @@
         "default": "./dist/index.cjs"
       }
     },
-    "./styles.css": "./dist/styles.css"
+    "./styles.css": "./dist/styles.css",
+    "./markdown.css": "./dist/markdown.css"
   },
   "sideEffects": [
     "*.css"
@@ -33,14 +34,15 @@
   ],
   "scripts": {
     "build": "tsup",
-    "postbuild": "npx @tailwindcss/cli -i src/styles/globals.css -o dist/styles.css",
+    "postbuild": "node scripts/build-styles.mjs",
     "check:contract": "node scripts/check-aui-contract.mjs",
     "test": "vitest run && npm run check:contract",
     "test:watch": "vitest",
-    "prepublishOnly": "npm test && npm run lint && npm run build",
+    "test:layout": "playwright test",
+    "prepublishOnly": "npm run lint && npm run build && npm test",
     "dev": "tsup --watch",
     "harness": "vite --config harness/vite.config.ts",
-    "lint": "tsc --noEmit",
+    "lint": "tsc --noEmit && tsc --project tsconfig.layout.json",
     "clean": "rm -rf dist"
   },
   "peerDependencies": {
@@ -48,6 +50,8 @@
     "react-dom": ">=18.0.0"
   },
   "devDependencies": {
+    "@playwright/test": "1.62.1",
+    "@tailwindcss/cli": "4.3.3",
     "@tailwindcss/postcss": "^4.0.0",
     "@types/node": "^22.19.21",
     "@types/react": "^19.0.0",

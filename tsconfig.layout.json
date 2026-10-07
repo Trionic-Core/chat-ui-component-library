@@ -1,0 +1,17 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": ".",
+    "noEmit": true,
+    "types": ["node", "vite/client"],
+    "paths": {
+      "@cypherx/chat-ui": ["./src/index.ts"]
+    }
+  },
+  "include": [
+    "harness/markdown-tables.tsx",
+    "harness/vite.config.ts",
+    "playwright.config.ts",
+    "tests/layout/**/*.ts"
+  ]
+}

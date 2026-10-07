@@ -57,8 +57,12 @@ import '@cypherx/chat-ui/styles.css'
 
 > **Tailwind v3 users:** importing this compiled stylesheet can conflict
 > (`@layer base` with no matching `@tailwind base`). If you hit that build error,
-> skip the import and define the `--cxc-*` tokens yourself — see
-> [THEMING.md](./THEMING.md).
+> serve the compiled `dist/styles.css` as a static asset and load it with a
+> `<link rel="stylesheet">` outside the Tailwind v3 preprocessing pipeline.
+> Do **not** omit the stylesheet: theme tokens alone do not supply layout rules.
+> Custom pages using only `renderMarkdown()` can instead import
+> `@cypherx/chat-ui/markdown.css`, which is scoped, layer-free CSS and does not
+> include the full chat widget or AUI styles.
 
 ---
 
@@ -259,6 +263,64 @@ So new CypherX capabilities reach your users by streaming new specs (no app
 change) or via a version bump (no app code change) — never a rewrite.
 
 ---
+
+## Markdown Layout Diagnostics
+
+Updating the npm dependency alone is not enough if the application still serves
+an older copied CSS file. Update the JS and CSS together and invalidate cached
+assets. For the full widget use `@cypherx/chat-ui/styles.css`; for custom Markdown
+bubbles use `@cypherx/chat-ui/markdown.css`. Do not maintain a copied
+`renderMarkdown()` implementation that can drift from the package.
+
+```tsx
+import { renderMarkdown } from '@cypherx/chat-ui'
+import '@cypherx/chat-ui/markdown.css'
+
+<div className="cxc-markdown" dangerouslySetInnerHTML={{ __html: renderMarkdown(content) }} />
+```
+
+Generated tables style themselves through `.cxc-table-scroll`; the outer
+`.cxc-markdown` applies the other Markdown styles. The standalone stylesheet is
+plain CSS and can also be served as a static asset in JSP. Theme overrides still
+work through `--cxc-*`; layout rules are not replaced by theme tokens.
+
+When reporting a layout issue, include `npm ls @cypherx/chat-ui`, the original
+Markdown, the rendered element HTML, viewport/container width, stylesheet
+imports, and the following browser-console output. Do not include auth tokens.
+
+```js
+const table = document.querySelector('.cxc-table-scroll')
+if (table) {
+  const cell = table.querySelector('th, td')
+  const css = getComputedStyle(table)
+  const cellCss = cell && getComputedStyle(cell)
+  console.table({
+    styleVersion: css.getPropertyValue('--cxc-markdown-style-version').trim(),
+    visibleWidth: table.clientWidth,
+    contentWidth: table.scrollWidth,
+    overflowX: css.overflowX,
+    cellMinWidth: cellCss?.minWidth,
+    cellPadding: cellCss?.padding,
+    cellBorder: cellCss?.border,
+    cellAlignment: cellCss?.verticalAlign,
+  })
+}
+```
+
+The hardened stylesheet reports style version `2`. A missing marker means the
+CSS is missing or stale. Zero padding/borders or a missing `12rem` cell minimum
+indicates missing/overridden table rules. Content wider than the visible width
+is expected for wide tables, provided `overflow-x` is `auto` and the region can
+scroll to its final column. Flex message children need `min-width: 0`; grid
+message tracks need `minmax(0, 1fr)`. Deliberate higher-specificity or `!important`
+host overrides cannot be prevented by a normal shared stylesheet.
+
+Run `npm run build` and `npm run test:layout` before releasing layout changes.
+Install the browser runtimes once with `npx playwright install chromium webkit`.
+The suite exercises shipped assets in Chromium/WebKit and covers custom
+renderers, full/standalone styles, common host resets, mobile/desktop, flex/grid,
+large text, themes, streaming, keyboard access, long content and host-page scroll
+containment. Failure screenshots/traces are attached to CI.
 
 ## Support
 

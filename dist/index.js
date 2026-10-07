@@ -902,8 +902,9 @@ function useChatScroll(deps) {
   const [unreadCount, setUnreadCount] = useState(0);
   const isAtBottomRef = useRef(true);
   const scrollToBottom = useCallback((behavior = "smooth") => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior, block: "end" });
+    const container = scrollRef.current;
+    if (container) {
+      container.scrollTo({ top: container.scrollHeight, behavior });
     }
     setUnreadCount(0);
     setIsAtBottom(true);
@@ -940,9 +941,10 @@ function useChatScroll(deps) {
   }, []);
   useEffect(() => {
     if (isAtBottomRef.current) {
-      requestAnimationFrame(() => {
+      const frame = requestAnimationFrame(() => {
         scrollToBottom("smooth");
       });
+      return () => cancelAnimationFrame(frame);
     } else {
       setUnreadCount((prev) => prev + 1);
     }
@@ -4847,7 +4849,7 @@ function ChatMessage({
       animate: { opacity: 1, y: 0 },
       transition: { duration: 0.15, ease: [0.25, 0.1, 0.25, 1] },
       className: cn(
-        "group/message py-3",
+        "group/message min-w-0 max-w-full py-3",
         isUser && !editing && "flex justify-end",
         className
       ),
@@ -5215,7 +5217,7 @@ var MessageList = forwardRef(
       "div",
       {
         ref,
-        className: cn("relative flex flex-1 flex-col overflow-hidden", className),
+        className: cn("relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", className),
         children: [
           /* @__PURE__ */ jsx(
             "div",

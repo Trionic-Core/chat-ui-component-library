@@ -30,5 +30,19 @@ jobs:
 
       - run: npm run lint
 
+      - run: npm run build
+
       # `npm test` runs vitest then check:contract (the wire-contract guard).
       - run: npm test
+
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:layout
+
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: markdown-layout-failure
+          path: |
+            playwright-report/
+            test-results/
+          retention-days: 7

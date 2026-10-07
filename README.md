@@ -295,13 +295,30 @@ Individual message renderer (user or assistant).
 
 Markdown tables retain a minimum width of `12rem` per column and scroll inside
 the message when needed. Cells are top-aligned, and the table's scroll region
-supports keyboard focus. Keep `@cypherx/chat-ui/styles.css` loaded; custom message
-renderers using `renderMarkdown()` must also place its output inside a
-`.cxc-markdown` element. Avoid overriding the table's cell widths or its scroll
-wrapper with global table styles.
+supports keyboard focus. Generated tables are styled by their own
+`.cxc-table-scroll` wrapper, including when a client calls `renderMarkdown()`
+without using `<ChatMessage>`.
+
+For the full chat components, load `@cypherx/chat-ui/styles.css`. Custom chat/JSP
+pages that only need Markdown can instead load `@cypherx/chat-ui/markdown.css`:
+it contains no Tailwind layers or global reset, and includes fallback colors
+without requiring the full theme. Wrap non-table Markdown output in
+`.cxc-markdown` for paragraph, list, heading, link and code-block styles.
+The full stylesheet already includes these rules; do not load both.
+
+Every flex/grid child that owns a message must be allowed to shrink (`min-width:
+0`; use `minmax(0, 1fr)` for a grid's message column). Avoid overriding scoped
+table rules with `!important` or clipping overflow on the table wrapper.
+See [layout diagnostics](./INTEGRATION.md#markdown-layout-diagnostics) before
+changing CSS in response to a screenshot.
 
 For the React table regression fixtures, run `npm run harness` and open
 `http://localhost:5199/markdown-tables.html`.
+Browser regression checks: `npm run build`, `npx playwright install chromium webkit`,
+then `npm run test:layout`. They exercise the distributable JS/CSS, including
+raw/custom rendering, host table resets, flex/grid bubbles, streaming, long
+links/code, keyboard scrolling, themes and enlarged text. CI runs these checks
+and saves screenshots/traces on failure.
 
 ### `<PromptInput>` (v0.2.0)
 

@@ -56,6 +56,11 @@ tokens, and typography reads `--cxc-font-*`.
 
 ## Token reference
 
+For custom Markdown-only pages, `@cypherx/chat-ui/markdown.css` provides scoped
+layout styles with light/dark fallback colors and no Tailwind layers or global
+reset. The full stylesheet already includes it. Tokens customize those styles;
+they do not replace the stylesheet. See INTEGRATION.md's layout diagnostics.
+
 ### Surfaces & borders
 `--cxc-bg`, `--cxc-bg-subtle`, `--cxc-bg-muted`, `--cxc-bg-overlay`,
 `--cxc-border`, `--cxc-border-subtle`, `--cxc-border-focus`
