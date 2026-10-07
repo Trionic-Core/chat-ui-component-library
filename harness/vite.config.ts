@@ -11,16 +11,17 @@ import { defineConfig } from 'vite'
  *
  * Run: npm run harness
  */
-export default defineConfig({
+export default defineConfig(({ mode }) => ({
   root: resolve(import.meta.dirname, '.'),
   resolve: {
-    alias: {
-      // Render the SOURCE, so a change shows up without a build step.
-      '@cypherx/chat-ui': resolve(import.meta.dirname, '../src/index.ts'),
-    },
+    alias: [
+      { find: /^@cypherx\/chat-ui$/, replacement: resolve(import.meta.dirname, mode === 'distribution' ? '../dist/index.js' : '../src/index.ts') },
+      { find: '@cypherx/chat-ui/styles.css', replacement: resolve(import.meta.dirname, mode === 'distribution' ? '../dist/styles.css' : '../src/styles/globals.css') },
+      { find: '@cypherx/chat-ui/markdown.css', replacement: resolve(import.meta.dirname, mode === 'distribution' ? '../dist/markdown.css' : '../src/styles/markdown.css') },
+    ],
   },
   // The root tsconfig only includes src/, so esbuild would fall back to the
   // classic JSX transform for these files. Say it explicitly.
   esbuild: { jsx: 'automatic' },
   server: { port: 5199, strictPort: true },
-})
+}))

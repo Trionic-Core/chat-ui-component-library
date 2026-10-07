@@ -26,7 +26,11 @@ jobs:
 
       - run: npm ci
 
-      # prepublishOnly runs check:contract && lint && build; publish restricted.
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium webkit
+      - run: npm run test:layout
+
+      # prepublishOnly runs lint, build, tests and the contract guard.
       - run: npm publish --access restricted
         env:
           NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

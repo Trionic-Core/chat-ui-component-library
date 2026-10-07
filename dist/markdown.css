@@ -1,0 +1,193 @@
+/* Scoped, framework-independent styles. Also included in styles.css. */
+.cxc-markdown,
+.cxc-table-scroll {
+  --cxc-markdown-style-version: 2;
+  box-sizing: border-box;
+  min-width: 0;
+  max-width: 100%;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  letter-spacing: 0;
+}
+
+.cxc-markdown *,
+.cxc-table-scroll * {
+  box-sizing: border-box;
+}
+
+.cxc-markdown p {
+  margin: 0 0 0.85em;
+}
+.cxc-markdown p:last-child {
+  margin-bottom: 0;
+}
+
+.cxc-markdown strong,
+.cxc-table-scroll strong {
+  font-weight: 600;
+  color: var(--cxc-text, inherit);
+}
+
+.cxc-markdown em { font-style: italic; }
+.cxc-markdown del { text-decoration: line-through; opacity: 0.6; }
+
+.cxc-markdown a,
+.cxc-table-scroll a {
+  color: var(--cxc-accent, inherit);
+  overflow-wrap: anywhere;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+  text-decoration-thickness: 1px;
+  transition: color 0.15s ease;
+}
+.cxc-markdown a:hover,
+.cxc-table-scroll a:hover {
+  color: var(--cxc-accent-hover, inherit);
+}
+
+.cxc-markdown code:not(pre code),
+.cxc-table-scroll code {
+  background: var(--cxc-bg-muted, #f4f4f5);
+  padding: 0.15em 0.4em;
+  border-radius: var(--cxc-radius-sm, 4px);
+  font-family: var(--cxc-font-mono, ui-monospace, monospace);
+  font-size: 0.85em;
+  white-space: normal;
+  color: var(--cxc-text, #27272a);
+  border: 1px solid var(--cxc-border-subtle, #e4e4e7);
+}
+
+.cxc-markdown pre {
+  max-width: 100%;
+  margin: 0 0 0.85em;
+  padding: 1em;
+  overflow-x: auto;
+  white-space: pre;
+  overflow-wrap: normal;
+  background: var(--cxc-code-bg, #18181b);
+  color: var(--cxc-code-text, #f4f4f5);
+  border-radius: var(--cxc-radius-sm, 4px);
+}
+.cxc-markdown pre code {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font-family: var(--cxc-font-mono, ui-monospace, monospace);
+  font-size: 0.875em;
+  white-space: inherit;
+}
+
+.cxc-markdown h3,
+.cxc-markdown h4,
+.cxc-markdown h5,
+.cxc-markdown h6 {
+  font-weight: 600;
+  margin: 1.5em 0 0.6em;
+  line-height: 1.35;
+  color: var(--cxc-text, inherit);
+  letter-spacing: 0;
+}
+.cxc-markdown h3 { font-size: 1.15em; }
+.cxc-markdown h4 { font-size: 1.05em; }
+.cxc-markdown h5 { font-size: 0.95em; }
+.cxc-markdown h6 { font-size: 0.875em; }
+
+.cxc-markdown ul,
+.cxc-markdown ol {
+  margin: 0 0 0.85em;
+  padding-left: 1.6em;
+}
+.cxc-markdown ul { list-style-type: disc; }
+.cxc-markdown ol { list-style-type: decimal; }
+.cxc-markdown li { margin-bottom: 0.35em; line-height: 1.65; }
+.cxc-markdown li > ul,
+.cxc-markdown li > ol { margin-top: 0.35em; margin-bottom: 0; }
+
+.cxc-markdown blockquote {
+  border-left: 3px solid var(--cxc-accent, #71717a);
+  padding-left: 1.2em;
+  margin: 0 0 0.85em;
+  color: var(--cxc-text-secondary, inherit);
+  font-style: italic;
+}
+.cxc-markdown hr {
+  border: none;
+  border-top: 1px solid var(--cxc-border, #d4d4d8);
+  margin: 2em 0;
+}
+
+/* renderMarkdown() owns this wrapper, even when a client owns the chat bubble. */
+.cxc-table-scroll {
+  display: block;
+  width: 100%;
+  overflow-x: auto;
+  overscroll-behavior-x: contain;
+  scrollbar-width: thin;
+  scrollbar-color: var(--cxc-border-focus, #71717a) transparent;
+  margin-bottom: 0.85em;
+  border-radius: var(--cxc-radius-md, 8px);
+  border: 1px solid var(--cxc-border, #d4d4d8);
+}
+.cxc-table-scroll:focus-visible {
+  outline: 2px solid var(--cxc-border-focus, #71717a);
+  outline-offset: -2px;
+}
+
+.cxc-markdown table,
+.cxc-table-scroll > table {
+  display: table;
+  width: 100%;
+  margin: 0;
+  border-collapse: collapse;
+  border-spacing: 0;
+  table-layout: auto;
+  font-size: 0.875em;
+  line-height: 1.7;
+}
+.cxc-markdown th,
+.cxc-markdown td,
+.cxc-table-scroll th,
+.cxc-table-scroll td {
+  display: table-cell;
+  min-width: 12rem;
+  padding: 0.6em 0.85em;
+  border: 1px solid var(--cxc-border, #d4d4d8);
+  text-align: left;
+  vertical-align: top;
+  white-space: normal;
+  word-break: normal;
+  overflow-wrap: anywhere;
+}
+.cxc-markdown th,
+.cxc-table-scroll th {
+  background: var(--cxc-bg-subtle, #f4f4f5);
+  font-weight: 600;
+  color: var(--cxc-text, #27272a);
+}
+.cxc-markdown tr:nth-child(even) td,
+.cxc-table-scroll tr:nth-child(even) td {
+  background: var(--cxc-bg-subtle, #f4f4f5);
+}
+
+/* Standalone consumers need readable defaults even without the full token set. */
+:where(.dark, [data-theme="dark"]) .cxc-table-scroll {
+  color: var(--cxc-text, #f4f4f5);
+  background: var(--cxc-bg, #18181b);
+  border-color: var(--cxc-border, #52525b);
+}
+:where(.dark, [data-theme="dark"]) .cxc-table-scroll th,
+:where(.dark, [data-theme="dark"]) .cxc-table-scroll td {
+  border-color: var(--cxc-border, #52525b);
+}
+:where(.dark, [data-theme="dark"]) .cxc-table-scroll th,
+:where(.dark, [data-theme="dark"]) .cxc-table-scroll tr:nth-child(even) td {
+  background: var(--cxc-bg-subtle, #27272a);
+  color: var(--cxc-text, #f4f4f5);
+}
+:where(.dark, [data-theme="dark"]) .cxc-markdown code:not(pre code),
+:where(.dark, [data-theme="dark"]) .cxc-table-scroll code {
+  background: var(--cxc-bg-muted, #3f3f46);
+  color: var(--cxc-text, #f4f4f5);
+  border-color: var(--cxc-border-subtle, #52525b);
+}

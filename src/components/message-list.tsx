@@ -68,7 +68,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
     return (
       <div
         ref={ref}
-        className={cn('relative flex flex-1 flex-col overflow-hidden', className)}
+        className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden', className)}
       >
         {/* Scrollable message area */}
         <div

@@ -31,8 +31,10 @@ export function useChatScroll(
   const isAtBottomRef = useRef(true)
 
   const scrollToBottom = useCallback((behavior: ScrollBehavior = 'smooth') => {
-    if (bottomRef.current) {
-      bottomRef.current.scrollIntoView({ behavior, block: 'end' })
+    const container = scrollRef.current
+    if (container) {
+      // scrollIntoView also scrolls embedding pages and ancestor panels.
+      container.scrollTo({ top: container.scrollHeight, behavior })
     }
     setUnreadCount(0)
     setIsAtBottom(true)
@@ -77,9 +79,10 @@ export function useChatScroll(
   useEffect(() => {
     if (isAtBottomRef.current) {
       // Use requestAnimationFrame to ensure DOM has updated before scrolling
-      requestAnimationFrame(() => {
+      const frame = requestAnimationFrame(() => {
         scrollToBottom('smooth')
       })
+      return () => cancelAnimationFrame(frame)
     } else {
       // User has scrolled up, increment unread count
       setUnreadCount((prev) => prev + 1)

@@ -137,7 +137,7 @@ export function ChatMessage({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.15, ease: [0.25, 0.1, 0.25, 1] }}
       className={cn(
-        'group/message py-3',
+        'group/message min-w-0 max-w-full py-3',
         isUser && !editing && 'flex justify-end',
         className
       )}

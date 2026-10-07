@@ -1,4 +1,5 @@
 @import "tailwindcss";
+@import "./markdown.css";
 
 /* ============================================================
    @cypherx/chat-ui Design Tokens
@@ -347,9 +348,8 @@
   font-weight: 400;
 }
 
-/* Only 2 font weights: 400 (regular) for body, 500 (medium) for headings/emphasis */
-.cxc-root h1, .cxc-root h2, .cxc-root h3, .cxc-root h4, .cxc-root h5, .cxc-root h6,
-.cxc-root strong, .cxc-root b {
+/* Keep base emphasis below component-specific typography regardless of import order. */
+.cxc-root :where(h1, h2, h3, h4, h5, h6, strong, b) {
   font-weight: 500;
 }
 
@@ -490,161 +490,6 @@
 
 .cxc-cursor {
   animation: cxc-cursor-blink 1.1s step-end infinite;
-}
-
-/* ============================================================
-   Markdown Content Styles
-
-   Warm, readable typography with generous spacing.
-   Body text uses the serif font for that warm, editorial feel.
-   ============================================================ */
-
-.cxc-markdown {
-  line-height: 1.7;
-  word-wrap: break-word;
-  overflow-wrap: break-word;
-  letter-spacing: -0.003em;
-  overflow-x: hidden;
-}
-
-.cxc-markdown p {
-  margin-bottom: 0.85em;
-}
-.cxc-markdown p:last-child {
-  margin-bottom: 0;
-}
-
-.cxc-markdown strong {
-  font-weight: 600;
-  color: var(--cxc-text);
-}
-
-.cxc-markdown em {
-  font-style: italic;
-}
-
-.cxc-markdown del {
-  text-decoration: line-through;
-  opacity: 0.6;
-}
-
-.cxc-markdown a {
-  color: var(--cxc-accent);
-  text-decoration: underline;
-  text-underline-offset: 3px;
-  text-decoration-thickness: 1px;
-  transition: color 0.15s ease;
-}
-.cxc-markdown a:hover {
-  color: var(--cxc-accent-hover);
-}
-
-.cxc-markdown code:not(pre code) {
-  background: var(--cxc-bg-muted);
-  padding: 0.15em 0.4em;
-  border-radius: var(--cxc-radius-sm);
-  font-family: var(--cxc-font-mono);
-  font-size: 0.85em;
-  color: var(--cxc-text);
-  border: 1px solid var(--cxc-border-subtle);
-}
-
-.cxc-markdown h3,
-.cxc-markdown h4,
-.cxc-markdown h5,
-.cxc-markdown h6 {
-  font-weight: 600;
-  margin-top: 1.5em;
-  margin-bottom: 0.6em;
-  line-height: 1.35;
-  color: var(--cxc-text);
-  letter-spacing: -0.01em;
-}
-.cxc-markdown h3 { font-size: 1.15em; }
-.cxc-markdown h4 { font-size: 1.05em; }
-.cxc-markdown h5 { font-size: 0.95em; }
-.cxc-markdown h6 { font-size: 0.875em; }
-
-.cxc-markdown ul,
-.cxc-markdown ol {
-  margin-bottom: 0.85em;
-  padding-left: 1.6em;
-}
-
-.cxc-markdown ul {
-  list-style-type: disc;
-}
-
-.cxc-markdown ol {
-  list-style-type: decimal;
-}
-
-.cxc-markdown li {
-  margin-bottom: 0.35em;
-  line-height: 1.65;
-}
-
-.cxc-markdown li > ul,
-.cxc-markdown li > ol {
-  margin-top: 0.35em;
-  margin-bottom: 0;
-}
-
-.cxc-markdown blockquote {
-  border-left: 3px solid var(--cxc-accent);
-  padding-left: 1.2em;
-  margin-left: 0;
-  margin-bottom: 0.85em;
-  color: var(--cxc-text-secondary);
-  font-style: italic;
-}
-
-.cxc-markdown hr {
-  border: none;
-  border-top: 1px solid var(--cxc-border);
-  margin: 2em 0;
-}
-
-/* Table styles */
-.cxc-table-scroll {
-  min-width: 0;
-  max-width: 100%;
-  overflow-x: auto;
-  margin-bottom: 0.85em;
-  border-radius: var(--cxc-radius-md);
-  border: 1px solid var(--cxc-border);
-}
-
-.cxc-table-scroll:focus-visible {
-  outline: 2px solid var(--cxc-border-focus);
-  outline-offset: -2px;
-}
-
-.cxc-markdown table {
-  width: 100%;
-  border-collapse: collapse;
-  font-size: 0.875em;
-}
-
-.cxc-markdown th,
-.cxc-markdown td {
-  /* Let wide tables scroll instead of compressing every column on mobile. */
-  min-width: 12rem;
-  padding: 0.6em 0.85em;
-  border: 1px solid var(--cxc-border);
-  text-align: left;
-  vertical-align: top;
-  overflow-wrap: anywhere;
-}
-
-.cxc-markdown th {
-  background: var(--cxc-bg-subtle);
-  font-weight: 600;
-  color: var(--cxc-text);
-}
-
-.cxc-markdown tr:nth-child(even) td {
-  background: var(--cxc-bg-subtle);
 }
 
 /* ============================================================
