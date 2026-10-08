@@ -36,7 +36,10 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       isAtBottom,
       unreadCount,
       scrollToBottom,
-    } = useChatScroll([messages.length, messages[messages.length - 1]?.content.length])
+    } = useChatScroll(
+      [messages.length, messages[messages.length - 1]?.content.length],
+      messages.filter(message => message.role === 'assistant').length,
+    )
 
     const handleScrollToBottom = useCallback(() => {
       scrollToBottom('smooth')
@@ -50,21 +53,6 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       lastMessage.content === '' &&
       !lastMessage.actions?.length
 
-    if (messages.length === 0) {
-      return (
-        <div
-          ref={ref}
-          className={cn('flex flex-1 overflow-hidden', className)}
-          role="log"
-          aria-label="Messages"
-          aria-live="polite"
-          aria-relevant="additions"
-        >
-          <EmptyState />
-        </div>
-      )
-    }
-
     return (
       <div
         ref={ref}
@@ -73,18 +61,19 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
         {/* Scrollable message area */}
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto overflow-x-hidden cxc-scrollbar"
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden cxc-scrollbar"
           role="log"
           aria-label="Messages"
           aria-live="polite"
           aria-relevant="additions"
           style={{ scrollBehavior: 'smooth' }}
         >
-          {/* Centered content column */}
+          {/* Keep the observed scroll nodes mounted through empty/reset states. */}
           <div
-            className="mx-auto w-full px-5 py-6 sm:px-8"
+            className={cn('mx-auto w-full shrink-0 px-5 py-6 sm:px-8', messages.length === 0 && 'flex flex-1 flex-col')}
             style={{ maxWidth: 'var(--cxc-content-max-width)' }}
           >
+            {messages.length === 0 && <EmptyState />}
             <AnimatePresence initial={false}>
               {messages.map((message, index) => {
                 // Empty streaming assistant messages show thinking indicator

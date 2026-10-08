@@ -44,7 +44,7 @@ export function FeedbackPopover({
   // Close on outside click.
   useEffect(() => {
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (containerRef.current && !e.composedPath().includes(containerRef.current)) {
         onDismiss()
       }
     }

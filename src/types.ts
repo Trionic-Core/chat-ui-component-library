@@ -281,7 +281,9 @@ export interface SSEStreamConfig {
   /** HTTP method. Default: 'POST'. */
   method?: 'GET' | 'POST'
   /** Additional headers to send with the request. */
-  headers?: Record<string, string>
+  headers?: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>)
+  /** Fetch credentials policy. Defaults to same-origin. */
+  credentials?: RequestCredentials
   /** Transform the message into the request body. */
   buildBody?: (message: string, sessionId: string | null) => unknown
   /** Parse an SSE data line into a ChatEvent. Return null to skip. */
@@ -607,6 +609,9 @@ export interface SessionSelectorProps {
 }
 
 export interface ChatWidgetProps {
+  /** Controlled visibility, useful for imperative browser integrations. */
+  open?: boolean
+  onOpenChange?: (open: boolean) => void
   /** Position of the FAB button. Default: 'bottom-right'. */
   position?: 'bottom-right' | 'bottom-left'
   /** Whether the widget is open by default. Default: false. */

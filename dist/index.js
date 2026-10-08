@@ -5,6 +5,7 @@ import { ArrowDown, Sparkles, ChevronDown, ThumbsUp, ThumbsDown, Loader2, Square
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 import { ResponsiveContainer, ScatterChart as ScatterChart$1, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Scatter, PieChart as PieChart$1, Pie, Cell, AreaChart as AreaChart$1, Area, LineChart, Line, BarChart as BarChart$1, ReferenceLine, Bar, LabelList } from 'recharts';
+import { createParser } from 'eventsource-parser';
 
 // src/components/chat-provider.tsx
 var ChatContext = createContext(null);
@@ -172,7 +173,8 @@ function chatReducer(state, action) {
     case "SET_STREAMING":
       return {
         ...state,
-        isStreaming: action.isStreaming
+        isStreaming: action.isStreaming,
+        messages: action.isStreaming ? state.messages : state.messages.map((message) => message.isStreaming ? { ...message, isStreaming: false } : message)
       };
     case "SET_SESSION":
       return {
@@ -450,6 +452,15 @@ function ChatProvider({
   });
   const generatorRef = useRef(null);
   const isStreamingRef = useRef(false);
+  const sessionLoadRef = useRef(0);
+  useEffect(() => () => {
+    sessionLoadRef.current++;
+    const generator = generatorRef.current;
+    generatorRef.current = null;
+    isStreamingRef.current = false;
+    void generator?.return(void 0).catch(() => {
+    });
+  }, []);
   const config = useMemo(
     () => ({
       onSend,
@@ -471,7 +482,8 @@ function ChatProvider({
     (message, metadata) => {
       if (isStreamingRef.current) return;
       const trimmed = message.trim();
-      if (!trimmed) return;
+      if (!trimmed || trimmed.length > maxInputLength) return;
+      sessionLoadRef.current++;
       const userMessage = {
         id: generateId(),
         role: "user",
@@ -498,6 +510,7 @@ function ChatProvider({
         try {
           dispatch({ type: "SET_CONNECTION_STATUS", status: "streaming" });
           for await (const event of generator) {
+            if (generatorRef.current !== generator) break;
             switch (event.type) {
               case "token":
                 dispatch({
@@ -563,6 +576,7 @@ function ChatProvider({
             }
           }
         } catch (err) {
+          if (generatorRef.current !== generator) return;
           const errorMessage = err instanceof Error ? err.message : "Connection lost";
           dispatch({
             type: "SET_ERROR",
@@ -570,19 +584,25 @@ function ChatProvider({
             error: errorMessage
           });
         } finally {
-          dispatch({ type: "SET_STREAMING", isStreaming: false });
-          dispatch({ type: "SET_CONNECTION_STATUS", status: "idle" });
-          generatorRef.current = null;
-          isStreamingRef.current = false;
+          if (generatorRef.current === generator) {
+            dispatch({ type: "SET_STREAMING", isStreaming: false });
+            dispatch({ type: "SET_CONNECTION_STATUS", status: "idle" });
+            generatorRef.current = null;
+            isStreamingRef.current = false;
+          }
         }
       })();
     },
-    [onSend, state.activeSessionId]
+    [onSend, state.activeSessionId, maxInputLength]
   );
   const stop = useCallback(() => {
-    if (generatorRef.current) {
-      generatorRef.current.return(void 0);
-    }
+    const generator = generatorRef.current;
+    generatorRef.current = null;
+    isStreamingRef.current = false;
+    void generator?.return(void 0).catch(() => {
+    });
+    dispatch({ type: "SET_STREAMING", isStreaming: false });
+    dispatch({ type: "SET_CONNECTION_STATUS", status: "idle" });
   }, []);
   const retry = useCallback(
     (messageId) => {
@@ -604,22 +624,29 @@ function ChatProvider({
     dispatch({ type: "SET_INPUT", value });
   }, []);
   const clearMessages = useCallback(() => {
+    sessionLoadRef.current++;
+    stop();
     dispatch({ type: "RESET" });
-  }, []);
+  }, [stop]);
   const setMessages = useCallback((messages) => {
+    sessionLoadRef.current++;
+    stop();
     dispatch({ type: "SET_MESSAGES", messages });
-  }, []);
+  }, [stop]);
   const loadSession = useCallback(
     async (sessionId) => {
       if (!sessionAdapter?.get) return;
+      stop();
+      const load = ++sessionLoadRef.current;
       try {
         const { session, messages } = await sessionAdapter.get(sessionId);
+        if (load !== sessionLoadRef.current) return;
         dispatch({ type: "SET_MESSAGES", messages });
         dispatch({ type: "SET_SESSION", sessionId: session.id });
       } catch {
       }
     },
-    [sessionAdapter]
+    [sessionAdapter, stop]
   );
   const deleteSession = useCallback(
     async (sessionId) => {
@@ -636,6 +663,7 @@ function ChatProvider({
     [sessionAdapter, state.activeSessionId]
   );
   const newConversation = useCallback(() => {
+    sessionLoadRef.current++;
     if (isStreamingRef.current) {
       stop();
     }
@@ -895,67 +923,88 @@ function ChatProvider({
 function cn(...inputs) {
   return twMerge(clsx(inputs));
 }
-function useChatScroll(deps) {
+function useChatScroll(deps, messageCount) {
   const scrollRef = useRef(null);
   const bottomRef = useRef(null);
+  const followRef = useRef(true);
+  const lastTopRef = useRef(0);
+  const frameRef = useRef(null);
+  const countRef = useRef(messageCount);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
-  const isAtBottomRef = useRef(true);
   const scrollToBottom = useCallback((behavior = "smooth") => {
     const container = scrollRef.current;
     if (container) {
       container.scrollTo({ top: container.scrollHeight, behavior });
+      lastTopRef.current = container.scrollTop;
     }
+    followRef.current = true;
     setUnreadCount(0);
     setIsAtBottom(true);
-    isAtBottomRef.current = true;
   }, []);
+  const cancelScroll = useCallback(() => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+  }, []);
+  const scheduleScroll = useCallback(() => {
+    if (frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      if (followRef.current) scrollToBottom("instant");
+    });
+  }, [scrollToBottom]);
   useEffect(() => {
-    const sentinel = bottomRef.current;
     const container = scrollRef.current;
-    if (!sentinel || !container) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry) {
-          const atBottom = entry.isIntersecting;
-          isAtBottomRef.current = atBottom;
-          setIsAtBottom(atBottom);
-          if (atBottom) {
-            setUnreadCount(0);
-          }
-        }
-      },
-      {
-        root: container,
-        // Threshold of 0 means "any part of the sentinel is visible"
-        threshold: 0,
-        // Small margin at the bottom to trigger slightly before the exact bottom
-        rootMargin: "0px 0px 100px 0px"
+    const sentinel = bottomRef.current;
+    if (!container || !sentinel) return;
+    lastTopRef.current = container.scrollTop;
+    const onScroll = () => {
+      const top = container.scrollTop;
+      const atBottom = container.scrollHeight - container.clientHeight - top <= 100;
+      if (atBottom) {
+        followRef.current = true;
+        setUnreadCount(0);
+      } else if (top < lastTopRef.current) {
+        followRef.current = false;
       }
-    );
-    observer.observe(sentinel);
-    return () => {
-      observer.disconnect();
+      lastTopRef.current = top;
+      setIsAtBottom(atBottom);
     };
-  }, []);
+    container.addEventListener("scroll", onScroll, { passive: true });
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry) return;
+      const atBottom = container.scrollHeight - container.clientHeight - container.scrollTop <= 100;
+      setIsAtBottom(atBottom);
+      if (atBottom) setUnreadCount(0);
+    }, { root: container, threshold: 0, rootMargin: "0px 0px 100px 0px" });
+    observer.observe(sentinel);
+    const resize = new ResizeObserver(() => {
+      if (followRef.current) scheduleScroll();
+    });
+    if (sentinel.parentElement) resize.observe(sentinel.parentElement);
+    return () => {
+      container.removeEventListener("scroll", onScroll);
+      observer.disconnect();
+      resize.disconnect();
+      cancelScroll();
+    };
+  }, [cancelScroll, scheduleScroll]);
   useEffect(() => {
-    if (isAtBottomRef.current) {
-      const frame = requestAnimationFrame(() => {
-        scrollToBottom("smooth");
-      });
-      return () => cancelAnimationFrame(frame);
-    } else {
-      setUnreadCount((prev) => prev + 1);
+    const container = scrollRef.current;
+    if (container && container.scrollTop < lastTopRef.current && container.scrollHeight - container.clientHeight - container.scrollTop > 100) {
+      followRef.current = false;
     }
-  }, deps);
-  return {
-    scrollRef,
-    bottomRef,
-    isAtBottom,
-    unreadCount,
-    scrollToBottom
-  };
+    const added = messageCount === void 0 ? 1 : Math.max(0, messageCount - (countRef.current ?? messageCount));
+    countRef.current = messageCount;
+    if (messageCount === 0) {
+      followRef.current = true;
+      setUnreadCount(0);
+    }
+    if (followRef.current) scheduleScroll();
+    else if (added) setUnreadCount((count) => count + added);
+    return cancelScroll;
+  }, [...deps, messageCount]);
+  return { scrollRef, bottomRef, isAtBottom, unreadCount, scrollToBottom };
 }
 
 // src/utils/markdown.ts
@@ -1988,7 +2037,7 @@ function FeedbackPopover({
   }, []);
   useEffect(() => {
     const handler = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      if (containerRef.current && !e.composedPath().includes(containerRef.current)) {
         onDismiss();
       }
     };
@@ -5193,26 +5242,15 @@ var MessageList = forwardRef(
       isAtBottom,
       unreadCount,
       scrollToBottom
-    } = useChatScroll([messages.length, messages[messages.length - 1]?.content.length]);
+    } = useChatScroll(
+      [messages.length, messages[messages.length - 1]?.content.length],
+      messages.filter((message) => message.role === "assistant").length
+    );
     const handleScrollToBottom = useCallback(() => {
       scrollToBottom("smooth");
     }, [scrollToBottom]);
     const lastMessage = messages[messages.length - 1];
     isStreaming && lastMessage?.role === "assistant" && lastMessage.content === "" && !lastMessage.actions?.length;
-    if (messages.length === 0) {
-      return /* @__PURE__ */ jsx(
-        "div",
-        {
-          ref,
-          className: cn("flex flex-1 overflow-hidden", className),
-          role: "log",
-          "aria-label": "Messages",
-          "aria-live": "polite",
-          "aria-relevant": "additions",
-          children: /* @__PURE__ */ jsx(EmptyState, {})
-        }
-      );
-    }
     return /* @__PURE__ */ jsxs(
       "div",
       {
@@ -5223,7 +5261,7 @@ var MessageList = forwardRef(
             "div",
             {
               ref: scrollRef,
-              className: "flex-1 overflow-y-auto overflow-x-hidden cxc-scrollbar",
+              className: "flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden cxc-scrollbar",
               role: "log",
               "aria-label": "Messages",
               "aria-live": "polite",
@@ -5232,9 +5270,10 @@ var MessageList = forwardRef(
               children: /* @__PURE__ */ jsxs(
                 "div",
                 {
-                  className: "mx-auto w-full px-5 py-6 sm:px-8",
+                  className: cn("mx-auto w-full shrink-0 px-5 py-6 sm:px-8", messages.length === 0 && "flex flex-1 flex-col"),
                   style: { maxWidth: "var(--cxc-content-max-width)" },
                   children: [
+                    messages.length === 0 && /* @__PURE__ */ jsx(EmptyState, {}),
                     /* @__PURE__ */ jsx(AnimatePresence, { initial: false, children: messages.map((message, index) => {
                       if (message.role === "assistant" && message.isStreaming && message.content === "" && !message.actions?.length) {
                         return /* @__PURE__ */ jsx("div", { className: "py-3", children: /* @__PURE__ */ jsx(ThinkingIndicator, {}) }, message.id);
@@ -5724,7 +5763,7 @@ function LanguagePicker({ disabled, size = "md", className }) {
   useEffect(() => {
     if (!open) return;
     const handler = (event) => {
-      if (rootRef.current && !rootRef.current.contains(event.target)) close(false);
+      if (rootRef.current && !event.composedPath().includes(rootRef.current)) close(false);
     };
     const timer = setTimeout(() => document.addEventListener("mousedown", handler), 0);
     return () => {
@@ -6005,7 +6044,7 @@ function PromptInput({
   const inputValue = state.inputValue;
   const isDisabled = disabled || false;
   const hasText = inputValue.trim().length > 0;
-  const canSend = hasText && !isStreaming && !isDisabled;
+  const canSend = hasText && inputValue.trim().length <= maxLength && !isStreaming && !isDisabled;
   const showCharCount = inputValue.length > maxLength * 0.9;
   const isOverLimit = inputValue.length > maxLength;
   const isRecorderBusy = recorderStatus !== "idle";
@@ -6551,7 +6590,7 @@ function SessionList({
       );
       if (!items?.length) return;
       const currentIndex = Array.from(items).findIndex(
-        (item) => item === document.activeElement
+        (item) => item === item.getRootNode().activeElement
       );
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -6689,7 +6728,7 @@ function SessionSelector({ className }) {
   useEffect(() => {
     if (!isOpen) return;
     function handleClickOutside(e) {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      if (containerRef.current && !e.composedPath().includes(containerRef.current)) {
         setIsOpen(false);
       }
     }
@@ -6717,7 +6756,7 @@ function SessionSelector({ className }) {
       );
       if (!items?.length) return;
       const currentIndex = Array.from(items).findIndex(
-        (item) => item === document.activeElement
+        (item) => item === item.getRootNode().activeElement
       );
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -7420,7 +7459,7 @@ function ChatInput({
   const isStreaming = state.isStreaming;
   const inputValue = state.inputValue;
   const isDisabled = disabled || false;
-  const canSend = inputValue.trim().length > 0 && !isStreaming && !isDisabled;
+  const canSend = inputValue.trim().length > 0 && inputValue.trim().length <= maxLength && !isStreaming && !isDisabled;
   const showCharCount = inputValue.length > maxLength * 0.9;
   const isOverLimit = inputValue.length > maxLength;
   const adjustHeight = useCallback(() => {
@@ -7691,6 +7730,8 @@ function CodeBlock({
   );
 }
 function ChatWidget({
+  open,
+  onOpenChange,
   position = "bottom-right",
   defaultOpen = false,
   width = "420px",
@@ -7702,30 +7743,38 @@ function ChatWidget({
   inputAddonSlot,
   headerSlot
 }) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const isOpen = open ?? internalOpen;
+  const setIsOpen = useCallback((value) => {
+    setInternalOpen(value);
+    onOpenChange?.(value);
+  }, [onOpenChange]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const { state } = useChatContext();
   const { messages } = state;
   const containerRef = useRef(null);
+  const transitionTimer = useRef(void 0);
+  useEffect(() => () => clearTimeout(transitionTimer.current), []);
   const hasMessages = messages.length > 0;
   const isRight = position === "bottom-right";
   const close = useCallback(() => {
     setIsOpen(false);
     setIsExpanded(false);
-  }, []);
-  const toggle = useCallback(() => setIsOpen((prev) => !prev), []);
+  }, [setIsOpen]);
+  const toggle = useCallback(() => setIsOpen(!isOpen), [isOpen, setIsOpen]);
   const toggleExpand = useCallback(() => {
+    clearTimeout(transitionTimer.current);
     setIsTransitioning(true);
-    setTimeout(() => {
+    transitionTimer.current = setTimeout(() => {
       setIsExpanded((prev) => !prev);
-      setTimeout(() => setIsTransitioning(false), 50);
+      transitionTimer.current = setTimeout(() => setIsTransitioning(false), 50);
     }, 120);
   }, []);
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && containerRef.current && e.composedPath().includes(containerRef.current)) {
         if (isExpanded) {
           setIsExpanded(false);
         } else {
@@ -7735,11 +7784,11 @@ function ChatWidget({
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [isOpen, isExpanded]);
+  }, [isOpen, isExpanded, setIsOpen]);
   useEffect(() => {
     if (!isOpen || isExpanded) return;
     const handler = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      if (containerRef.current && !e.composedPath().includes(containerRef.current)) {
         setIsOpen(false);
       }
     };
@@ -7750,7 +7799,7 @@ function ChatWidget({
       clearTimeout(timer);
       document.removeEventListener("mousedown", handler);
     };
-  }, [isOpen, isExpanded]);
+  }, [isOpen, isExpanded, setIsOpen]);
   const panelStyle = isExpanded ? {
     bottom: "20px",
     left: "20px",
@@ -7761,8 +7810,8 @@ function ChatWidget({
   } : {
     bottom: "20px",
     [isRight ? "right" : "left"]: "20px",
-    width,
-    height
+    width: `min(${width}, calc(100vw - 40px))`,
+    height: `min(${height}, calc(100dvh - 40px))`
   };
   return /* @__PURE__ */ jsxs(
     "div",
@@ -8033,12 +8082,13 @@ function useChat() {
     newConversation: ctx.newConversation
   };
 }
-function defaultBuildBody(message, sessionId) {
-  return { message, session_id: sessionId };
-}
+
+// src/utils/sse-events.ts
 function defaultParseEvent(eventType, data) {
   try {
-    const parsed = JSON.parse(data);
+    const value = JSON.parse(data);
+    if (!value || typeof value !== "object") return null;
+    const parsed = value;
     switch (eventType) {
       case "token":
         return { type: "token", text: String(parsed.text ?? "") };
@@ -8092,7 +8142,7 @@ function defaultParseEvent(eventType, data) {
       case "error":
         return {
           type: "error",
-          message: String(parsed.message ?? parsed.error ?? "Unknown error"),
+          message: String(parsed.message ?? parsed.detail ?? parsed.error ?? "Unknown error"),
           code: parsed.code != null ? String(parsed.code) : void 0
         };
       default: {
@@ -8122,119 +8172,92 @@ function defaultParseEvent(eventType, data) {
     return null;
   }
 }
-function useSSEStream(config) {
-  const {
-    url,
-    method = "POST",
-    headers = {},
-    buildBody = defaultBuildBody,
-    parseEvent = defaultParseEvent
-  } = config;
-  const abortControllerRef = useRef(null);
-  const sendFn = useCallback(
-    async function* (message, sessionId, metadata) {
-      abortControllerRef.current?.abort();
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
+
+// src/utils/sse.ts
+function abortable(iterator, controller) {
+  const originalReturn = iterator.return.bind(iterator);
+  iterator.return = (value) => {
+    controller.abort();
+    return originalReturn(value);
+  };
+  return iterator;
+}
+function createSSEClient(getConfig) {
+  let active = null;
+  const abort = () => active?.abort();
+  const send = (message, sessionId, metadata) => {
+    abort();
+    const controller = new AbortController();
+    active = controller;
+    async function* stream() {
+      let reader;
       try {
-        const fetchOptions = {
+        const config = getConfig();
+        const method = config.method ?? "POST";
+        const body = (config.buildBody ?? ((message2, sessionId2) => ({ message: message2, session_id: sessionId2 })))(message, sessionId);
+        const headers = typeof config.headers === "function" ? await config.headers() : config.headers;
+        const response = await fetch(config.url, {
           method,
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "text/event-stream",
-            ...headers
-          },
-          signal: abortController.signal
-        };
-        if (method === "POST") {
-          const body = buildBody(message, sessionId);
-          const bodyWithMeta = metadata && typeof body === "object" && body !== null ? { ...body, ...metadata } : body;
-          fetchOptions.body = JSON.stringify(bodyWithMeta);
-        }
-        const response = await fetch(url, fetchOptions);
+          credentials: config.credentials ?? "same-origin",
+          headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...headers },
+          body: method === "POST" ? JSON.stringify(metadata && body && typeof body === "object" ? { ...body, ...metadata } : body) : void 0,
+          signal: controller.signal
+        });
         if (!response.ok) {
-          const errorText = await response.text().catch(() => "Unknown error");
-          yield {
-            type: "error",
-            message: `HTTP ${response.status}: ${errorText}`,
-            code: String(response.status)
-          };
+          yield { type: "error", message: `Chat request failed (HTTP ${response.status})`, code: String(response.status) };
           return;
         }
-        if (!response.body) {
-          yield { type: "error", message: "Response body is null" };
+        if (!response.headers.get("content-type")?.toLowerCase().includes("text/event-stream")) {
+          yield { type: "error", message: "Expected a text/event-stream response from the chat endpoint", code: "INVALID_CONTENT_TYPE" };
           return;
         }
-        const reader = response.body.getReader();
+        if (!response.body) throw new Error("Chat response has no body");
+        reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let buffer = "";
-        let currentEventType = "message";
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (trimmed === "") {
-                currentEventType = "message";
-                continue;
-              }
-              if (trimmed.startsWith(":")) {
-                continue;
-              }
-              if (trimmed.startsWith("event:")) {
-                currentEventType = trimmed.slice(6).trim();
-                continue;
-              }
-              if (trimmed.startsWith("data:")) {
-                const data = trimmed.slice(5).trim();
-                if (data === "[DONE]") {
-                  yield { type: "done" };
-                  return;
-                }
-                const event = parseEvent(currentEventType, data);
-                if (event) {
-                  yield event;
-                  if (event.type === "done") {
-                    return;
-                  }
-                }
-              }
-            }
+        const queue = [];
+        const parser = createParser({ onEvent: (event) => queue.push(event) });
+        const parseEvent = config.parseEvent ?? defaultParseEvent;
+        let trailingCR = false;
+        while (!controller.signal.aborted) {
+          const { done, value } = await reader.read();
+          const text = done ? decoder.decode() : decoder.decode(value, { stream: true });
+          parser.feed(text + (done && trailingCR ? "\n" : ""));
+          if (text) trailingCR = text.endsWith("\r");
+          for (const frame of queue.splice(0)) {
+            if (controller.signal.aborted) return;
+            const event = frame.data === "[DONE]" ? { type: "done" } : parseEvent(frame.event ?? "message", frame.data);
+            if (!event) continue;
+            yield event;
+            if (event.type === "done" || event.type === "error") return;
           }
-          if (buffer.trim()) {
-            if (buffer.trim().startsWith("data:")) {
-              const data = buffer.trim().slice(5).trim();
-              if (data && data !== "[DONE]") {
-                const event = parseEvent(currentEventType, data);
-                if (event) {
-                  yield event;
-                }
-              }
-            }
-          }
-        } finally {
-          reader.cancel().catch(() => {
-          });
+          if (done) break;
         }
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") {
-          return;
+        if (!controller.signal.aborted) {
+          yield { type: "error", message: "The connection ended before the answer completed. Please retry.", code: "INCOMPLETE_STREAM" };
         }
-        const message2 = err instanceof Error ? err.message : "Connection failed";
-        yield { type: "error", message: message2 };
+      } catch (error) {
+        if (!controller.signal.aborted) yield { type: "error", message: error instanceof Error ? error.message : "Chat connection failed" };
       } finally {
-        if (abortControllerRef.current === abortController) {
-          abortControllerRef.current = null;
-        }
+        await reader?.cancel().catch(() => {
+        });
+        reader?.releaseLock();
+        controller.abort();
+        if (active === controller) active = null;
       }
-    },
-    [url, method, headers, buildBody, parseEvent]
-  );
-  return sendFn;
+    }
+    return abortable(stream(), controller);
+  };
+  return { send, abort };
+}
+
+// src/hooks/use-sse-stream.ts
+function useSSEStream(config) {
+  const configRef = useRef(config);
+  configRef.current = config;
+  const client = useRef(null);
+  if (!client.current) client.current = createSSEClient(() => configRef.current);
+  useEffect(() => () => client.current?.abort(), []);
+  return client.current.send;
 }
 function useSessionManager(adapter) {
   const [sessions, setSessions] = useState([]);

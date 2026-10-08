@@ -82,7 +82,7 @@ export function PromptInput({
   const inputValue = state.inputValue
   const isDisabled = disabled || false
   const hasText = inputValue.trim().length > 0
-  const canSend = hasText && !isStreaming && !isDisabled
+  const canSend = hasText && inputValue.trim().length <= maxLength && !isStreaming && !isDisabled
   const showCharCount = inputValue.length > maxLength * 0.9
   const isOverLimit = inputValue.length > maxLength
 

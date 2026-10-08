@@ -12,6 +12,9 @@
     "harness/markdown-tables.tsx",
     "harness/vite.config.ts",
     "playwright.config.ts",
+    "playwright.browser.config.ts",
+    "src/browser/assets.d.ts",
+    "tests/browser/**/*.ts",
     "tests/layout/**/*.ts"
   ]
 }

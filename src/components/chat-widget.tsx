@@ -19,6 +19,8 @@ import type { ChatWidgetProps } from '../types'
  * - Escape to close, click outside to close
  */
 export function ChatWidget({
+  open,
+  onOpenChange,
   position = 'bottom-right',
   defaultOpen = false,
   width = '420px',
@@ -30,12 +32,19 @@ export function ChatWidget({
   inputAddonSlot,
   headerSlot,
 }: ChatWidgetProps) {
-  const [isOpen, setIsOpen] = useState(defaultOpen)
+  const [internalOpen, setInternalOpen] = useState(defaultOpen)
+  const isOpen = open ?? internalOpen
+  const setIsOpen = useCallback((value: boolean) => {
+    setInternalOpen(value)
+    onOpenChange?.(value)
+  }, [onOpenChange])
   const [isExpanded, setIsExpanded] = useState(false)
   const [isTransitioning, setIsTransitioning] = useState(false)
   const { state } = useChatContext()
   const { messages } = state
   const containerRef = useRef<HTMLDivElement>(null)
+  const transitionTimer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined)
+  useEffect(() => () => clearTimeout(transitionTimer.current), [])
 
   const hasMessages = messages.length > 0
   const isRight = position === 'bottom-right'
@@ -43,16 +52,17 @@ export function ChatWidget({
   const close = useCallback(() => {
     setIsOpen(false)
     setIsExpanded(false)
-  }, [])
+  }, [setIsOpen])
 
-  const toggle = useCallback(() => setIsOpen((prev) => !prev), [])
+  const toggle = useCallback(() => setIsOpen(!isOpen), [isOpen, setIsOpen])
 
   // Fade out → snap dimensions → fade in
   const toggleExpand = useCallback(() => {
+    clearTimeout(transitionTimer.current)
     setIsTransitioning(true)
-    setTimeout(() => {
+    transitionTimer.current = setTimeout(() => {
       setIsExpanded((prev) => !prev)
-      setTimeout(() => setIsTransitioning(false), 50)
+      transitionTimer.current = setTimeout(() => setIsTransitioning(false), 50)
     }, 120)
   }, [])
 
@@ -60,7 +70,7 @@ export function ChatWidget({
   useEffect(() => {
     if (!isOpen) return
     const handler = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
+      if (e.key === 'Escape' && containerRef.current && e.composedPath().includes(containerRef.current)) {
         if (isExpanded) {
           setIsExpanded(false)
         } else {
@@ -70,13 +80,13 @@ export function ChatWidget({
     }
     document.addEventListener('keydown', handler)
     return () => document.removeEventListener('keydown', handler)
-  }, [isOpen, isExpanded])
+  }, [isOpen, isExpanded, setIsOpen])
 
   // Close on click outside (only when not expanded)
   useEffect(() => {
     if (!isOpen || isExpanded) return
     const handler = (e: MouseEvent) => {
-      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+      if (containerRef.current && !e.composedPath().includes(containerRef.current)) {
         setIsOpen(false)
       }
     }
@@ -87,7 +97,7 @@ export function ChatWidget({
       clearTimeout(timer)
       document.removeEventListener('mousedown', handler)
     }
-  }, [isOpen, isExpanded])
+  }, [isOpen, isExpanded, setIsOpen])
 
   // Panel dimensions based on expanded state
   const panelStyle = isExpanded
@@ -102,8 +112,8 @@ export function ChatWidget({
     : {
         bottom: '20px',
         [isRight ? 'right' : 'left']: '20px',
-        width,
-        height,
+        width: `min(${width}, calc(100vw - 40px))`,
+        height: `min(${height}, calc(100dvh - 40px))`,
       }
 
   return (

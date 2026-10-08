@@ -351,7 +351,9 @@ interface SSEStreamConfig {
     /** HTTP method. Default: 'POST'. */
     method?: 'GET' | 'POST';
     /** Additional headers to send with the request. */
-    headers?: Record<string, string>;
+    headers?: Record<string, string> | (() => Record<string, string> | Promise<Record<string, string>>);
+    /** Fetch credentials policy. Defaults to same-origin. */
+    credentials?: RequestCredentials;
     /** Transform the message into the request body. */
     buildBody?: (message: string, sessionId: string | null) => unknown;
     /** Parse an SSE data line into a ChatEvent. Return null to skip. */
@@ -638,6 +640,9 @@ interface SessionSelectorProps {
     className?: string;
 }
 interface ChatWidgetProps {
+    /** Controlled visibility, useful for imperative browser integrations. */
+    open?: boolean;
+    onOpenChange?: (open: boolean) => void;
     /** Position of the FAB button. Default: 'bottom-right'. */
     position?: 'bottom-right' | 'bottom-left';
     /** Whether the widget is open by default. Default: false. */
@@ -928,7 +933,7 @@ declare function SessionSelector({ className }: SessionSelectorProps): react_jsx
  * - Compact mode when collapsed, full mode when expanded
  * - Escape to close, click outside to close
  */
-declare function ChatWidget({ position, defaultOpen, width, height, fabIcon, fabLabel, className, emptyState, inputAddonSlot, headerSlot, }: ChatWidgetProps): react_jsx_runtime.JSX.Element;
+declare function ChatWidget({ open, onOpenChange, position, defaultOpen, width, height, fabIcon, fabLabel, className, emptyState, inputAddonSlot, headerSlot, }: ChatWidgetProps): react_jsx_runtime.JSX.Element;
 
 /**
  * TextShimmer — gradient sweep animation across text.
@@ -1165,32 +1170,11 @@ declare function useChat(): {
     newConversation: () => void;
 };
 
-/**
- * Converts a POST-based SSE endpoint into the ChatSendFn async generator format.
- *
- * Uses fetch() with ReadableStream reader (not EventSource, which doesn't support
- * POST or custom headers). Buffers partial lines, splits on newlines, and tracks
- * the SSE `event:` field from each frame.
- *
- * Cancellation is handled via AbortController -- calling generator.return() will
- * abort the fetch request and close the stream.
- */
+/** A stable send function backed by the shared, abortable browser transport. */
 declare function useSSEStream(config: SSEStreamConfig): ChatSendFn;
 
-/**
- * Smart auto-scroll hook with user override detection.
- *
- * Uses IntersectionObserver on a sentinel element at the bottom of the scroll
- * container for efficient bottom detection, avoiding expensive scroll event
- * calculations on every frame.
- *
- * Algorithm:
- * 1. Observes a sentinel div at the bottom of the scroll container.
- * 2. If the sentinel is visible, the user is "at the bottom."
- * 3. On dependency change (new message), if at bottom, auto-scroll. Otherwise increment unreadCount.
- * 4. scrollToBottom() scrolls and resets unreadCount.
- */
-declare function useChatScroll(deps: unknown[]): {
+/** Follow growing content until the reader scrolls upward; never scroll the host page. */
+declare function useChatScroll(deps: unknown[], messageCount?: number): {
     scrollRef: React.RefObject<HTMLDivElement | null>;
     bottomRef: React.RefObject<HTMLDivElement | null>;
     isAtBottom: boolean;

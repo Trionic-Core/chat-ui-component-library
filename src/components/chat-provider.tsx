@@ -60,6 +60,15 @@ export function ChatProvider({
 
   const generatorRef = useRef<AsyncGenerator<ChatEvent, void, undefined> | null>(null)
   const isStreamingRef = useRef(false)
+  const sessionLoadRef = useRef(0)
+
+  useEffect(() => () => {
+    sessionLoadRef.current++
+    const generator = generatorRef.current
+    generatorRef.current = null
+    isStreamingRef.current = false
+    void generator?.return(undefined).catch(() => {})
+  }, [])
 
   const config = useMemo<ChatConfig>(
     () => ({
@@ -85,7 +94,8 @@ export function ChatProvider({
       if (isStreamingRef.current) return
 
       const trimmed = message.trim()
-      if (!trimmed) return
+      if (!trimmed || trimmed.length > maxInputLength) return
+      sessionLoadRef.current++
 
       const userMessage: ChatMessage = {
         id: generateId(),
@@ -119,6 +129,7 @@ export function ChatProvider({
           dispatch({ type: 'SET_CONNECTION_STATUS', status: 'streaming' })
 
           for await (const event of generator) {
+            if (generatorRef.current !== generator) break
             switch (event.type) {
               case 'token':
                 dispatch({
@@ -195,6 +206,7 @@ export function ChatProvider({
             }
           }
         } catch (err) {
+          if (generatorRef.current !== generator) return
           // Generator was cancelled or errored
           const errorMessage =
             err instanceof Error ? err.message : 'Connection lost'
@@ -204,20 +216,25 @@ export function ChatProvider({
             error: errorMessage,
           })
         } finally {
-          dispatch({ type: 'SET_STREAMING', isStreaming: false })
-          dispatch({ type: 'SET_CONNECTION_STATUS', status: 'idle' })
-          generatorRef.current = null
-          isStreamingRef.current = false
+          if (generatorRef.current === generator) {
+            dispatch({ type: 'SET_STREAMING', isStreaming: false })
+            dispatch({ type: 'SET_CONNECTION_STATUS', status: 'idle' })
+            generatorRef.current = null
+            isStreamingRef.current = false
+          }
         }
       })()
     },
-    [onSend, state.activeSessionId]
+    [onSend, state.activeSessionId, maxInputLength]
   )
 
   const stop = useCallback(() => {
-    if (generatorRef.current) {
-      generatorRef.current.return(undefined)
-    }
+    const generator = generatorRef.current
+    generatorRef.current = null
+    isStreamingRef.current = false
+    void generator?.return(undefined).catch(() => {})
+    dispatch({ type: 'SET_STREAMING', isStreaming: false })
+    dispatch({ type: 'SET_CONNECTION_STATUS', status: 'idle' })
   }, [])
 
   const retry = useCallback(
@@ -253,26 +270,33 @@ export function ChatProvider({
   }, [])
 
   const clearMessages = useCallback(() => {
+    sessionLoadRef.current++
+    stop()
     dispatch({ type: 'RESET' })
-  }, [])
+  }, [stop])
 
   const setMessages = useCallback((messages: ChatMessage[]) => {
+    sessionLoadRef.current++
+    stop()
     dispatch({ type: 'SET_MESSAGES', messages })
-  }, [])
+  }, [stop])
 
   const loadSession = useCallback(
     async (sessionId: string) => {
       if (!sessionAdapter?.get) return
+      stop()
+      const load = ++sessionLoadRef.current
 
       try {
         const { session, messages } = await sessionAdapter.get(sessionId)
+        if (load !== sessionLoadRef.current) return
         dispatch({ type: 'SET_MESSAGES', messages })
         dispatch({ type: 'SET_SESSION', sessionId: session.id })
       } catch {
         // Session load failed -- consumers can check error state
       }
     },
-    [sessionAdapter]
+    [sessionAdapter, stop]
   )
 
   const deleteSession = useCallback(
@@ -296,6 +320,7 @@ export function ChatProvider({
   )
 
   const newConversation = useCallback(() => {
+    sessionLoadRef.current++
     if (isStreamingRef.current) {
       stop()
     }

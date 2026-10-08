@@ -266,6 +266,11 @@ change) or via a version bump (no app code change) — never a rewrite.
 
 ## Markdown Layout Diagnostics
 
+For JSP/plain HTML consumers wanting the complete chat UI, use the
+self-contained browser SDK described in [BROWSER_SDK.md](./BROWSER_SDK.md).
+It bundles React and CSS inside a Shadow DOM rather than requiring copied
+Markdown functions or global stylesheet imports.
+
 Updating the npm dependency alone is not enough if the application still serves
 an older copied CSS file. Update the JS and CSS together and invalidate cached
 assets. For the full widget use `@cypherx/chat-ui/styles.css`; for custom Markdown

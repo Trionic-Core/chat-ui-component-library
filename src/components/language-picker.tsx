@@ -180,7 +180,7 @@ export function LanguagePicker({ disabled, size = 'md', className }: LanguagePic
   useEffect(() => {
     if (!open) return
     const handler = (event: MouseEvent) => {
-      if (rootRef.current && !rootRef.current.contains(event.target as Node)) close(false)
+      if (rootRef.current && !event.composedPath().includes(rootRef.current)) close(false)
     }
     const timer = setTimeout(() => document.addEventListener('mousedown', handler), 0)
     return () => {

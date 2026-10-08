@@ -238,7 +238,7 @@ export function SessionList({
       if (!items?.length) return
 
       const currentIndex = Array.from(items).findIndex(
-        (item) => item === document.activeElement
+        (item) => item === (item.getRootNode() as Document | ShadowRoot).activeElement
       )
 
       if (e.key === 'ArrowDown') {
