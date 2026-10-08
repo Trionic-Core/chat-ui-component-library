@@ -35,7 +35,8 @@
     "README.md",
     "INTEGRATION.md",
     "THEMING.md",
-    "BROWSER_SDK.md"
+    "BROWSER_SDK.md",
+    "DEVELOPER_INTEGRATION_GUIDE.md"
   ],
   "scripts": {
     "build": "tsup",

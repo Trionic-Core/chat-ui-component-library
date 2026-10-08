@@ -12,7 +12,8 @@
 </head>
 <body>
   <div id="chat" data-endpoint="<c:url value='/api/chat'/>"></div>
-  <script src="<c:url value='/assets/cypherx-chat/widget.min.js'/>"></script>
-  <script src="<c:url value='/assets/cypherx-chat/examples/jsp-init.js'/>"></script>
+  <%-- Supply cspNonce from the server when the application's CSP requires it. --%>
+  <script nonce="<c:out value='${cspNonce}'/>" src="<c:url value='/assets/cypherx-chat/widget.min.js'/>"></script>
+  <script nonce="<c:out value='${cspNonce}'/>" src="<c:url value='/assets/cypherx-chat/examples/jsp-init.js'/>"></script>
 </body>
 </html>

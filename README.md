@@ -9,6 +9,7 @@ CypherX's client renderer: streaming chat UI + **Agentic UI** (KPI cards, charts
 > - **[INTEGRATION.md](./INTEGRATION.md)** — connect to your CypherX backend, render AUI surfaces, sessions/history, the event protocol.
 > - **[THEMING.md](./THEMING.md)** — match your brand (colors, fonts, radius, **chart palette**) by overriding `--cxc-*` tokens.
 > - **[BROWSER_SDK.md](./BROWSER_SDK.md)** - JSP/plain JavaScript integration with the self-contained browser SDK and ZIP examples.
+> - **[DEVELOPER_INTEGRATION_GUIDE.md](./DEVELOPER_INTEGRATION_GUIDE.md)** - Client handoff: JSP setup, Java endpoint, security, Android, troubleshooting, and acceptance checklist.
 
 ---
 

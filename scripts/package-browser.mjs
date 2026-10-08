@@ -13,6 +13,7 @@ for (const name of ['widget.min.js', 'widget.mjs', 'widget.d.ts', 'markdown.min.
 add('markdown.css', 'dist/markdown.css')
 add('LICENSE', 'LICENSE')
 add('README.md', 'BROWSER_SDK.md')
+add('DEVELOPER_INTEGRATION_GUIDE.md', 'DEVELOPER_INTEGRATION_GUIDE.md')
 for (const name of readdirSync('browser-examples')) add(`examples/${name}`, `browser-examples/${name}`)
 const checksums = Object.entries(files).map(([name, data]) => `${createHash('sha256').update(data).digest('hex')}  ${name}`).join('\n') + '\n'
 files['SHA256SUMS'] = new TextEncoder().encode(checksums)

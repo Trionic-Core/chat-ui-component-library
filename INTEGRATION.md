@@ -68,6 +68,13 @@ import '@cypherx/chat-ui/styles.css'
 
 ## 2. Quick start (full chat widget)
 
+Browser integrations must call an authenticated same-origin server proxy.
+Keep enterprise API keys and trusted tenant scope on that server, never in
+React/JSP source or browser headers. The `/api/cypherx` prefix below is an
+example proxy route your backend implements, not a route installed by this
+package. Use context-path-aware URLs if your app is deployed below `/`.
+For the standalone JSP SDK, follow [DEVELOPER_INTEGRATION_GUIDE.md](./DEVELOPER_INTEGRATION_GUIDE.md).
+
 > **Already have your own chat UI?** Jump to **§3 (Just the AUI renderer)** — most
 > product integrations only need the renderer, not the full widget.
 
@@ -79,11 +86,12 @@ import { ChatProvider, ChatWidget, useSSEStream } from '@cypherx/chat-ui'
 import type { ChatEvent } from '@cypherx/chat-ui'
 import '@cypherx/chat-ui/styles.css'
 
-const API_BASE = 'https://your-cypherx-host'
-const HEADERS = {
-  'X-API-Key': '<your enterprise API key>',
-  // Tenant/row-level scope enforced by the backend access policies:
-  'X-Access-Context': JSON.stringify({ tenant_id: '<your-tenant-id>' }),
+const API_BASE = '/api/cypherx'
+function getHeaders(): Record<string, string> {
+  // Adapt these meta tags to your application's CSRF framework.
+  const token = document.querySelector<HTMLMetaElement>('meta[name="csrf-token"]')?.content
+  const header = document.querySelector<HTMLMetaElement>('meta[name="csrf-header"]')?.content
+  return token && header ? { [header]: token } : {}
 }
 
 // Map CypherX SSE events -> the library's ChatEvent union (see §4).
@@ -106,7 +114,7 @@ function parseEvent(eventType: string, data: string): ChatEvent | null {
 export function CypherXChat() {
   const send = useSSEStream({
     url: `${API_BASE}/v1/enterprise/chat`,
-    headers: HEADERS,
+    headers: getHeaders,
     buildBody: (message, sessionId) => ({ message, session_id: sessionId }),
     parseEvent,
   })
@@ -182,7 +190,7 @@ import type { SessionAdapter } from '@cypherx/chat-ui'
 
 const sessions: SessionAdapter = {
   async list() {
-    const r = await fetch(`${API_BASE}/v1/enterprise/chat/sessions?limit=50`, { headers: HEADERS })
+    const r = await fetch(`${API_BASE}/v1/enterprise/chat/sessions?limit=50`, { headers: getHeaders() })
     const { sessions } = await r.json()
     return sessions.map((s) => ({
       id: s.id, title: s.title || 'Untitled chat',
@@ -191,7 +199,7 @@ const sessions: SessionAdapter = {
     }))
   },
   async get(id) {
-    const r = await fetch(`${API_BASE}/v1/enterprise/chat/sessions/${id}`, { headers: HEADERS })
+    const r = await fetch(`${API_BASE}/v1/enterprise/chat/sessions/${encodeURIComponent(id)}`, { headers: getHeaders() })
     const { session, messages } = await r.json()
     return {
       session: { id: session.id, title: session.title || 'Untitled chat',
@@ -208,7 +216,7 @@ const sessions: SessionAdapter = {
     }
   },
   async delete(id) {
-    await fetch(`${API_BASE}/v1/enterprise/chat/sessions/${id}`, { method: 'DELETE', headers: HEADERS })
+    await fetch(`${API_BASE}/v1/enterprise/chat/sessions/${encodeURIComponent(id)}`, { method: 'DELETE', headers: getHeaders() })
   },
 }
 

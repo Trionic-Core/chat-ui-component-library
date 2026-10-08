@@ -6,6 +6,10 @@ a CDN, or a separate stylesheet. No enterprise credentials are included.
 `build.json` identifies the exact source revision and component version. This
 browser preview is separately identified; it is not an npm release.
 
+For a step-by-step client handoff, start with
+[DEVELOPER_INTEGRATION_GUIDE.md](./DEVELOPER_INTEGRATION_GUIDE.md). It covers JSP,
+the Java endpoint contract, security, Android WebView, and acceptance testing.
+
 ## Try It
 
 Open `examples/index.html` in a modern browser. This is an offline demo with
