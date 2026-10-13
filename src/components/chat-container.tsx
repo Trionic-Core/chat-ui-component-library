@@ -61,7 +61,7 @@ export function ChatContainer({
             x: sessionPosition === 'left' ? -20 : 20,
           }}
           transition={{ type: 'spring', stiffness: 400, damping: 30 }}
-          className="hidden h-full shrink-0 md:block"
+          className="cxc-session-sidebar h-full shrink-0"
           style={{
             borderRight:
               sessionPosition === 'left'
@@ -82,7 +82,7 @@ export function ChatContainer({
   return (
     <div
       className={cn(
-        'cxc-root flex h-full w-full flex-col overflow-hidden',
+        'cxc-root cxc-chat-shell flex h-full w-full flex-col overflow-hidden',
         className
       )}
       style={{
@@ -105,7 +105,7 @@ export function ChatContainer({
               type="button"
               onClick={toggleSidebar}
               className={cn(
-                'hidden md:flex h-8 w-8 items-center justify-center rounded-[var(--cxc-radius-md)]',
+                'cxc-session-toggle h-8 w-8 items-center justify-center rounded-[var(--cxc-radius-md)]',
                 'transition-colors duration-100',
                 'focus-visible:outline-none focus-visible:ring-2',
               )}
@@ -125,7 +125,7 @@ export function ChatContainer({
           )}
 
           {showSessions && (
-            <div className="md:hidden">
+            <div className="cxc-session-select">
               <SessionSelector />
             </div>
           )}
@@ -142,7 +142,7 @@ export function ChatContainer({
       <div className="flex flex-1 min-h-0 overflow-hidden">
         {sessionPosition === 'left' && sidebarPanel}
 
-        <div className="flex flex-1 flex-col min-h-0 min-w-0">
+        <div className="cxc-conversation flex flex-1 flex-col min-h-0 min-w-0">
           {/* Message area */}
           {hasMessages ? (
             <MessageList />

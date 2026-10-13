@@ -3,14 +3,11 @@ import {
   PieChart as RechartsPieChart,
   Pie,
   Cell,
-  Tooltip,
-  Legend,
   ResponsiveContainer,
 } from 'recharts'
 import {
   CHART_TOOLTIP_STYLE,
   CHART_ANIMATION,
-  CHART_LEGEND_STYLE,
   CHART_INITIAL_DIMENSION,
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
@@ -20,6 +17,8 @@ import { usePrefersReducedMotion } from '../hooks/use-prefers-reduced-motion'
 import { useSeriesFormatters } from './use-series-formatters'
 import { MAX_SLICES, collapseSlices, shouldAnimate, type PieSlice } from './chart-layout'
 import { ChartEmpty } from './chart-empty'
+import { ChartLegend } from './chart-frame'
+import { ChartTooltip } from './chart-tooltip'
 
 interface PieChartProps extends ChartProps {
   /** Render as a donut (inner radius cut out). Maps the "donut" chart_type. */
@@ -145,21 +144,9 @@ export function PieChart({ data, x, series, options, donut = false }: PieChartPr
           ))}
         </Pie>
 
-        <Tooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={formatters.tooltip} />
+        <ChartTooltip contentStyle={CHART_TOOLTIP_STYLE} formatter={formatters.tooltip} />
 
-        {showLegend && (
-          // Intentionally diverges from chartLegendProps(): the pie legend is
-          // bottom-aligned with circle swatches, since its slices are otherwise
-          // unlabeled. `labelStyle` matters for the same reason it does there —
-          // recharts paints legend text in the slice color unless told not to.
-          <Legend
-            wrapperStyle={{ fontSize: CHART_LEGEND_STYLE.fontSize }}
-            labelStyle={{ color: CHART_LEGEND_STYLE.color }}
-            verticalAlign="bottom"
-            iconType="circle"
-            iconSize={8}
-          />
-        )}
+        {showLegend && <ChartLegend round />}
       </RechartsPieChart>
     </ResponsiveContainer>
   )

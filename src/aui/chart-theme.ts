@@ -61,6 +61,8 @@ export const CHART_TOOLTIP_STYLE = {
   borderRadius: 8,
   fontSize: 12,
   color: 'var(--cx-text-primary)',
+  whiteSpace: 'normal',
+  overflowWrap: 'anywhere',
   // Theme-aware depth (flips for light/dark) instead of a fixed light-mode rgba.
   boxShadow: 'var(--cxc-shadow-md)',
 } as const

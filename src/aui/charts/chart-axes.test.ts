@@ -74,7 +74,7 @@ vi.mock('recharts', async () => {
     captured.push({ type, props })
     return h(SVG_ROOTS.has(type) ? 'svg' : Fragment, null, (props.children ?? null) as never)
   }
-  return Object.fromEntries(PRIMITIVES.map((name) => [name, recorder(name)]))
+  return { ...Object.fromEntries(PRIMITIVES.map((name) => [name, recorder(name)])), usePlotArea: () => undefined }
 })
 
 const SERIES = [{ key: 'revenue', label: 'Revenue' }]

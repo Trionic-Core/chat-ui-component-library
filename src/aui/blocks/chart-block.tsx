@@ -22,6 +22,7 @@ import { labelSample } from '../charts/label-fit'
 import { useCharPx } from '../hooks/use-char-px'
 import { useElementSize } from '../hooks/use-element-size'
 import { rowsToCsv, downloadCsv } from '../csv'
+import { ChartFrame } from '../charts/chart-frame'
 
 /* ------------------------------------------------------------------
  * Chart Block
@@ -32,7 +33,7 @@ import { rowsToCsv, downloadCsv } from '../csv'
  * decision they cannot make for themselves: how much room they get.
  *
  * The block measures its host, asks the legibility policy for a plan, sizes
- * the host in PIXELS from it, and slices the data to match. A percentage
+ * the plot in PIXELS from it, and slices the data to match. A percentage
  * height inside an auto-height parent measures 0 in ResponsiveContainer, and
  * a chart that draws 62 categories in 256px is a texture, not an answer.
  * ----------------------------------------------------------------*/
@@ -134,9 +135,9 @@ export function ChartBlock({ block }: ChartBlockProps) {
   const closeExpand = useCallback(() => setExpanded(false), [])
 
   return (
-    <Card padding="sm">
-      <div className="mb-3 flex items-center justify-between gap-2">
-        <h4 className="truncate text-sm font-semibold" style={{ color: 'var(--cx-text-primary)' }}>
+    <Card padding="sm" className="cxc-chart-card">
+      <div className="cxc-chart-header">
+        <h4 className="text-sm font-semibold" style={{ color: 'var(--cx-text-primary)' }}>
           {title}
         </h4>
         <div className="flex shrink-0 items-center gap-1">
@@ -152,17 +153,18 @@ export function ChartBlock({ block }: ChartBlockProps) {
       <div
         ref={hostRef}
         className="w-full min-w-0"
-        style={{ height: plan?.horizontal ? plan.layout.hostHeight : VERTICAL_CHART_HEIGHT_PX }}
         data-cxc-shown={shown}
         data-cxc-total={total}
       >
-        <ChartDispatch
-          block={inlineBlock}
-          mode="inline"
-          width={width}
-          charPx={charPx}
-          plan={plan ?? undefined}
-        />
+        <ChartFrame style={{ height: plan?.horizontal ? plan.layout.hostHeight : VERTICAL_CHART_HEIGHT_PX }}>
+          <ChartDispatch
+            block={inlineBlock}
+            mode="inline"
+            width={width}
+            charPx={charPx}
+            plan={plan ?? undefined}
+          />
+        </ChartFrame>
       </div>
 
       {(steps.length > 0 || hasMoreThanEmbedded) && (
@@ -206,23 +208,26 @@ function ExpandedChart({ block }: ChartBlockProps) {
     <div
       ref={hostRef}
       className="w-full min-w-0"
-      style={
-        plan?.horizontal
-          ? { height: plan.layout.hostHeight }
-          : // A vertical chart cannot use its rows to earn height, so it takes a
-            // share of the viewport with a floor for short laptop screens.
-            { height: '60vh', minHeight: EXPANDED_VERTICAL_MIN_HEIGHT_PX }
-      }
       data-cxc-shown={block.data.length}
       data-cxc-total={block.data.length}
     >
-      <ChartDispatch
-        block={block}
-        mode="expanded"
-        width={width}
-        charPx={charPx}
-        plan={plan ?? undefined}
-      />
+      <ChartFrame
+        style={
+          plan?.horizontal
+            ? { height: plan.layout.hostHeight }
+            : // A vertical chart cannot use its rows to earn height, so it takes a
+              // share of the viewport with a floor for short laptop screens.
+              { height: '60vh', minHeight: EXPANDED_VERTICAL_MIN_HEIGHT_PX }
+        }
+      >
+        <ChartDispatch
+          block={block}
+          mode="expanded"
+          width={width}
+          charPx={charPx}
+          plan={plan ?? undefined}
+        />
+      </ChartFrame>
     </div>
   )
 }

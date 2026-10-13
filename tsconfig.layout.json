@@ -10,6 +10,7 @@
   },
   "include": [
     "harness/markdown-tables.tsx",
+    "harness/responsive-charts.tsx",
     "harness/vite.config.ts",
     "playwright.config.ts",
     "playwright.browser.config.ts",

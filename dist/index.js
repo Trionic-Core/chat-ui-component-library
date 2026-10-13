@@ -4,7 +4,7 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { ArrowDown, Sparkles, ChevronDown, ThumbsUp, ThumbsDown, Loader2, Square, Volume2, CheckCircle2, AlertCircle, Lock, Check, X, Circle, Clock, Copy, RotateCcw, Pencil, Mic, Globe, Search, Paperclip, Plus, ArrowUp, MessageSquare, Trash2, PanelLeftClose, PanelLeftOpen, MessageCircle, Minimize2, Maximize2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { ResponsiveContainer, ScatterChart as ScatterChart$1, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Scatter, PieChart as PieChart$1, Pie, Cell, AreaChart as AreaChart$1, Area, LineChart, Line, BarChart as BarChart$1, ReferenceLine, Bar, LabelList } from 'recharts';
+import { ResponsiveContainer, ScatterChart as ScatterChart$1, CartesianGrid, XAxis, YAxis, Scatter, PieChart as PieChart$1, Pie, Cell, AreaChart as AreaChart$1, Area, LineChart, Line, BarChart as BarChart$1, ReferenceLine, Bar, LabelList, usePlotArea, Tooltip, Legend } from 'recharts';
 import { createParser } from 'eventsource-parser';
 
 // src/components/chat-provider.tsx
@@ -2265,6 +2265,8 @@ var CHART_TOOLTIP_STYLE = {
   borderRadius: 8,
   fontSize: 12,
   color: "var(--cx-text-primary)",
+  whiteSpace: "normal",
+  overflowWrap: "anywhere",
   // Theme-aware depth (flips for light/dark) instead of a fixed light-mode rgba.
   boxShadow: "var(--cxc-shadow-md)"
 };
@@ -3136,6 +3138,53 @@ function ChartEmpty({ label = "No data", reason }) {
     }
   );
 }
+var LegendPortal = createContext(null);
+function ChartFrame({ children, style }) {
+  const [portal, setPortal] = useState(null);
+  return /* @__PURE__ */ jsxs(LegendPortal.Provider, { value: portal, children: [
+    /* @__PURE__ */ jsx("div", { className: "cxc-chart-plot", style, children }),
+    /* @__PURE__ */ jsx("div", { ref: setPortal, className: "cxc-chart-legend" })
+  ] });
+}
+function ChartLegend({ round = false }) {
+  const portal = useContext(LegendPortal);
+  return /* @__PURE__ */ jsx(
+    Legend,
+    {
+      ...chartLegendProps(),
+      portal: portal ?? void 0,
+      verticalAlign: "bottom",
+      content: /* @__PURE__ */ jsx(LegendItems, { round })
+    }
+  );
+}
+function LegendItems({ payload, round }) {
+  return /* @__PURE__ */ jsx("ul", { className: "cxc-chart-legend-items", "aria-label": "Chart legend", children: payload?.filter((entry) => entry.type !== "none").map((entry, index) => /* @__PURE__ */ jsxs("li", { className: "cxc-chart-legend-item", children: [
+    /* @__PURE__ */ jsx(
+      "span",
+      {
+        className: "cxc-chart-legend-swatch",
+        "data-shape": round || entry.type === "circle" ? "circle" : entry.type,
+        style: { backgroundColor: entry.color },
+        "aria-hidden": "true"
+      }
+    ),
+    /* @__PURE__ */ jsx("span", { className: "cxc-chart-legend-label", children: entry.value })
+  ] }, `${entry.dataKey ?? entry.value}-${index}`)) });
+}
+function ChartTooltip(props) {
+  const plot = usePlotArea();
+  return /* @__PURE__ */ jsx(
+    Tooltip,
+    {
+      ...props,
+      wrapperStyle: {
+        ...props.wrapperStyle,
+        maxWidth: Math.min(280, Math.max(1, plot?.width ?? 280))
+      }
+    }
+  );
+}
 var DEFAULT_MARGIN_PX = 5;
 function BarChart({
   data,
@@ -3267,7 +3316,7 @@ function BarChart({
                   )
                 ] }),
                 /* @__PURE__ */ jsx(
-                  Tooltip,
+                  ChartTooltip,
                   {
                     cursor: false,
                     contentStyle: CHART_TOOLTIP_STYLE,
@@ -3275,7 +3324,7 @@ function BarChart({
                     labelFormatter: verticalTicks.tooltipLabelFormatter
                   }
                 ),
-                showLegend && /* @__PURE__ */ jsx(Legend, { ...chartLegendProps() }),
+                showLegend && /* @__PURE__ */ jsx(ChartLegend, {}),
                 mixedSigns && /* @__PURE__ */ jsx(ReferenceLine, { ...horizontal ? { x: 0 } : { y: 0 }, ...CHART_ZERO_LINE_STYLE }),
                 series.map((s, index) => /* @__PURE__ */ jsx(
                   Bar,
@@ -3385,7 +3434,7 @@ function LineChart2({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX, 
         ),
         /* @__PURE__ */ jsx(YAxis, { ...CHART_Y_AXIS, width: "auto", tickFormatter: formatters.tick }),
         /* @__PURE__ */ jsx(
-          Tooltip,
+          ChartTooltip,
           {
             cursor: false,
             contentStyle: CHART_TOOLTIP_STYLE,
@@ -3393,7 +3442,7 @@ function LineChart2({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX, 
             labelFormatter: ticks.tooltipLabelFormatter
           }
         ),
-        showLegend && /* @__PURE__ */ jsx(Legend, { ...chartLegendProps() }),
+        showLegend && /* @__PURE__ */ jsx(ChartLegend, {}),
         series.map((s, index) => /* @__PURE__ */ jsx(
           Line,
           {
@@ -3465,7 +3514,7 @@ function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX, c
         ),
         /* @__PURE__ */ jsx(YAxis, { ...CHART_Y_AXIS, width: "auto", tickFormatter: formatters.tick }),
         /* @__PURE__ */ jsx(
-          Tooltip,
+          ChartTooltip,
           {
             cursor: false,
             contentStyle: CHART_TOOLTIP_STYLE,
@@ -3473,7 +3522,7 @@ function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX, c
             labelFormatter: ticks.tooltipLabelFormatter
           }
         ),
-        showLegend && /* @__PURE__ */ jsx(Legend, { ...chartLegendProps() }),
+        showLegend && /* @__PURE__ */ jsx(ChartLegend, {}),
         series.map((s, index) => /* @__PURE__ */ jsx(
           Area,
           {
@@ -3567,21 +3616,8 @@ function PieChart({ data, x, series, options, donut = false }) {
             ))
           }
         ),
-        /* @__PURE__ */ jsx(Tooltip, { contentStyle: CHART_TOOLTIP_STYLE, formatter: formatters.tooltip }),
-        showLegend && // Intentionally diverges from chartLegendProps(): the pie legend is
-        // bottom-aligned with circle swatches, since its slices are otherwise
-        // unlabeled. `labelStyle` matters for the same reason it does there —
-        // recharts paints legend text in the slice color unless told not to.
-        /* @__PURE__ */ jsx(
-          Legend,
-          {
-            wrapperStyle: { fontSize: CHART_LEGEND_STYLE.fontSize },
-            labelStyle: { color: CHART_LEGEND_STYLE.color },
-            verticalAlign: "bottom",
-            iconType: "circle",
-            iconSize: 8
-          }
-        )
+        /* @__PURE__ */ jsx(ChartTooltip, { contentStyle: CHART_TOOLTIP_STYLE, formatter: formatters.tooltip }),
+        showLegend && /* @__PURE__ */ jsx(ChartLegend, { round: true })
       ]
     }
   ) });
@@ -3626,14 +3662,14 @@ function ScatterChart({ data, x, series, options }) {
           }
         ),
         /* @__PURE__ */ jsx(
-          Tooltip,
+          ChartTooltip,
           {
             cursor: { strokeDasharray: "3 3" },
             contentStyle: CHART_TOOLTIP_STYLE,
             formatter: tooltipFormatters.tooltip
           }
         ),
-        showLegend && /* @__PURE__ */ jsx(Legend, { ...chartLegendProps() }),
+        showLegend && /* @__PURE__ */ jsx(ChartLegend, {}),
         series.map((s, index) => /* @__PURE__ */ jsx(
           Scatter,
           {
@@ -4268,9 +4304,9 @@ function ChartBlock({ block }) {
   }, [title, block.data, csvColumns]);
   const openExpand = useCallback(() => setExpanded(true), []);
   const closeExpand = useCallback(() => setExpanded(false), []);
-  return /* @__PURE__ */ jsxs(Card, { padding: "sm", children: [
-    /* @__PURE__ */ jsxs("div", { className: "mb-3 flex items-center justify-between gap-2", children: [
-      /* @__PURE__ */ jsx("h4", { className: "truncate text-sm font-semibold", style: { color: "var(--cx-text-primary)" }, children: title }),
+  return /* @__PURE__ */ jsxs(Card, { padding: "sm", className: "cxc-chart-card", children: [
+    /* @__PURE__ */ jsxs("div", { className: "cxc-chart-header", children: [
+      /* @__PURE__ */ jsx("h4", { className: "text-sm font-semibold", style: { color: "var(--cx-text-primary)" }, children: title }),
       /* @__PURE__ */ jsxs("div", { className: "flex shrink-0 items-center gap-1", children: [
         /* @__PURE__ */ jsx(IconButton, { label: "Download CSV", onClick: handleExport, children: /* @__PURE__ */ jsx(DownloadIcon, {}) }),
         /* @__PURE__ */ jsx(IconButton, { label: "Expand chart", onClick: openExpand, children: /* @__PURE__ */ jsx(ExpandIcon, {}) })
@@ -4281,10 +4317,9 @@ function ChartBlock({ block }) {
       {
         ref: hostRef,
         className: "w-full min-w-0",
-        style: { height: plan?.horizontal ? plan.layout.hostHeight : VERTICAL_CHART_HEIGHT_PX },
         "data-cxc-shown": shown,
         "data-cxc-total": total,
-        children: /* @__PURE__ */ jsx(
+        children: /* @__PURE__ */ jsx(ChartFrame, { style: { height: plan?.horizontal ? plan.layout.hostHeight : VERTICAL_CHART_HEIGHT_PX }, children: /* @__PURE__ */ jsx(
           ChartDispatch,
           {
             block: inlineBlock,
@@ -4293,7 +4328,7 @@ function ChartBlock({ block }) {
             charPx,
             plan: plan ?? void 0
           }
-        )
+        ) })
       }
     ),
     (steps.length > 0 || hasMoreThanEmbedded) && // Every cut is printed, and every cut is the reader's to undo. The
@@ -4329,21 +4364,26 @@ function ExpandedChart({ block }) {
     {
       ref: hostRef,
       className: "w-full min-w-0",
-      style: plan?.horizontal ? { height: plan.layout.hostHeight } : (
-        // A vertical chart cannot use its rows to earn height, so it takes a
-        // share of the viewport with a floor for short laptop screens.
-        { height: "60vh", minHeight: EXPANDED_VERTICAL_MIN_HEIGHT_PX }
-      ),
       "data-cxc-shown": block.data.length,
       "data-cxc-total": block.data.length,
       children: /* @__PURE__ */ jsx(
-        ChartDispatch,
+        ChartFrame,
         {
-          block,
-          mode: "expanded",
-          width,
-          charPx,
-          plan: plan ?? void 0
+          style: plan?.horizontal ? { height: plan.layout.hostHeight } : (
+            // A vertical chart cannot use its rows to earn height, so it takes a
+            // share of the viewport with a floor for short laptop screens.
+            { height: "60vh", minHeight: EXPANDED_VERTICAL_MIN_HEIGHT_PX }
+          ),
+          children: /* @__PURE__ */ jsx(
+            ChartDispatch,
+            {
+              block,
+              mode: "expanded",
+              width,
+              charPx,
+              plan: plan ?? void 0
+            }
+          )
         }
       )
     }
@@ -4796,8 +4836,7 @@ function AuiView({ spec, onSendMessage }) {
   return /* @__PURE__ */ jsxs(
     "section",
     {
-      className: "space-y-3 rounded-lg border p-3",
-      style: { borderColor: "var(--cx-border-subtle)", backgroundColor: "var(--cx-canvas-subtle)" },
+      className: "cxc-aui-view space-y-3",
       "aria-label": spec.title || "Data view",
       children: [
         spec.title && /* @__PURE__ */ jsx("h3", { className: "text-sm font-semibold", style: { color: "var(--cx-text-primary)" }, children: spec.title }),
@@ -5255,7 +5294,7 @@ var MessageList = forwardRef(
       "div",
       {
         ref,
-        className: cn("relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", className),
+        className: cn("cxc-conversation relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", className),
         children: [
           /* @__PURE__ */ jsx(
             "div",
@@ -5270,7 +5309,7 @@ var MessageList = forwardRef(
               children: /* @__PURE__ */ jsxs(
                 "div",
                 {
-                  className: cn("mx-auto w-full shrink-0 px-5 py-6 sm:px-8", messages.length === 0 && "flex flex-1 flex-col"),
+                  className: cn("cxc-message-content mx-auto w-full shrink-0 py-6", messages.length === 0 && "flex flex-1 flex-col"),
                   style: { maxWidth: "var(--cxc-content-max-width)" },
                   children: [
                     messages.length === 0 && /* @__PURE__ */ jsx(EmptyState, {}),
@@ -6163,7 +6202,7 @@ function PromptInput({
     "div",
     {
       className: cn(
-        "cxc-prompt-input-wrap relative mx-auto flex w-full flex-col gap-2 px-5 pb-4 pt-2 sm:px-8",
+        "cxc-prompt-input-wrap relative mx-auto flex w-full flex-col gap-2 pb-4 pt-2",
         className
       ),
       children: [
@@ -7003,7 +7042,7 @@ function ChatContainer({
         x: sessionPosition === "left" ? -20 : 20
       },
       transition: { type: "spring", stiffness: 400, damping: 30 },
-      className: "hidden h-full shrink-0 md:block",
+      className: "cxc-session-sidebar h-full shrink-0",
       style: {
         borderRight: sessionPosition === "left" ? "1px solid var(--cxc-border-subtle)" : void 0,
         borderLeft: sessionPosition === "right" ? "1px solid var(--cxc-border-subtle)" : void 0
@@ -7016,7 +7055,7 @@ function ChatContainer({
     "div",
     {
       className: cn(
-        "cxc-root flex h-full w-full flex-col overflow-hidden",
+        "cxc-root cxc-chat-shell flex h-full w-full flex-col overflow-hidden",
         className
       ),
       style: {
@@ -7040,7 +7079,7 @@ function ChatContainer({
                   type: "button",
                   onClick: toggleSidebar,
                   className: cn(
-                    "hidden md:flex h-8 w-8 items-center justify-center rounded-[var(--cxc-radius-md)]",
+                    "cxc-session-toggle h-8 w-8 items-center justify-center rounded-[var(--cxc-radius-md)]",
                     "transition-colors duration-100",
                     "focus-visible:outline-none focus-visible:ring-2"
                   ),
@@ -7057,7 +7096,7 @@ function ChatContainer({
                   children: sidebarOpen ? /* @__PURE__ */ jsx(PanelLeftClose, { size: 18 }) : /* @__PURE__ */ jsx(PanelLeftOpen, { size: 18 })
                 }
               ),
-              showSessions && /* @__PURE__ */ jsx("div", { className: "md:hidden", children: /* @__PURE__ */ jsx(SessionSelector, {}) }),
+              showSessions && /* @__PURE__ */ jsx("div", { className: "cxc-session-select", children: /* @__PURE__ */ jsx(SessionSelector, {}) }),
               /* @__PURE__ */ jsx("div", { className: "flex-1" }),
               headerSlot && /* @__PURE__ */ jsx("div", { className: "flex items-center gap-2", children: headerSlot })
             ]
@@ -7065,7 +7104,7 @@ function ChatContainer({
         ),
         /* @__PURE__ */ jsxs("div", { className: "flex flex-1 min-h-0 overflow-hidden", children: [
           sessionPosition === "left" && sidebarPanel,
-          /* @__PURE__ */ jsxs("div", { className: "flex flex-1 flex-col min-h-0 min-w-0", children: [
+          /* @__PURE__ */ jsxs("div", { className: "cxc-conversation flex flex-1 flex-col min-h-0 min-w-0", children: [
             hasMessages ? /* @__PURE__ */ jsx(MessageList, {}) : /* @__PURE__ */ jsx("div", { className: "flex flex-1 overflow-hidden", children: emptyState ?? /* @__PURE__ */ jsx(EmptyState, {}) }),
             /* @__PURE__ */ jsxs("div", { className: "shrink-0 relative", style: { backgroundColor: "var(--cxc-bg)" }, children: [
               hasMessages && /* @__PURE__ */ jsx(

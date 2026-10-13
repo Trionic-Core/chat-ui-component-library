@@ -231,7 +231,7 @@ export function PromptInput({
   return (
     <div
       className={cn(
-        'cxc-prompt-input-wrap relative mx-auto flex w-full flex-col gap-2 px-5 pb-4 pt-2 sm:px-8',
+        'cxc-prompt-input-wrap relative mx-auto flex w-full flex-col gap-2 pb-4 pt-2',
         className
       )}
     >

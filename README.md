@@ -76,6 +76,29 @@ In your global CSS (e.g. `globals.css` for Next.js):
 @import "@cypherx/chat-ui/styles.css";
 ```
 
+### Responsive Embeds
+
+Chat spacing and the session sidebar adapt to the **chat container's width**,
+including a narrow widget on a wide desktop page. The mobile session selector
+is used below 768px of chat width. AUI surfaces are unframed block stacks;
+individual charts retain their cards. Chart titles and legends wrap, with the
+legend below the plot so additional legend rows do not shrink the plotted data.
+
+Import the full `styles.css` from the same build as the JavaScript. Updating JS
+while retaining an old copied stylesheet will not apply these layout rules.
+`markdown.css` alone does not style charts or the chat shell. The browser SDK
+already bundles the matching styles.
+
+For a flex/grid embed, allow its parent to shrink (`min-width: 0`; use
+`minmax(0, 1fr)` for a grid track) and give the chat a defined height. Avoid
+fixed widths or percentage bubble widths around assistant charts. Container
+queries require a modern browser; older browsers retain the compact layout.
+
+Regression checks: `npm run build && npm run test:layout`. The chart fixture at
+`/responsive-charts.html` in `npm run harness -- --mode distribution` covers
+phone widths, narrow desktop embeds, resize/hide/reopen, long legends,
+tooltips, expansion, CSV export, and the freshly built JSP widget.
+
 ### Basic Usage
 
 ```tsx

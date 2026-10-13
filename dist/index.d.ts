@@ -771,7 +771,7 @@ declare function ChatContainer({ showSessions, sessionPosition, emptyState, clas
  *
  * CypherX chat layout:
  * - Content centered at max-width 720px with auto margins
- * - Generous horizontal padding (24px mobile, 32px desktop)
+ * - Horizontal padding follows the available chat width
  * - Generous vertical padding
  * - Near-invisible custom scrollbar
  * - Scroll-to-bottom button: minimal pill floating at bottom center

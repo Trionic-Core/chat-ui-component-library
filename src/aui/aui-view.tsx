@@ -32,8 +32,7 @@ export function AuiView({ spec, onSendMessage }: AuiViewProps) {
 
   return (
     <section
-      className="space-y-3 rounded-lg border p-3"
-      style={{ borderColor: 'var(--cx-border-subtle)', backgroundColor: 'var(--cx-canvas-subtle)' }}
+      className="cxc-aui-view space-y-3"
       aria-label={spec.title || 'Data view'}
     >
       {spec.title && (

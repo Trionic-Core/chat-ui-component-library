@@ -14,7 +14,7 @@ import type { MessageListProps } from '../types'
  *
  * CypherX chat layout:
  * - Content centered at max-width 720px with auto margins
- * - Generous horizontal padding (24px mobile, 32px desktop)
+ * - Horizontal padding follows the available chat width
  * - Generous vertical padding
  * - Near-invisible custom scrollbar
  * - Scroll-to-bottom button: minimal pill floating at bottom center
@@ -56,7 +56,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
     return (
       <div
         ref={ref}
-        className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden', className)}
+        className={cn('cxc-conversation relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden', className)}
       >
         {/* Scrollable message area */}
         <div
@@ -70,7 +70,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
         >
           {/* Keep the observed scroll nodes mounted through empty/reset states. */}
           <div
-            className={cn('mx-auto w-full shrink-0 px-5 py-6 sm:px-8', messages.length === 0 && 'flex flex-1 flex-col')}
+            className={cn('cxc-message-content mx-auto w-full shrink-0 py-6', messages.length === 0 && 'flex flex-1 flex-col')}
             style={{ maxWidth: 'var(--cxc-content-max-width)' }}
           >
             {messages.length === 0 && <EmptyState />}
