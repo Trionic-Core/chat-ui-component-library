@@ -1353,7 +1353,6 @@
   }
 }
 .cxc-aui-view {
-  container: cxc-aui / inline-size;
   width: 100%;
   min-width: 0;
   max-width: 100%;
@@ -1365,6 +1364,7 @@
 .cxc-chart-card {
   min-width: 0;
   max-width: 100%;
+  padding: clamp(12px, 4%, 16px);
 }
 .cxc-chart-header {
   display: flex;
@@ -1374,11 +1374,6 @@
 }
 .cxc-chart-header > h4 {
   flex: 1;
-}
-@container cxc-aui (max-width: 380px) {
-  .cxc-chart-card {
-    padding: 12px;
-  }
 }
 .cxc-chart-plot {
   width: 100%;
