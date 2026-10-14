@@ -3154,7 +3154,7 @@ var LegendPortal = react.createContext(null);
 function ChartFrame({ children, style }) {
   const [portal, setPortal] = react.useState(null);
   return /* @__PURE__ */ jsxRuntime.jsxs(LegendPortal.Provider, { value: portal, children: [
-    /* @__PURE__ */ jsxRuntime.jsx("div", { className: "cxc-chart-plot", style, children }),
+    /* @__PURE__ */ jsxRuntime.jsx("div", { className: "cxc-chart-plot w-full min-w-0", style, children }),
     /* @__PURE__ */ jsxRuntime.jsx("div", { ref: setPortal, className: "cxc-chart-legend" })
   ] });
 }
@@ -3171,18 +3171,30 @@ function ChartLegend({ round = false }) {
   );
 }
 function LegendItems({ payload, round }) {
-  return /* @__PURE__ */ jsxRuntime.jsx("ul", { className: "cxc-chart-legend-items", "aria-label": "Chart legend", children: payload?.filter((entry) => entry.type !== "none").map((entry, index) => /* @__PURE__ */ jsxRuntime.jsxs("li", { className: "cxc-chart-legend-item", children: [
-    /* @__PURE__ */ jsxRuntime.jsx(
-      "span",
-      {
-        className: "cxc-chart-legend-swatch",
-        "data-shape": round || entry.type === "circle" ? "circle" : entry.type,
-        style: { backgroundColor: entry.color },
-        "aria-hidden": "true"
-      }
-    ),
-    /* @__PURE__ */ jsxRuntime.jsx("span", { className: "cxc-chart-legend-label", children: entry.value })
-  ] }, `${entry.dataKey ?? entry.value}-${index}`)) });
+  return /* @__PURE__ */ jsxRuntime.jsx(
+    "ul",
+    {
+      className: "cxc-chart-legend-items m-0 flex list-none flex-wrap justify-center gap-x-[14px] gap-y-[6px] p-0 pt-2 text-xs leading-normal",
+      style: { color: "var(--cxc-text-secondary)" },
+      "aria-label": "Chart legend",
+      children: payload?.filter((entry) => entry.type !== "none").map((entry, index) => /* @__PURE__ */ jsxRuntime.jsxs("li", { className: "cxc-chart-legend-item flex min-w-0 max-w-full items-start gap-1.5", children: [
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "span",
+          {
+            className: cn("cxc-chart-legend-swatch w-2.5 flex-none", swatchShape(round ? "circle" : entry.type)),
+            style: { backgroundColor: entry.color },
+            "aria-hidden": "true"
+          }
+        ),
+        /* @__PURE__ */ jsxRuntime.jsx("span", { className: "cxc-chart-legend-label min-w-0 [overflow-wrap:anywhere]", children: entry.value })
+      ] }, `${entry.dataKey ?? entry.value}-${index}`))
+    }
+  );
+}
+function swatchShape(type) {
+  if (type === "circle") return "mt-1 h-2.5 rounded-full";
+  if (type === "line" || type === "plainline") return "mt-2 h-0.5";
+  return "mt-1 h-2.5";
 }
 function ChartTooltip(props) {
   const plot = recharts.usePlotArea();
@@ -4316,9 +4328,9 @@ function ChartBlock({ block }) {
   }, [title, block.data, csvColumns]);
   const openExpand = react.useCallback(() => setExpanded(true), []);
   const closeExpand = react.useCallback(() => setExpanded(false), []);
-  return /* @__PURE__ */ jsxRuntime.jsxs(Card, { padding: "sm", className: "cxc-chart-card", children: [
-    /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "cxc-chart-header", children: [
-      /* @__PURE__ */ jsxRuntime.jsx("h4", { className: "text-sm font-semibold", style: { color: "var(--cx-text-primary)" }, children: title }),
+  return /* @__PURE__ */ jsxRuntime.jsxs(Card, { padding: "sm", className: "cxc-chart-card min-w-0 max-w-full p-[clamp(12px,4%,16px)]", children: [
+    /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "cxc-chart-header mb-3 flex items-start gap-2", children: [
+      /* @__PURE__ */ jsxRuntime.jsx("h4", { className: "min-w-0 flex-1 text-sm font-semibold [overflow-wrap:anywhere]", style: { color: "var(--cx-text-primary)" }, children: title }),
       /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex shrink-0 items-center gap-1", children: [
         /* @__PURE__ */ jsxRuntime.jsx(IconButton, { label: "Download CSV", onClick: handleExport, children: /* @__PURE__ */ jsxRuntime.jsx(DownloadIcon, {}) }),
         /* @__PURE__ */ jsxRuntime.jsx(IconButton, { label: "Expand chart", onClick: openExpand, children: /* @__PURE__ */ jsxRuntime.jsx(ExpandIcon, {}) })
@@ -4848,10 +4860,10 @@ function AuiView({ spec, onSendMessage }) {
   return /* @__PURE__ */ jsxRuntime.jsxs(
     "section",
     {
-      className: "cxc-aui-view space-y-3",
+      className: "cxc-aui-view w-full min-w-0 max-w-full space-y-3",
       "aria-label": spec.title || "Data view",
       children: [
-        spec.title && /* @__PURE__ */ jsxRuntime.jsx("h3", { className: "text-sm font-semibold", style: { color: "var(--cx-text-primary)" }, children: spec.title }),
+        spec.title && /* @__PURE__ */ jsxRuntime.jsx("h3", { className: "min-w-0 text-sm font-semibold [overflow-wrap:anywhere]", style: { color: "var(--cx-text-primary)" }, children: spec.title }),
         blocks.map((block, index) => {
           const Renderer = resolveBlock(block);
           if (!Renderer) return null;
@@ -8233,6 +8245,15 @@ function abortable(iterator, controller) {
   };
   return iterator;
 }
+function isWholeFrame(data) {
+  if (data === "[DONE]") return true;
+  try {
+    JSON.parse(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
 function createSSEClient(getConfig) {
   let active = null;
   const abort = () => active?.abort();
@@ -8275,6 +8296,11 @@ function createSSEClient(getConfig) {
           const text = done ? decoder.decode() : decoder.decode(value, { stream: true });
           parser.feed(text + (done && trailingCR ? "\n" : ""));
           if (text) trailingCR = text.endsWith("\r");
+          if (done) {
+            const settled = queue.length;
+            parser.feed("\n\n");
+            queue.push(...queue.splice(settled).filter((frame) => isWholeFrame(frame.data)));
+          }
           for (const frame of queue.splice(0)) {
             if (controller.signal.aborted) return;
             const event = frame.data === "[DONE]" ? { type: "done" } : parseEvent(frame.event ?? "message", frame.data);

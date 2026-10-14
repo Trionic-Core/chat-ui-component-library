@@ -135,9 +135,9 @@ export function ChartBlock({ block }: ChartBlockProps) {
   const closeExpand = useCallback(() => setExpanded(false), [])
 
   return (
-    <Card padding="sm" className="cxc-chart-card">
-      <div className="cxc-chart-header">
-        <h4 className="text-sm font-semibold" style={{ color: 'var(--cx-text-primary)' }}>
+    <Card padding="sm" className="cxc-chart-card min-w-0 max-w-full p-[clamp(12px,4%,16px)]">
+      <div className="cxc-chart-header mb-3 flex items-start gap-2">
+        <h4 className="min-w-0 flex-1 text-sm font-semibold [overflow-wrap:anywhere]" style={{ color: 'var(--cx-text-primary)' }}>
           {title}
         </h4>
         <div className="flex shrink-0 items-center gap-1">
