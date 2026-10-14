@@ -60,6 +60,15 @@ export function ChatProvider({
 
   const generatorRef = useRef<AsyncGenerator<ChatEvent, void, undefined> | null>(null)
   const isStreamingRef = useRef(false)
+  const sessionLoadRef = useRef(0)
+
+  useEffect(() => () => {
+    sessionLoadRef.current++
+    const generator = generatorRef.current
+    generatorRef.current = null
+    isStreamingRef.current = false
+    void generator?.return(undefined).catch(() => {})
+  }, [])
 
   const config = useMemo<ChatConfig>(
     () => ({
@@ -79,13 +88,27 @@ export function ChatProvider({
     [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, enableRegenerate]
   )
 
+  /**
+   * The one send precondition. Returns the text that will be sent, or null
+   * when nothing may be sent right now: empty, over the limit, or a response
+   * is still streaming. Every path that mutates state before it sends must
+   * ask this first, so a refused send never leaves the conversation changed.
+   */
+  const acceptForSend = useCallback(
+    (message: string): string | null => {
+      if (isStreamingRef.current) return null
+      const trimmed = message.trim()
+      if (!trimmed || trimmed.length > maxInputLength) return null
+      return trimmed
+    },
+    [maxInputLength]
+  )
+
   const send = useCallback(
     (message: string, metadata?: Record<string, unknown>) => {
-      // Prevent double-send while streaming
-      if (isStreamingRef.current) return
-
-      const trimmed = message.trim()
-      if (!trimmed) return
+      const trimmed = acceptForSend(message)
+      if (trimmed === null) return
+      sessionLoadRef.current++
 
       const userMessage: ChatMessage = {
         id: generateId(),
@@ -119,6 +142,7 @@ export function ChatProvider({
           dispatch({ type: 'SET_CONNECTION_STATUS', status: 'streaming' })
 
           for await (const event of generator) {
+            if (generatorRef.current !== generator) break
             switch (event.type) {
               case 'token':
                 dispatch({
@@ -195,6 +219,7 @@ export function ChatProvider({
             }
           }
         } catch (err) {
+          if (generatorRef.current !== generator) return
           // Generator was cancelled or errored
           const errorMessage =
             err instanceof Error ? err.message : 'Connection lost'
@@ -204,20 +229,25 @@ export function ChatProvider({
             error: errorMessage,
           })
         } finally {
-          dispatch({ type: 'SET_STREAMING', isStreaming: false })
-          dispatch({ type: 'SET_CONNECTION_STATUS', status: 'idle' })
-          generatorRef.current = null
-          isStreamingRef.current = false
+          if (generatorRef.current === generator) {
+            dispatch({ type: 'SET_STREAMING', isStreaming: false })
+            dispatch({ type: 'SET_CONNECTION_STATUS', status: 'idle' })
+            generatorRef.current = null
+            isStreamingRef.current = false
+          }
         }
       })()
     },
-    [onSend, state.activeSessionId]
+    [onSend, state.activeSessionId, acceptForSend]
   )
 
   const stop = useCallback(() => {
-    if (generatorRef.current) {
-      generatorRef.current.return(undefined)
-    }
+    const generator = generatorRef.current
+    generatorRef.current = null
+    isStreamingRef.current = false
+    void generator?.return(undefined).catch(() => {})
+    dispatch({ type: 'SET_STREAMING', isStreaming: false })
+    dispatch({ type: 'SET_CONNECTION_STATUS', status: 'idle' })
   }, [])
 
   const retry = useCallback(
@@ -253,26 +283,33 @@ export function ChatProvider({
   }, [])
 
   const clearMessages = useCallback(() => {
+    sessionLoadRef.current++
+    stop()
     dispatch({ type: 'RESET' })
-  }, [])
+  }, [stop])
 
   const setMessages = useCallback((messages: ChatMessage[]) => {
+    sessionLoadRef.current++
+    stop()
     dispatch({ type: 'SET_MESSAGES', messages })
-  }, [])
+  }, [stop])
 
   const loadSession = useCallback(
     async (sessionId: string) => {
       if (!sessionAdapter?.get) return
+      stop()
+      const load = ++sessionLoadRef.current
 
       try {
         const { session, messages } = await sessionAdapter.get(sessionId)
+        if (load !== sessionLoadRef.current) return
         dispatch({ type: 'SET_MESSAGES', messages })
         dispatch({ type: 'SET_SESSION', sessionId: session.id })
       } catch {
         // Session load failed -- consumers can check error state
       }
     },
-    [sessionAdapter]
+    [sessionAdapter, stop]
   )
 
   const deleteSession = useCallback(
@@ -296,6 +333,7 @@ export function ChatProvider({
   )
 
   const newConversation = useCallback(() => {
+    sessionLoadRef.current++
     if (isStreamingRef.current) {
       stop()
     }
@@ -554,23 +592,25 @@ export function ChatProvider({
 
   const editAndRegenerate = useCallback(
     (newContent: string) => {
-      const trimmed = newContent.trim()
-      if (!trimmed) return
+      // Refuse before the trim: a trim followed by a refused send would drop
+      // the last exchange and send nothing, with no error shown.
+      const trimmed = acceptForSend(newContent)
+      if (trimmed === null) return
       // Drop the last user+assistant pair locally to mirror the backend trim
       // that fires when regenerate=true is sent. Then re-issue the send.
       dispatch({ type: 'TRIM_LAST_PAIR' })
       send(trimmed, { regenerate: true })
     },
-    [send]
+    [acceptForSend, send]
   )
 
   const regenerateLast = useCallback(() => {
     // Find the last user message — we resend its exact text with regenerate=true.
     const lastUser = [...state.messages].reverse().find((m) => m.role === 'user')
-    if (!lastUser) return
+    if (!lastUser || acceptForSend(lastUser.content) === null) return
     dispatch({ type: 'TRIM_LAST_PAIR' })
     send(lastUser.content, { regenerate: true })
-  }, [state.messages, send])
+  }, [state.messages, acceptForSend, send])
 
   const contextValue = useMemo<ChatContextValue>(
     () => ({

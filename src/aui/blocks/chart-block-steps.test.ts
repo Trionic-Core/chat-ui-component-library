@@ -39,7 +39,7 @@ vi.mock('recharts', async () => {
     captured.push({ type, props })
     return h(SVG_ROOTS.has(type) ? 'svg' : Fragment, null, (props.children ?? null) as never)
   }
-  return Object.fromEntries(PRIMITIVES.map((name) => [name, recorder(name)]))
+  return { ...Object.fromEntries(PRIMITIVES.map((name) => [name, recorder(name)])), usePlotArea: () => undefined }
 })
 
 const HUNDRED: DataRow[] = Array.from({ length: 100 }, (_, i) => ({
@@ -81,7 +81,7 @@ function clickStep(label: string) {
   })
 }
 
-/** The chart host, which carries the diagnostics and the height. */
+/** The chart host, which carries the diagnostics and contains the sized plot. */
 function host(): HTMLElement {
   const element = container.querySelector('[data-cxc-shown]')
   if (!element) throw new Error('no chart host rendered')
@@ -148,7 +148,7 @@ describe('inline row steps', () => {
     expect(host().dataset.cxcTotal).toBe('100')
     // 50 bands x 28px + 46px of chrome: the 382px cap is the DEFAULT step's,
     // and past it the height is the reader's choice.
-    expect(host().style.height).toBe(`${50 * 28 + 46}px`)
+    expect(host().querySelector<HTMLElement>('.cxc-chart-plot')!.style.height).toBe(`${50 * 28 + 46}px`)
     expect(footerText()).toContain('Showing 50 of 100 · 12 · 20 · All')
   })
 
@@ -159,7 +159,7 @@ describe('inline row steps', () => {
 
     expect(inlineRows()).toBe(100)
     expect(host().dataset.cxcShown).toBe('100')
-    expect(host().style.height).toBe(`${100 * 28 + 46}px`)
+    expect(host().querySelector<HTMLElement>('.cxc-chart-plot')!.style.height).toBe(`${100 * 28 + 46}px`)
   })
 
   it('lets the reader put the rows away again', () => {
@@ -169,7 +169,7 @@ describe('inline row steps', () => {
     clickStep('12')
 
     expect(inlineRows()).toBe(12)
-    expect(host().style.height).toBe('382px')
+    expect(host().querySelector<HTMLElement>('.cxc-chart-plot')!.style.height).toBe('382px')
   })
 
   it('offers only the whole result when there is nothing between', () => {

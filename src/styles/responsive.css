@@ -1,0 +1,39 @@
+/* Breakpoints follow the embedding surface, not the application's viewport. */
+.cxc-chat-shell {
+  container: cxc-chat / inline-size;
+  min-width: 0;
+}
+
+.cxc-conversation {
+  container: cxc-conversation / inline-size;
+}
+
+.cxc-message-content,
+.cxc-prompt-input-wrap {
+  padding-inline: 12px;
+}
+
+.cxc-session-sidebar,
+.cxc-session-toggle {
+  display: none;
+}
+
+.cxc-session-select {
+  display: block;
+}
+
+@container cxc-chat (min-width: 768px) {
+  .cxc-session-sidebar { display: block; }
+  .cxc-session-toggle { display: flex; }
+  .cxc-session-select { display: none; }
+}
+
+@container cxc-conversation (min-width: 400px) {
+  .cxc-message-content,
+  .cxc-prompt-input-wrap { padding-inline: 20px; }
+}
+
+@container cxc-conversation (min-width: 640px) {
+  .cxc-message-content,
+  .cxc-prompt-input-wrap { padding-inline: 32px; }
+}

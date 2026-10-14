@@ -39,7 +39,7 @@ export const INLINE_MAX_CATEGORIES = 12
  * whether they want the whole ranking in front of them.
  */
 export const INLINE_ROW_STEPS = [12, 20, 50] as const
-/** Axis, margins and legend around the plot area (recharts chrome). */
+/** Axis and margins around the plot area; the legend is laid out separately. */
 export const CHART_CHROME_PX = 46
 /** A chart shorter than this reads as a strip rather than a chart. */
 export const INLINE_MIN_HEIGHT_PX = 200

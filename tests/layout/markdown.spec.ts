@@ -104,6 +104,19 @@ test('partial streaming content stays within its container', async ({ page }) =>
   await assertTableLayout(page)
 })
 
+test('line breaks in an answer survive at phone width in every form a transport can deliver', async ({ page }) => {
+  await page.setViewportSize({ width: 320, height: 900 })
+  await openFixture(page)
+  for (const [id, lines] of [['bare-newline', 3], ['crlf', 2]] as const) {
+    const prose = page.locator(`[data-case="${id}"] .cxc-markdown p`)
+    await expect(prose).toHaveCount(1)
+    expect(await prose.evaluate(el => el.querySelectorAll('br').length), id).toBe(lines - 1)
+    expect(await prose.evaluate(el => el.scrollWidth <= el.clientWidth + 1), id).toBe(true)
+  }
+  const cells = page.locator('[data-case="windows-path"] .cxc-table-scroll td')
+  await expect(cells).toHaveText(['C:\\new\\notes', '42'])
+})
+
 test('standalone Markdown CSS does not restyle the host application table', async ({ page }) => {
   await openFixture(page, '?styles=markdown&host-reset')
   await expect(page.locator('[data-outside-markdown] td')).toHaveCSS('padding-left', '0px')

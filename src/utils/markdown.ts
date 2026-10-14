@@ -139,10 +139,26 @@ function processInline(text: string): string {
     '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
   )
 
-  // Line breaks (two or more spaces at end of line, or backslash)
-  result = result.replace(/ {2,}\n/g, '<br />')
+  // Line breaks. A Markdown hard break (two trailing spaces or a trailing
+  // backslash) and a bare newline both become <br />. Chat answers are
+  // written one sentence per line and never use the two-space syntax, so a
+  // bare newline inside a paragraph is a line break the author meant, not
+  // soft wrapping to be joined. Trailing spaces before the break are dropped
+  // so they cannot widen the line.
+  result = result.replace(/(?: {2,}|\\)?\n/g, '<br />')
 
   return result
+}
+
+/**
+ * Normalizes line endings so the block parser sees exactly one form: LF.
+ * CRLF and a lone CR become LF. A backslash followed by the letter n is
+ * ordinary text (a Windows path, an escape inside inline code) and stays
+ * exactly as written; content that arrives double-encoded is a producer
+ * defect and is not repaired here.
+ */
+export function normalizeLineBreaks(markdown: string): string {
+  return markdown.replace(/\r\n?/g, '\n')
 }
 
 /**
@@ -155,7 +171,7 @@ function processInline(text: string): string {
  * Headings are capped: h1 -> h3, h2 -> h4, etc. to prevent layout disruption.
  */
 export function renderMarkdown(markdown: string): string {
-  const lines = markdown.split('\n')
+  const lines = normalizeLineBreaks(markdown).split('\n')
   const output: string[] = []
   let i = 0
   let inList: 'ul' | 'ol' | null = null

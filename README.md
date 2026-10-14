@@ -8,6 +8,8 @@ CypherX's client renderer: streaming chat UI + **Agentic UI** (KPI cards, charts
 > **Integrating with CypherX?** Start here:
 > - **[INTEGRATION.md](./INTEGRATION.md)** — connect to your CypherX backend, render AUI surfaces, sessions/history, the event protocol.
 > - **[THEMING.md](./THEMING.md)** — match your brand (colors, fonts, radius, **chart palette**) by overriding `--cxc-*` tokens.
+> - **[BROWSER_SDK.md](./BROWSER_SDK.md)** - JSP/plain JavaScript integration with the self-contained browser SDK and ZIP examples.
+> - **[DEVELOPER_INTEGRATION_GUIDE.md](./DEVELOPER_INTEGRATION_GUIDE.md)** - Client handoff: JSP setup, Java endpoint, security, Android, troubleshooting, and acceptance checklist.
 
 ---
 
@@ -33,6 +35,19 @@ CypherX's client renderer: streaming chat UI + **Agentic UI** (KPI cards, charts
 ---
 
 ## Quick Start
+
+### JSP and Plain JavaScript
+
+The browser SDK reuses these components inside Shadow DOM and bundles React and
+its styles. Consumers need no npm installation or frontend build. Build a
+shareable ZIP with `npm run build` followed by `npm run package:browser`; the
+archive appears in `artifacts/` and contains an offline HTML demo, a JSP example,
+API declarations, checksums and third-party notices. See [BROWSER_SDK.md](./BROWSER_SDK.md).
+
+Verify the delivered ZIP with `npm run test:browser` (install Chromium, Firefox
+and WebKit using `npx playwright install chromium firefox webkit`). This runs
+alongside the React layout suite in CI. No package publication is needed to
+consume the ZIP. Do not load the React stylesheet alongside the browser widget.
 
 ### Installation
 
@@ -60,6 +75,29 @@ In your global CSS (e.g. `globals.css` for Next.js):
 /* Import design tokens */
 @import "@cypherx/chat-ui/styles.css";
 ```
+
+### Responsive Embeds
+
+Chat spacing and the session sidebar adapt to the **chat container's width**,
+including a narrow widget on a wide desktop page. The mobile session selector
+is used below 768px of chat width. AUI surfaces are unframed block stacks;
+individual charts retain their cards. Chart titles and legends wrap, with the
+legend below the plot so additional legend rows do not shrink the plotted data.
+
+Import the full `styles.css` from the same build as the JavaScript. Updating JS
+while retaining an old copied stylesheet will not apply these layout rules.
+`markdown.css` alone does not style charts or the chat shell. The browser SDK
+already bundles the matching styles.
+
+For a flex/grid embed, allow its parent to shrink (`min-width: 0`; use
+`minmax(0, 1fr)` for a grid track) and give the chat a defined height. Avoid
+fixed widths or percentage bubble widths around assistant charts. Container
+queries require a modern browser; older browsers retain the compact layout.
+
+Regression checks: `npm run build && npm run test:layout`. The chart fixture at
+`/responsive-charts.html` in `npm run harness -- --mode distribution` covers
+phone widths, narrow desktop embeds, resize/hide/reopen, long legends,
+tooltips, expansion, CSV export, and the freshly built JSP widget.
 
 ### Basic Usage
 

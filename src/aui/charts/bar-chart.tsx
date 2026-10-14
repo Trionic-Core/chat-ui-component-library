@@ -7,8 +7,6 @@ import {
   CartesianGrid,
   LabelList,
   ReferenceLine,
-  Tooltip,
-  Legend,
   ResponsiveContainer,
   type LabelProps,
 } from 'recharts'
@@ -29,7 +27,6 @@ import {
   longestValueLabel,
   seriesValueLabel,
   shouldShowLegend,
-  chartLegendProps,
   BAR_VALUE_DOMAIN,
 } from './chart-helpers'
 import {
@@ -51,6 +48,8 @@ import { usePrefersReducedMotion } from '../hooks/use-prefers-reduced-motion'
 import { useCategoryTicks } from './use-category-ticks'
 import { useSeriesFormatters } from './use-series-formatters'
 import { ChartEmpty } from './chart-empty'
+import { ChartLegend } from './chart-frame'
+import { ChartTooltip } from './chart-tooltip'
 
 /** recharts' own default cartesian margin, which this chart keeps as its base. */
 const DEFAULT_MARGIN_PX = 5
@@ -231,14 +230,14 @@ export function BarChart({
             </>
           )}
 
-          <Tooltip
+          <ChartTooltip
             cursor={false}
             contentStyle={CHART_TOOLTIP_STYLE}
             formatter={formatters.tooltip}
             labelFormatter={verticalTicks.tooltipLabelFormatter}
           />
 
-          {showLegend && <Legend {...chartLegendProps()} />}
+          {showLegend && <ChartLegend />}
 
           {/* One series colour on both sides of zero: colouring by sign would be
               a semantic claim ("bad") the client palette cannot make. */}

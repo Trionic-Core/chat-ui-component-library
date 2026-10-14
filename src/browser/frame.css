@@ -1,0 +1,24 @@
+/* Only loaded inside an SDK-owned shadow root. */
+:host { display: block; min-width: 0; max-width: 100%; }
+.cxc-browser-root {
+  all: initial;
+  display: block;
+  --cxc-browser-rem: 16px;
+  font-size: var(--cxc-browser-rem);
+  font-family: var(--cxc-font-sans);
+  color: var(--cxc-text);
+  line-height: 1.6;
+  letter-spacing: 0;
+  text-align: start;
+  text-transform: none;
+  white-space: normal;
+  direction: ltr;
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  isolation: isolate;
+}
+.cxc-browser-app { width: 100%; height: 100%; min-width: 0; min-height: 0; }
+.cxc-browser-root[data-mode="inline"] { overflow: hidden; }
+.cxc-browser-root[data-mode="widget"] { position: relative; z-index: 2147483000; }
+.cxc-browser-root :is(h1, h2, h3, h4, h5, h6) { overflow-wrap: anywhere; letter-spacing: 0 !important; }

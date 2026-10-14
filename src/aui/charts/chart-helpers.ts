@@ -8,7 +8,7 @@ import { formatValue, formatWithUnit } from '../format'
 import type { CellValue, ChartFieldRef, DataRow } from '../aui-types'
 
 /**
- * Shared <Legend> props for the cartesian wrappers (bar/area/line/scatter).
+ * Shared <Legend> text styling for all chart wrappers.
  *
  * `labelStyle` is load-bearing, not decoration: recharts' DefaultLegendContent
  * falls back to `entry.color` for the label when no label color is set, so a
@@ -16,7 +16,7 @@ import type { CellValue, ChartFieldRef, DataRow } from '../aui-types'
  * the canvas. Pinning the text to the secondary text token keeps the coloured
  * swatch as the identity cue and the label as plain, legible text.
  *
- * The pie chart intentionally diverges (vertical/icon overrides).
+ * ChartLegend supplies wrapping content; pie charts use round swatches.
  */
 export function chartLegendProps() {
   return {
