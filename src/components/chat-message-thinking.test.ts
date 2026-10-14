@@ -7,10 +7,10 @@ import { ChatMessage } from './chat-message'
 import type { ChatAction, ChatMessage as ChatMessageData } from '../types'
 
 /* ------------------------------------------------------------------
- * The typing dots stay until the first text arrives. A status line such
- * as "Searched documents" is not an answer: a knowledge answer is checked
- * whole and arrives as one token after a long wait, so the dots must keep
- * showing under the status.
+ * An assistant message shows exactly one working signal until the first
+ * text arrives. With a step list ("Searched documents") the list's own
+ * shimmering "Thinking..." header is that signal; without steps, the
+ * separate thinking indicator is.
  * ----------------------------------------------------------------*/
 
 ;(globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true
@@ -60,26 +60,30 @@ async function mount(message: ChatMessageData, isStreaming: boolean) {
 }
 
 const dots = () => container.querySelector('[aria-label="AI is thinking"]')
+const thinkingCount = () => (container.textContent?.match(/Thinking\.\.\./g) ?? []).length
 
-describe('the typing dots on an assistant message', () => {
-  it('show under a status line while no text has arrived', async () => {
+describe('the working signal on an assistant message', () => {
+  it('is the step list alone while a step runs and no text has arrived', async () => {
     await mount(assistant('', [SEARCHED]), true)
     expect(container.textContent).toContain('Searched documents')
-    expect(dots()).not.toBeNull()
+    expect(thinkingCount()).toBe(1)
+    expect(dots()).toBeNull()
   })
 
-  it('show while streaming with no text and no status', async () => {
+  it('is the thinking indicator while streaming with no text and no steps', async () => {
     await mount(assistant(''), true)
     expect(dots()).not.toBeNull()
   })
 
-  it('hide once the first text arrives', async () => {
+  it('ends once the first text arrives', async () => {
     await mount(assistant('Hi', [SEARCHED]), true)
     expect(dots()).toBeNull()
+    expect(container.textContent).toContain('Hi')
   })
 
-  it('hide when the message is not streaming', async () => {
+  it('ends when the message is not streaming', async () => {
     await mount(assistant('', [SEARCHED]), false)
     expect(dots()).toBeNull()
+    expect(thinkingCount()).toBe(0)
   })
 })

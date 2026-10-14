@@ -5234,7 +5234,7 @@ function ChatMessage({
   const hasReasoning = Boolean(message.reasoning);
   const hasFollowups = Boolean(message.followups);
   const hasBlocks = (message.blocks?.length ?? 0) > 0;
-  const showThinking = isStreaming && !hasContent;
+  const showThinking = isStreaming && !hasContent && !hasActions;
   const enableEdit = isUser && isLast && config.enableRegenerate === true;
   const enableRegenButton = isAssistant && isLast && config.enableRegenerate === true && !isStreaming;
   const feedbackEnabled = isAssistant && Boolean(config.feedback) && Boolean(message.backendMessageId) && !isStreaming;
@@ -8463,6 +8463,7 @@ function useChat() {
 }
 
 // src/utils/sse-events.ts
+var ACTION_STATUSES = ["pending", "running", "completed", "error"];
 function defaultParseEvent(eventType, data) {
   try {
     const value = JSON.parse(data);
@@ -8475,18 +8476,22 @@ function defaultParseEvent(eventType, data) {
         return { type: "thinking", active: parsed.active !== false };
       case "reasoning":
         return { type: "reasoning", text: String(parsed.text ?? "") };
-      case "action":
+      case "action": {
+        const status = String(parsed.status ?? "");
+        const knownStatus = ACTION_STATUSES.includes(status);
         return {
           type: "action",
           action: {
             id: String(parsed.id ?? crypto.randomUUID()),
             type: String(parsed.action_type ?? parsed.type ?? "unknown"),
-            label: String(parsed.label ?? ""),
-            status: ["pending", "running", "completed", "error"].includes(String(parsed.status)) ? String(parsed.status) : "running",
+            // A status-only step ({"status": "Searched documents"}, the knowledge chat) is its own label.
+            label: String(parsed.label ?? (knownStatus ? "" : status)),
+            status: knownStatus ? status : "running",
             detail: parsed.detail != null ? String(parsed.detail) : void 0,
             timestamp: /* @__PURE__ */ new Date()
           }
         };
+      }
       case "action_update":
         return {
           type: "action_update",
