@@ -129,6 +129,17 @@ describe('FileBlockCard — each state', () => {
     expect(button()?.textContent).toBe('Download')
   })
 
+  it.each<[FileBlock['format'], string]>([
+    ['csv', 'CSV'],
+    ['pdf', 'PDF'],
+    ['docx', 'DOCX'],
+  ])('tags the format square: %s', async (format, tag) => {
+    await mount({ ...READY_CSV, format }, fakeHost())
+    const tile = container.querySelector('[data-file-format]')
+    expect(tile?.getAttribute('data-file-format')).toBe(format)
+    expect(tile?.textContent).toBe(tag)
+  })
+
   it('ready and truncated: "First N rows"', async () => {
     await mount({ ...READY_CSV, row_count: 100000, truncated: true }, fakeHost())
     expect(text()).toContain('First 100,000 rows')
@@ -140,6 +151,25 @@ describe('FileBlockCard — each state', () => {
     expect(text()).toContain(sentence)
     expect(text()).not.toContain('Preparing…')
     expect(button()).toBeNull()
+  })
+
+  it('failed: a muted next step under the error sentence', async () => {
+    await mount(CSV, fakeHost([statusOf({ status: 'failed', error: 'The query took too long.' })]))
+    expect(text()).toContain('The query took too long.Ask again in the chat.')
+  })
+
+  it('failed on 404: the same next step', async () => {
+    await mount(CSV, fakeHost([httpError(404)]))
+    expect(text()).toContain('Ask again in the chat.')
+  })
+
+  it.each<[string, FileBlock, FileStatus]>([
+    ['preparing', CSV, statusOf({ status: 'preparing' })],
+    ['ready', READY_CSV, statusOf()],
+    ['expired', { ...READY_CSV, expires_at: PAST }, statusOf()],
+  ])('%s: no next-step line', async (_state, block, answer) => {
+    await mount(block, fakeHost([answer]))
+    expect(text()).not.toContain('Ask again in the chat.')
   })
 
   it('expired: "Expired" when expires_at is past, with no button and no read', async () => {
@@ -168,6 +198,39 @@ describe('FileBlockCard — each state', () => {
     await mount(CSV, fakeHost([statusOf({ status: 'preparing' })]))
     const region = container.querySelector('[aria-live="polite"]')
     expect(region?.textContent).toBe('Preparing…')
+  })
+})
+
+describe('FileBlockCard — the progress line', () => {
+  function progress() {
+    return container.querySelector('[role="progressbar"]')
+  }
+
+  it('shows while the file is prepared, with no value', async () => {
+    await mount(CSV, fakeHost([statusOf({ status: 'preparing' })]))
+    expect(progress()).not.toBeNull()
+    expect(progress()?.hasAttribute('aria-valuenow')).toBe(false)
+  })
+
+  it('goes away once the file is ready', async () => {
+    await mount(CSV, fakeHost([statusOf({ status: 'preparing' }), statusOf()]))
+    expect(progress()).not.toBeNull()
+    await advance(2_000)
+    expect(progress()).toBeNull()
+  })
+
+  it.each<[string, FileBlock, FileStatus]>([
+    ['ready', READY_CSV, statusOf()],
+    ['failed', CSV, statusOf({ status: 'failed' })],
+    ['expired', { ...READY_CSV, expires_at: PAST }, statusOf()],
+  ])('%s: no progress line', async (_state, block, answer) => {
+    await mount(block, fakeHost([answer]))
+    expect(progress()).toBeNull()
+  })
+
+  it('does not show without the host adapter, since nothing reads the status', async () => {
+    await mount(CSV)
+    expect(progress()).toBeNull()
   })
 })
 

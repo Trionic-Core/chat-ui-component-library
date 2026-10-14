@@ -41,16 +41,28 @@ import {
  * so its first read is final and the card reads once.
  * ----------------------------------------------------------------*/
 
-const FORMAT_ICON: Record<FileBlock['format'], LucideIcon> = {
-  csv: FileSpreadsheet,
-  pdf: FileText,
-  docx: FileType,
+interface FormatLook {
+  Icon: LucideIcon
+  /** A chart palette slot, so a host's brand colors reach the card too. */
+  tint: string
 }
+
+/** Each format gets its own quiet color, so CSV, PDF and DOCX differ at a glance. */
+const FORMAT_LOOK: Record<FileBlock['format'], FormatLook> = {
+  csv: { Icon: FileSpreadsheet, tint: 'var(--cxc-chart-2)' },
+  pdf: { Icon: FileText, tint: 'var(--cxc-chart-1)' },
+  docx: { Icon: FileType, tint: 'var(--cxc-chart-4)' },
+}
+
+/** A format this version does not know: a neutral file icon. */
+const UNKNOWN_FORMAT: FormatLook = { Icon: File, tint: 'var(--cxc-text-secondary)' }
 
 /** Every icon on the card: 16 px, stroke 1.2. */
 const ICON = { size: 16, strokeWidth: 1.2, 'aria-hidden': true } as const
 
 const DOWNLOAD_FAILED_TEXT = 'Download failed. Try again.'
+/** The next step under a failed file: the chat can make the file again. */
+const FAILED_HINT_TEXT = 'Ask again in the chat.'
 
 interface FileBlockCardProps {
   block: FileBlock
@@ -87,11 +99,7 @@ export function FileBlockCard({ block, files }: FileBlockCardProps) {
   return (
     <Card padding="sm" className="flex flex-wrap items-start gap-3">
       <div className="flex min-w-0 grow basis-60 items-start gap-3">
-        <FormatTile
-          Icon={FORMAT_ICON[block.format] ?? File}
-          pulsing={Boolean(files) && keepsPolling(view.state) && !reducedMotion}
-          dimmed={expired}
-        />
+        <FormatTile format={block.format} dimmed={expired} />
         <div className="min-w-0 flex-1">
           <p
             className="truncate text-sm font-medium"
@@ -107,6 +115,9 @@ export function FileBlockCard({ block, files }: FileBlockCardProps) {
             <StatusLine view={view} />
             {downloadFailed && <p style={{ color: 'var(--cxc-error)' }}>{DOWNLOAD_FAILED_TEXT}</p>}
           </div>
+          {files && keepsPolling(view.state) && (
+            <ProgressLine label={`Preparing ${name}`} still={reducedMotion} />
+          )}
         </div>
       </div>
 
@@ -200,36 +211,71 @@ function StatusLine({ view }: { view: FileView }) {
       return until ? <p style={{ color: 'var(--cxc-text-muted)' }}>Available until {until}</p> : null
     }
     case 'failed':
-      return <p style={{ color: 'var(--cxc-error)' }}>{view.error}</p>
+      return (
+        <>
+          <p style={{ color: 'var(--cxc-error)' }}>{view.error}</p>
+          <p style={{ color: 'var(--cxc-text-muted)' }}>{FAILED_HINT_TEXT}</p>
+        </>
+      )
     case 'expired':
       return <p style={{ color: 'var(--cxc-text-muted)' }}>Expired</p>
   }
 }
 
-/** The format icon on a quiet tile. It breathes while the file is prepared. */
-function FormatTile({
-  Icon,
-  pulsing,
-  dimmed,
-}: {
-  Icon: LucideIcon
-  pulsing: boolean
-  dimmed: boolean
-}) {
+/**
+ * The format icon on a tinted tile, with the format tag on its lower edge.
+ * An expired file loses its color.
+ */
+function FormatTile({ format, dimmed }: { format: FileBlock['format']; dimmed: boolean }) {
+  const { Icon, tint } = FORMAT_LOOK[format] ?? UNKNOWN_FORMAT
+  const color = dimmed ? 'var(--cxc-text-muted)' : tint
   return (
-    <motion.span
-      className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg"
+    <span
+      data-file-format={format}
+      className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
       style={{
-        backgroundColor: 'var(--cxc-bg-subtle)',
-        color: dimmed ? 'var(--cxc-text-muted)' : 'var(--cxc-text-secondary)',
+        color,
+        backgroundColor: dimmed
+          ? 'var(--cxc-bg-subtle)'
+          : `color-mix(in srgb, ${tint} 14%, var(--cxc-bg))`,
       }}
-      animate={{ opacity: pulsing ? [1, 0.45, 1] : 1 }}
-      transition={
-        pulsing ? { duration: 1.6, repeat: Infinity, ease: 'easeInOut' } : { duration: 0.2 }
-      }
     >
-      <Icon {...ICON} />
-    </motion.span>
+      <Icon {...ICON} size={20} />
+      {/* The meta line names the format for a screen reader; the tag is for the eye. */}
+      <span
+        aria-hidden
+        className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded border px-1 text-[9px] font-medium leading-[13px] tracking-wide"
+        style={{
+          backgroundColor: 'var(--cxc-bg)',
+          borderColor: 'var(--cxc-border)',
+          color: 'var(--cxc-text-secondary)',
+        }}
+      >
+        {format.toUpperCase()}
+      </span>
+    </span>
+  )
+}
+
+/**
+ * A thin line that moves while the file is prepared. The job reports no
+ * percent, so the bar has no value. Under reduced motion the segment stays put.
+ */
+function ProgressLine({ label, still }: { label: string; still: boolean }) {
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      className="relative mt-2 h-0.5 overflow-hidden rounded-full"
+      style={{ backgroundColor: 'var(--cxc-border)' }}
+    >
+      <motion.div
+        className="absolute inset-y-0 left-0 w-1/3 rounded-full"
+        style={{ backgroundColor: 'var(--cxc-text-secondary)' }}
+        animate={still ? undefined : { x: ['-100%', '300%'] }}
+        transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+      />
+    </div>
   )
 }
 
