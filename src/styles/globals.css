@@ -68,6 +68,12 @@
     --cxc-chart-7: #00825A;
     --cxc-chart-8: #E11D48;
 
+    /* File card format colors (CSV / PDF / DOCX). Own tokens, not chart
+       slots: a format keeps one hue in both themes. */
+    --cxc-file-csv: #2A9D8F;
+    --cxc-file-pdf: #E56C4E;
+    --cxc-file-docx: #2B6CB0;
+
     /* --- User Message Bubble (Dark pill) --- */
     --cxc-user-bg: #2D2B28;
     --cxc-user-text: #F5F4F0;
@@ -178,6 +184,10 @@
     --cxc-chart-6: #8749FB;
     --cxc-chart-7: #00825A;
     --cxc-chart-8: #E11D48;
+
+    --cxc-file-csv: #2A9D8F;
+    --cxc-file-pdf: #E56C4E;
+    --cxc-file-docx: #2486A8;
 
     --cxc-user-bg: #2E2B25;
     --cxc-user-text: #E8E5E0;

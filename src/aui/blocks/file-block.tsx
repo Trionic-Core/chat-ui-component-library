@@ -1,0 +1,345 @@
+import { useCallback, useEffect, useRef, useState } from 'react'
+import { motion } from 'motion/react'
+import {
+  Download,
+  File,
+  FileSpreadsheet,
+  FileText,
+  FileType,
+  Loader2,
+  type LucideIcon,
+} from 'lucide-react'
+import { Button } from '../ui/button'
+import { Card } from '../ui/card'
+import { cn } from '../../utils/cn'
+import { useElementSize } from '../hooks/use-element-size'
+import { usePrefersReducedMotion } from '../hooks/use-prefers-reduced-motion'
+import type { FileBlock } from '../aui-types'
+import type { FileHandler, FileStatus } from '../file-handler'
+import {
+  fileMeta,
+  fileView,
+  formatExpiry,
+  isFileStatus,
+  keepsPolling,
+  nextPollDelayMs,
+  refusalOf,
+  type FileRefusal,
+  type FileView,
+} from './file-block-state'
+
+/* ------------------------------------------------------------------
+ * File Block
+ *
+ * A download card for a file the export tool made. A CSV arrives
+ * `preparing` and the card reads the host's status until the file is
+ * ready, failed or expired; a report arrives `ready`. The card never
+ * builds a URL: FileHandler makes both requests.
+ *
+ * Live and replayed blocks share one rule — read the status from mount
+ * while the state is preparing. The library cannot tell a replayed block
+ * from a live one (the history adapter and a host's own AuiView carry no
+ * flag), and it does not need to: a replayed block's job ended long ago,
+ * so its first read is final and the card reads once.
+ * ----------------------------------------------------------------*/
+
+interface FormatLook {
+  Icon: LucideIcon
+  /** A `--cxc-file-*` token, so a host can brand the format colors. */
+  tint: string
+}
+
+/** The light-theme `--cxc-file-*` values, for a host that loads no library CSS. */
+export const FILE_FORMAT_FALLBACKS: Record<FileBlock['format'], string> = {
+  csv: '#2A9D8F',
+  pdf: '#E56C4E',
+  docx: '#2B6CB0',
+}
+
+/** Each format gets its own quiet color, so CSV, PDF and DOCX differ at a glance. */
+const FORMAT_LOOK: Record<FileBlock['format'], FormatLook> = {
+  csv: { Icon: FileSpreadsheet, tint: `var(--cxc-file-csv, ${FILE_FORMAT_FALLBACKS.csv})` },
+  pdf: { Icon: FileText, tint: `var(--cxc-file-pdf, ${FILE_FORMAT_FALLBACKS.pdf})` },
+  docx: { Icon: FileType, tint: `var(--cxc-file-docx, ${FILE_FORMAT_FALLBACKS.docx})` },
+}
+
+/** A format this version does not know: a neutral file icon. */
+const UNKNOWN_FORMAT: FormatLook = { Icon: File, tint: 'var(--cxc-text-secondary)' }
+
+/** Every icon on the card: 16 px, stroke 1.2. */
+const ICON = { size: 16, strokeWidth: 1.2, 'aria-hidden': true } as const
+
+/**
+ * Below this content width (a phone, the chat widget) the Download button shows
+ * its icon only, so it stays on the right and the name keeps its room.
+ */
+const NARROW_CARD_PX = 400
+
+/** Until the first measurement, and without a DOM, the card lays out wide. */
+const WIDE_FALLBACK = { width: 600, height: 72 }
+
+const DOWNLOAD_FAILED_TEXT = 'Download failed. Try again.'
+/** The next step under a failed file: the chat can make the file again. */
+const FAILED_HINT_TEXT = 'Ask again in the chat.'
+
+interface FileBlockCardProps {
+  block: FileBlock
+  files?: FileHandler
+}
+
+export function FileBlockCard({ block, files }: FileBlockCardProps) {
+  const { status, refusal, setRefusal } = useFileStatus(block, files)
+  const [busy, setBusy] = useState(false)
+  const [downloadFailed, setDownloadFailed] = useState(false)
+  const reducedMotion = usePrefersReducedMotion()
+  // Card does not forward a ref, so the row inside it is what the card measures.
+  const row = useRef<HTMLDivElement>(null)
+  const narrow = useElementSize(row, WIDE_FALLBACK).width < NARROW_CARD_PX
+
+  const view = fileView(block, status, refusal, Date.now())
+  const meta = fileMeta(block.format, view)
+  const name = block.title || block.file_name
+  const expired = view.state === 'expired'
+
+  // A ref, not `busy`: two clicks in one frame both read the old state.
+  const downloading = useRef(false)
+  const handleDownload = useCallback(async () => {
+    if (!files || downloading.current) return
+    downloading.current = true
+    setBusy(true)
+    setDownloadFailed(false)
+    try {
+      await files.download(block)
+    } catch (error) {
+      const code = refusalOf(error)
+      if (code === null) setDownloadFailed(true)
+      else setRefusal(code)
+    } finally {
+      downloading.current = false
+      setBusy(false)
+    }
+  }, [files, block, setRefusal])
+
+  const downloadable = Boolean(files) && view.state === 'ready'
+
+  // A ready card downloads from a click anywhere on it. The Button stays the
+  // keyboard and screen reader control, and its click reaches the same handler
+  // by bubbling, so one click is one download.
+  return (
+    <motion.div
+      className={cn('outline-none', downloadable && 'cursor-pointer')}
+      onClick={downloadable ? handleDownload : undefined}
+      // whileTap makes Motion set tabIndex 0 on an element that has none. The
+      // button is the one tab stop, so the card opts out.
+      tabIndex={-1}
+      whileTap={downloadable && !reducedMotion ? { scale: 0.99 } : undefined}
+    >
+      <Card
+        padding="sm"
+        // The hover color is a class, and Card's inline background would win
+        // over it, so a downloadable card takes its background from classes.
+        className={cn(
+          downloadable &&
+            'bg-[var(--cxc-bg)] transition-colors duration-150 hover:bg-[var(--cxc-bg-subtle)]',
+        )}
+        style={downloadable ? { backgroundColor: undefined } : undefined}
+      >
+        <div ref={row} className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <FormatTile format={block.format} dimmed={expired} />
+            <div className="min-w-0 flex-1">
+              <p
+                className="truncate text-sm font-medium"
+                title={name}
+                style={{ color: expired ? 'var(--cxc-text-muted)' : 'var(--cxc-text)' }}
+              >
+                {name}
+              </p>
+              {meta && (
+                <p className="text-xs" style={{ color: 'var(--cxc-text-secondary)' }}>
+                  {meta}
+                </p>
+              )}
+              <div aria-live="polite" className="text-xs">
+                <StatusLine view={view} />
+                {downloadFailed && (
+                  <p style={{ color: 'var(--cxc-error)' }}>{DOWNLOAD_FAILED_TEXT}</p>
+                )}
+              </div>
+              {files && keepsPolling(view.state) && (
+                <ProgressLine label={`Preparing ${name}`} still={reducedMotion} />
+              )}
+            </div>
+          </div>
+
+          {downloadable && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="shrink-0 rounded-lg"
+              disabled={busy}
+              aria-busy={busy}
+              aria-label={`Download ${block.file_name}`}
+            >
+              {busy ? <Spinner still={reducedMotion} /> : <Download {...ICON} />}
+              {!narrow && 'Download'}
+            </Button>
+          )}
+        </div>
+      </Card>
+    </motion.div>
+  )
+}
+
+/* ---------------------------- Status poll ------------------------ */
+
+/**
+ * Read the file's status while it is preparing: every 2 s for 30 s, then
+ * every 10 s, until the state is final. Unmount aborts the read in flight
+ * and clears the next one.
+ */
+function useFileStatus(block: FileBlock, files: FileHandler | undefined) {
+  const [status, setStatus] = useState<FileStatus | null>(null)
+  const [refusal, setRefusal] = useState<FileRefusal | null>(null)
+
+  // The loop reads the latest block and adapter from here. A host often passes
+  // a new adapter object on each render; restarting the loop on that identity
+  // would turn every re-render into another status read.
+  const latest = useRef({ block, files })
+  useEffect(() => {
+    latest.current = { block, files }
+  })
+
+  const hasFiles = Boolean(files)
+  const { file_id: fileId, status: sentStatus, expires_at: sentExpiry } = block
+
+  useEffect(() => {
+    if (!hasFiles || !keepsPolling(fileView(latest.current.block, null, null, Date.now()).state)) {
+      return
+    }
+    const controller = new AbortController()
+    const startedAt = Date.now()
+    let timer: ReturnType<typeof setTimeout> | undefined
+
+    async function poll() {
+      const { block: current, files: handler } = latest.current
+      if (!handler) return
+      try {
+        const next = await handler.status(current, controller.signal)
+        if (controller.signal.aborted) return
+        if (!isFileStatus(next)) throw new Error('the status body has no known status')
+        setStatus(next)
+        if (!keepsPolling(fileView(current, next, null, Date.now()).state)) return
+      } catch (error) {
+        if (controller.signal.aborted) return
+        const code = refusalOf(error)
+        if (code !== null) {
+          setRefusal(code)
+          return
+        }
+        console.warn('[aui] file status read failed; the card tries again:', error)
+      }
+      timer = setTimeout(poll, nextPollDelayMs(Date.now() - startedAt))
+    }
+
+    void poll()
+    return () => {
+      controller.abort()
+      clearTimeout(timer)
+    }
+  }, [hasFiles, fileId, sentStatus, sentExpiry])
+
+  return { status, refusal, setRefusal }
+}
+
+/* ------------------------------ Parts ---------------------------- */
+
+function StatusLine({ view }: { view: FileView }) {
+  switch (view.state) {
+    case 'preparing':
+      return <p style={{ color: 'var(--cxc-text-muted)' }}>Preparing…</p>
+    case 'ready': {
+      const until = formatExpiry(view.expiresAt)
+      return until ? <p style={{ color: 'var(--cxc-text-muted)' }}>Available until {until}</p> : null
+    }
+    case 'failed':
+      return (
+        <>
+          <p style={{ color: 'var(--cxc-error)' }}>{view.error}</p>
+          <p style={{ color: 'var(--cxc-text-muted)' }}>{FAILED_HINT_TEXT}</p>
+        </>
+      )
+    case 'expired':
+      return <p style={{ color: 'var(--cxc-text-muted)' }}>Expired</p>
+  }
+}
+
+/**
+ * The format icon on a tinted tile, with the format tag on its lower edge.
+ * An expired file loses its color.
+ */
+function FormatTile({ format, dimmed }: { format: FileBlock['format']; dimmed: boolean }) {
+  const { Icon, tint } = FORMAT_LOOK[format] ?? UNKNOWN_FORMAT
+  const color = dimmed ? 'var(--cxc-text-muted)' : tint
+  return (
+    <span
+      data-file-format={format}
+      className="relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg"
+      style={{
+        color,
+        backgroundColor: dimmed
+          ? 'var(--cxc-bg-subtle)'
+          : `color-mix(in srgb, ${tint} 14%, var(--cxc-bg))`,
+      }}
+    >
+      <Icon {...ICON} size={20} />
+      {/* The meta line names the format for a screen reader; the tag is for the eye. */}
+      <span
+        aria-hidden
+        className="absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded border px-1 text-[9px] font-medium leading-[13px] tracking-wide"
+        style={{
+          backgroundColor: 'var(--cxc-bg)',
+          borderColor: 'var(--cxc-border)',
+          color: 'var(--cxc-text-secondary)',
+        }}
+      >
+        {format.toUpperCase()}
+      </span>
+    </span>
+  )
+}
+
+/**
+ * A thin line that moves while the file is prepared. The job reports no
+ * percent, so the bar has no value. Under reduced motion the segment stays put.
+ */
+function ProgressLine({ label, still }: { label: string; still: boolean }) {
+  return (
+    <div
+      role="progressbar"
+      aria-label={label}
+      className="relative mt-2 h-0.5 overflow-hidden rounded-full"
+      style={{ backgroundColor: 'var(--cxc-border)' }}
+    >
+      <motion.div
+        className="absolute inset-y-0 left-0 w-1/3 rounded-full"
+        style={{ backgroundColor: 'var(--cxc-text-secondary)' }}
+        animate={still ? undefined : { x: ['-100%', '300%'] }}
+        transition={{ duration: 1.4, repeat: Infinity, ease: 'easeInOut' }}
+      />
+    </div>
+  )
+}
+
+function Spinner({ still }: { still: boolean }) {
+  return (
+    <motion.span
+      className="inline-flex"
+      animate={still ? undefined : { rotate: 360 }}
+      transition={{ duration: 1, repeat: Infinity, ease: 'linear' }}
+    >
+      <Loader2 {...ICON} />
+    </motion.span>
+  )
+}

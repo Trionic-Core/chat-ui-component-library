@@ -445,6 +445,7 @@ function ChatProvider({
   feedback,
   voice,
   voiceStatus,
+  files,
   enableRegenerate = false
 }) {
   const [state, dispatch] = react.useReducer(chatReducer, {
@@ -476,9 +477,10 @@ function ChatProvider({
       feedback,
       voice,
       voiceStatus,
+      files,
       enableRegenerate
     }),
-    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, enableRegenerate]
+    [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, files, enableRegenerate]
   );
   const acceptForSend = react.useCallback(
     (message) => {
@@ -2204,6 +2206,9 @@ function hasTextShape(block) {
 function hasActionsShape(block) {
   return Array.isArray(block.actions);
 }
+function hasFileShape(block) {
+  return typeof block.file_id === "string" && typeof block.file_name === "string" && typeof block.format === "string" && typeof block.expires_at === "string" && (block.status === "preparing" || block.status === "ready");
+}
 function isValidBlock(value) {
   if (!isRecord(value)) return false;
   switch (value.type) {
@@ -2217,6 +2222,8 @@ function isValidBlock(value) {
       return hasTextShape(value);
     case "actions":
       return hasActionsShape(value);
+    case "file":
+      return hasFileShape(value);
     default:
       return false;
   }
@@ -4766,7 +4773,9 @@ var Button = react.forwardRef(
         className: cn(
           "inline-flex items-center justify-center gap-1.5 rounded-md font-medium",
           "transition-colors duration-150",
-          "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2",
+          // An outline, not a ring: the ring is a box-shadow, and the variant's
+          // inline boxShadow overrode it, so keyboard focus was invisible.
+          "focus-visible:[outline:2px_solid_var(--cxc-accent)] focus-visible:outline-offset-2",
           "disabled:pointer-events-none disabled:opacity-50",
           sizeClasses[size],
           className
@@ -4807,12 +4816,321 @@ function ActionButton({
     }
   );
 }
+
+// src/aui/blocks/file-block-state.ts
+var FAST_POLL_MS = 2e3;
+var FAST_POLL_WINDOW_MS = 3e4;
+var SLOW_POLL_MS = 1e4;
+var FAILED_TEXT = "The file could not be created.";
+var UNAVAILABLE_TEXT = "This file is not available.";
+var STATUSES = /* @__PURE__ */ new Set(["preparing", "ready", "failed", "expired"]);
+function nextPollDelayMs(elapsedMs) {
+  return elapsedMs < FAST_POLL_WINDOW_MS ? FAST_POLL_MS : SLOW_POLL_MS;
+}
+function keepsPolling(state) {
+  return state === "preparing";
+}
+function parseTime(iso) {
+  return Date.parse(iso.replace(/(\.\d{3})\d+/, "$1"));
+}
+function isExpired(expiresAt, now) {
+  const at = parseTime(expiresAt);
+  return Number.isFinite(at) && at <= now;
+}
+function isFileStatus(value) {
+  if (typeof value !== "object" || value === null) return false;
+  const body = value;
+  return STATUSES.has(body.status) && typeof body.expires_at === "string";
+}
+function refusalOf(error) {
+  const code = error?.status;
+  return code === 404 || code === 410 ? code : null;
+}
+function fileView(block, status, refusal, now) {
+  const expiresAt = status?.expires_at ?? block.expires_at;
+  const facts = {
+    sizeBytes: status?.size_bytes ?? block.size_bytes ?? null,
+    rowCount: status?.row_count ?? block.row_count ?? null,
+    truncated: status?.truncated ?? block.truncated ?? false,
+    expiresAt
+  };
+  if (refusal === 410 || isExpired(expiresAt, now)) {
+    return { ...facts, state: "expired", error: null };
+  }
+  if (refusal === 404) return { ...facts, state: "failed", error: UNAVAILABLE_TEXT };
+  const state = status?.status ?? block.status;
+  if (state === "failed") return { ...facts, state, error: status?.error || FAILED_TEXT };
+  return { ...facts, state, error: null };
+}
+var SIZE_UNITS = ["B", "KB", "MB", "GB"];
+var ONE_DECIMAL = new Intl.NumberFormat("en-US", { maximumFractionDigits: 1 });
+var WHOLE = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+var DATE = new Intl.DateTimeFormat("en-US", { month: "short", day: "numeric", year: "numeric" });
+function formatFileSize(bytes) {
+  if (bytes === null || !Number.isFinite(bytes) || bytes < 0) return null;
+  let value = bytes;
+  let unit = 0;
+  while (value >= 1024 && unit < SIZE_UNITS.length - 1) {
+    value /= 1024;
+    unit += 1;
+  }
+  const digits = unit > 0 && value < 10 ? ONE_DECIMAL : WHOLE;
+  return `${digits.format(value)} ${SIZE_UNITS[unit]}`;
+}
+function formatRowCount(rowCount, truncated) {
+  if (rowCount === null || !Number.isFinite(rowCount) || rowCount < 0) return null;
+  const count = WHOLE.format(rowCount);
+  if (truncated) return `First ${count} rows`;
+  return rowCount === 1 ? "1 row" : `${count} rows`;
+}
+function formatExpiry(expiresAt) {
+  const at = parseTime(expiresAt);
+  return Number.isFinite(at) ? DATE.format(at) : null;
+}
+function fileMeta(format, view) {
+  return [
+    formatFileSize(view.sizeBytes),
+    format === "csv" ? formatRowCount(view.rowCount, view.truncated) : null
+  ].filter(Boolean).join(" \xB7 ");
+}
+var FILE_FORMAT_FALLBACKS = {
+  csv: "#2A9D8F",
+  pdf: "#E56C4E",
+  docx: "#2B6CB0"
+};
+var FORMAT_LOOK = {
+  csv: { Icon: lucideReact.FileSpreadsheet, tint: `var(--cxc-file-csv, ${FILE_FORMAT_FALLBACKS.csv})` },
+  pdf: { Icon: lucideReact.FileText, tint: `var(--cxc-file-pdf, ${FILE_FORMAT_FALLBACKS.pdf})` },
+  docx: { Icon: lucideReact.FileType, tint: `var(--cxc-file-docx, ${FILE_FORMAT_FALLBACKS.docx})` }
+};
+var UNKNOWN_FORMAT = { Icon: lucideReact.File, tint: "var(--cxc-text-secondary)" };
+var ICON = { size: 16, strokeWidth: 1.2, "aria-hidden": true };
+var NARROW_CARD_PX = 400;
+var WIDE_FALLBACK = { width: 600, height: 72 };
+var DOWNLOAD_FAILED_TEXT = "Download failed. Try again.";
+var FAILED_HINT_TEXT = "Ask again in the chat.";
+function FileBlockCard({ block, files }) {
+  const { status, refusal, setRefusal } = useFileStatus(block, files);
+  const [busy, setBusy] = react.useState(false);
+  const [downloadFailed, setDownloadFailed] = react.useState(false);
+  const reducedMotion = usePrefersReducedMotion();
+  const row = react.useRef(null);
+  const narrow = useElementSize(row, WIDE_FALLBACK).width < NARROW_CARD_PX;
+  const view = fileView(block, status, refusal, Date.now());
+  const meta = fileMeta(block.format, view);
+  const name = block.title || block.file_name;
+  const expired = view.state === "expired";
+  const downloading = react.useRef(false);
+  const handleDownload = react.useCallback(async () => {
+    if (!files || downloading.current) return;
+    downloading.current = true;
+    setBusy(true);
+    setDownloadFailed(false);
+    try {
+      await files.download(block);
+    } catch (error) {
+      const code = refusalOf(error);
+      if (code === null) setDownloadFailed(true);
+      else setRefusal(code);
+    } finally {
+      downloading.current = false;
+      setBusy(false);
+    }
+  }, [files, block, setRefusal]);
+  const downloadable = Boolean(files) && view.state === "ready";
+  return /* @__PURE__ */ jsxRuntime.jsx(
+    react$1.motion.div,
+    {
+      className: cn("outline-none", downloadable && "cursor-pointer"),
+      onClick: downloadable ? handleDownload : void 0,
+      tabIndex: -1,
+      whileTap: downloadable && !reducedMotion ? { scale: 0.99 } : void 0,
+      children: /* @__PURE__ */ jsxRuntime.jsx(
+        Card,
+        {
+          padding: "sm",
+          className: cn(
+            downloadable && "bg-[var(--cxc-bg)] transition-colors duration-150 hover:bg-[var(--cxc-bg-subtle)]"
+          ),
+          style: downloadable ? { backgroundColor: void 0 } : void 0,
+          children: /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: row, className: "flex items-center gap-3", children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-0 flex-1 items-start gap-3", children: [
+              /* @__PURE__ */ jsxRuntime.jsx(FormatTile, { format: block.format, dimmed: expired }),
+              /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "min-w-0 flex-1", children: [
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "p",
+                  {
+                    className: "truncate text-sm font-medium",
+                    title: name,
+                    style: { color: expired ? "var(--cxc-text-muted)" : "var(--cxc-text)" },
+                    children: name
+                  }
+                ),
+                meta && /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-xs", style: { color: "var(--cxc-text-secondary)" }, children: meta }),
+                /* @__PURE__ */ jsxRuntime.jsxs("div", { "aria-live": "polite", className: "text-xs", children: [
+                  /* @__PURE__ */ jsxRuntime.jsx(StatusLine, { view }),
+                  downloadFailed && /* @__PURE__ */ jsxRuntime.jsx("p", { style: { color: "var(--cxc-error)" }, children: DOWNLOAD_FAILED_TEXT })
+                ] }),
+                files && keepsPolling(view.state) && /* @__PURE__ */ jsxRuntime.jsx(ProgressLine, { label: `Preparing ${name}`, still: reducedMotion })
+              ] })
+            ] }),
+            downloadable && /* @__PURE__ */ jsxRuntime.jsxs(
+              Button,
+              {
+                type: "button",
+                variant: "secondary",
+                size: "sm",
+                className: "shrink-0 rounded-lg",
+                disabled: busy,
+                "aria-busy": busy,
+                "aria-label": `Download ${block.file_name}`,
+                children: [
+                  busy ? /* @__PURE__ */ jsxRuntime.jsx(Spinner, { still: reducedMotion }) : /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Download, { ...ICON }),
+                  !narrow && "Download"
+                ]
+              }
+            )
+          ] })
+        }
+      )
+    }
+  );
+}
+function useFileStatus(block, files) {
+  const [status, setStatus] = react.useState(null);
+  const [refusal, setRefusal] = react.useState(null);
+  const latest = react.useRef({ block, files });
+  react.useEffect(() => {
+    latest.current = { block, files };
+  });
+  const hasFiles = Boolean(files);
+  const { file_id: fileId, status: sentStatus, expires_at: sentExpiry } = block;
+  react.useEffect(() => {
+    if (!hasFiles || !keepsPolling(fileView(latest.current.block, null, null, Date.now()).state)) {
+      return;
+    }
+    const controller = new AbortController();
+    const startedAt = Date.now();
+    let timer;
+    async function poll() {
+      const { block: current, files: handler } = latest.current;
+      if (!handler) return;
+      try {
+        const next = await handler.status(current, controller.signal);
+        if (controller.signal.aborted) return;
+        if (!isFileStatus(next)) throw new Error("the status body has no known status");
+        setStatus(next);
+        if (!keepsPolling(fileView(current, next, null, Date.now()).state)) return;
+      } catch (error) {
+        if (controller.signal.aborted) return;
+        const code = refusalOf(error);
+        if (code !== null) {
+          setRefusal(code);
+          return;
+        }
+        console.warn("[aui] file status read failed; the card tries again:", error);
+      }
+      timer = setTimeout(poll, nextPollDelayMs(Date.now() - startedAt));
+    }
+    void poll();
+    return () => {
+      controller.abort();
+      clearTimeout(timer);
+    };
+  }, [hasFiles, fileId, sentStatus, sentExpiry]);
+  return { status, refusal, setRefusal };
+}
+function StatusLine({ view }) {
+  switch (view.state) {
+    case "preparing":
+      return /* @__PURE__ */ jsxRuntime.jsx("p", { style: { color: "var(--cxc-text-muted)" }, children: "Preparing\u2026" });
+    case "ready": {
+      const until = formatExpiry(view.expiresAt);
+      return until ? /* @__PURE__ */ jsxRuntime.jsxs("p", { style: { color: "var(--cxc-text-muted)" }, children: [
+        "Available until ",
+        until
+      ] }) : null;
+    }
+    case "failed":
+      return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntime.jsx("p", { style: { color: "var(--cxc-error)" }, children: view.error }),
+        /* @__PURE__ */ jsxRuntime.jsx("p", { style: { color: "var(--cxc-text-muted)" }, children: FAILED_HINT_TEXT })
+      ] });
+    case "expired":
+      return /* @__PURE__ */ jsxRuntime.jsx("p", { style: { color: "var(--cxc-text-muted)" }, children: "Expired" });
+  }
+}
+function FormatTile({ format, dimmed }) {
+  const { Icon, tint } = FORMAT_LOOK[format] ?? UNKNOWN_FORMAT;
+  const color = dimmed ? "var(--cxc-text-muted)" : tint;
+  return /* @__PURE__ */ jsxRuntime.jsxs(
+    "span",
+    {
+      "data-file-format": format,
+      className: "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
+      style: {
+        color,
+        backgroundColor: dimmed ? "var(--cxc-bg-subtle)" : `color-mix(in srgb, ${tint} 14%, var(--cxc-bg))`
+      },
+      children: [
+        /* @__PURE__ */ jsxRuntime.jsx(Icon, { ...ICON, size: 20 }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "span",
+          {
+            "aria-hidden": true,
+            className: "absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded border px-1 text-[9px] font-medium leading-[13px] tracking-wide",
+            style: {
+              backgroundColor: "var(--cxc-bg)",
+              borderColor: "var(--cxc-border)",
+              color: "var(--cxc-text-secondary)"
+            },
+            children: format.toUpperCase()
+          }
+        )
+      ]
+    }
+  );
+}
+function ProgressLine({ label, still }) {
+  return /* @__PURE__ */ jsxRuntime.jsx(
+    "div",
+    {
+      role: "progressbar",
+      "aria-label": label,
+      className: "relative mt-2 h-0.5 overflow-hidden rounded-full",
+      style: { backgroundColor: "var(--cxc-border)" },
+      children: /* @__PURE__ */ jsxRuntime.jsx(
+        react$1.motion.div,
+        {
+          className: "absolute inset-y-0 left-0 w-1/3 rounded-full",
+          style: { backgroundColor: "var(--cxc-text-secondary)" },
+          animate: still ? void 0 : { x: ["-100%", "300%"] },
+          transition: { duration: 1.4, repeat: Infinity, ease: "easeInOut" }
+        }
+      )
+    }
+  );
+}
+function Spinner({ still }) {
+  return /* @__PURE__ */ jsxRuntime.jsx(
+    react$1.motion.span,
+    {
+      className: "inline-flex",
+      animate: still ? void 0 : { rotate: 360 },
+      transition: { duration: 1, repeat: Infinity, ease: "linear" },
+      children: /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Loader2, { ...ICON })
+    }
+  );
+}
 var REGISTRY = {
   metric_group: ({ block }) => block.type === "metric_group" ? /* @__PURE__ */ jsxRuntime.jsx(MetricGroupBlock, { block }) : null,
   chart: ({ block }) => block.type === "chart" ? /* @__PURE__ */ jsxRuntime.jsx(ChartBlock, { block }) : null,
   table: ({ block }) => block.type === "table" ? /* @__PURE__ */ jsxRuntime.jsx(TableBlock, { block }) : null,
   text: ({ block }) => block.type === "text" ? /* @__PURE__ */ jsxRuntime.jsx(TextBlock, { block }) : null,
-  actions: ({ block, onSendMessage }) => block.type === "actions" ? /* @__PURE__ */ jsxRuntime.jsx(ActionsBlock, { block, onSendMessage }) : null
+  actions: ({ block, onSendMessage }) => block.type === "actions" ? /* @__PURE__ */ jsxRuntime.jsx(ActionsBlock, { block, onSendMessage }) : null,
+  // Keyed by the file, so a surface that swaps one file for another starts a
+  // fresh card instead of showing the old file's status.
+  file: ({ block, files }) => block.type === "file" ? /* @__PURE__ */ jsxRuntime.jsx(FileBlockCard, { block, files }, block.file_id) : null
 };
 function resolveBlock(block) {
   const renderer = REGISTRY[block.type];
@@ -4851,7 +5169,7 @@ var BlockErrorBoundary = class extends react.Component {
     return this.props.children;
   }
 };
-function AuiView({ spec, onSendMessage }) {
+function AuiView({ spec, onSendMessage, files }) {
   const blocks = react.useMemo(
     () => Array.isArray(spec.blocks) ? spec.blocks.filter(isValidBlock) : [],
     [spec.blocks]
@@ -4867,7 +5185,7 @@ function AuiView({ spec, onSendMessage }) {
         blocks.map((block, index) => {
           const Renderer = resolveBlock(block);
           if (!Renderer) return null;
-          return /* @__PURE__ */ jsxRuntime.jsx(BlockErrorBoundary, { blockType: block.type, children: /* @__PURE__ */ jsxRuntime.jsx(Renderer, { block, onSendMessage }) }, `${block.type}-${index}`);
+          return /* @__PURE__ */ jsxRuntime.jsx(BlockErrorBoundary, { blockType: block.type, children: /* @__PURE__ */ jsxRuntime.jsx(Renderer, { block, onSendMessage, files }) }, `${block.type}-${index}`);
         })
       ]
     }
@@ -5136,7 +5454,8 @@ function ChatMessage({
             AuiView,
             {
               spec,
-              onSendMessage: send
+              onSendMessage: send,
+              files: config.files
             },
             `${spec.surface_id}-${index}`
           )) }),

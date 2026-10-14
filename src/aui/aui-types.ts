@@ -154,6 +154,32 @@ export interface ActionsBlock {
   actions: ActionItem[]
 }
 
+/* ------------------------------ File ----------------------------- */
+
+/**
+ * A generated file (CSV, PDF or DOCX) the reader can download.
+ *
+ * Only the export tool emits it. It carries no URL: the host builds the
+ * request from `file_id` (see FileHandler). `status` is the state when the
+ * block was sent — a CSV starts `preparing` (it runs in the background), a
+ * report is `ready`. `failed` and `expired` come from the status route, never
+ * from this block. The optional fields are defaults on the backend model, which
+ * sends them as null until the file is ready.
+ */
+export interface FileBlock {
+  type: 'file'
+  file_id: string
+  file_name: string
+  format: 'csv' | 'pdf' | 'docx'
+  content_type: string
+  status: 'preparing' | 'ready'
+  size_bytes?: number | null
+  row_count?: number | null
+  truncated?: boolean
+  expires_at: string
+  title?: string | null
+}
+
 /* --------------------------- Union + spec ------------------------ */
 
 export type Block =
@@ -162,6 +188,7 @@ export type Block =
   | TableBlock
   | TextBlock
   | ActionsBlock
+  | FileBlock
 
 export type BlockType = Block['type']
 
@@ -218,6 +245,19 @@ function hasActionsShape(block: Record<string, unknown>): boolean {
   return Array.isArray(block.actions)
 }
 
+// Any format string renders: a format this client does not know gets a plain
+// file icon. The status decides whether the card polls, so it must be one the
+// card knows.
+function hasFileShape(block: Record<string, unknown>): boolean {
+  return (
+    typeof block.file_id === 'string' &&
+    typeof block.file_name === 'string' &&
+    typeof block.format === 'string' &&
+    typeof block.expires_at === 'string' &&
+    (block.status === 'preparing' || block.status === 'ready')
+  )
+}
+
 /** True when `value` is a renderable block of a known type with its required shape. */
 export function isValidBlock(value: unknown): value is Block {
   if (!isRecord(value)) return false
@@ -232,6 +272,8 @@ export function isValidBlock(value: unknown): value is Block {
       return hasTextShape(value)
     case 'actions':
       return hasActionsShape(value)
+    case 'file':
+      return hasFileShape(value)
     default:
       return false
   }

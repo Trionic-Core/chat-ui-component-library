@@ -42,6 +42,11 @@ tokens, and typography reads `--cxc-font-*`.
      --cxc-chart-6: #8b5cf6;
      --cxc-chart-7: #ec4899;
      --cxc-chart-8: #14b8a6;
+
+     /* File card format colors (CSV, PDF, DOCX) */
+     --cxc-file-csv: #0f766e;
+     --cxc-file-pdf: #dc2626;
+     --cxc-file-docx: #2563eb;
    }
    ```
 
