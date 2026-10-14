@@ -174,6 +174,11 @@ The ones that matter:
 | `done`      | `{ type: 'done', sessionId, messageId }`| finalizes the turn |
 | `error`     | `{ type: 'error', message }`           | inline error |
 
+The default `parseEvent` reads both `action` shapes: `{ label, status }` from the data
+chat, and a status line only, `{ "status": "Searched documents" }`, from the knowledge
+chat. The text becomes the step label. Do not map `action` to answer text: the step list
+is the one "working…" signal until the first token.
+
 A `ViewSpec` (the `ui_block` payload) is `{ surface_id, version, title?, blocks[] }`.
 Each block is one of a **closed catalog**: `metric_group`, `chart`, `table`,
 `text`, `actions`, `file` (§6). The library validates every block and **skips**

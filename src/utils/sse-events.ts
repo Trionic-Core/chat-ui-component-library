@@ -1,4 +1,6 @@
-import type { ChatEvent } from '../types'
+import type { ChatAction, ChatEvent } from '../types'
+
+const ACTION_STATUSES = ['pending', 'running', 'completed', 'error'] as const
 import { isValidViewSpec } from '../aui/aui-types'
 
 /**
@@ -21,20 +23,22 @@ export function defaultParseEvent(eventType: string, data: string): ChatEvent | 
       case 'reasoning':
         return { type: 'reasoning', text: String(parsed.text ?? '') }
 
-      case 'action':
+      case 'action': {
+        const status = String(parsed.status ?? '')
+        const knownStatus = (ACTION_STATUSES as readonly string[]).includes(status)
         return {
           type: 'action',
           action: {
             id: String(parsed.id ?? crypto.randomUUID()),
             type: String(parsed.action_type ?? parsed.type ?? 'unknown'),
-            label: String(parsed.label ?? ''),
-            status: (['pending', 'running', 'completed', 'error'].includes(String(parsed.status))
-              ? String(parsed.status) as 'pending' | 'running' | 'completed' | 'error'
-              : 'running'),
+            // A status-only step ({"status": "Searched documents"}, the knowledge chat) is its own label.
+            label: String(parsed.label ?? (knownStatus ? '' : status)),
+            status: knownStatus ? status as ChatAction['status'] : 'running',
             detail: parsed.detail != null ? String(parsed.detail) : undefined,
             timestamp: new Date(),
           },
         }
+      }
 
       case 'action_update':
         return {
