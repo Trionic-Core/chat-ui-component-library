@@ -12,6 +12,8 @@
  * file stays component-only for React Fast Refresh.
  * ----------------------------------------------------------------*/
 
+import { normalizeLineBreaks } from '../../utils/markdown'
+
 // Code-span placeholder sentinel. After HTML-escaping there are no literal
 // '<' / '>' / '&' chars left, so a token wrapped in escaped angle brackets is
 // inert text that survives the bold/italic/link passes untouched — and cannot
@@ -69,8 +71,9 @@ export function renderInlineMarkdown(text: string): string {
     },
   )
 
-  // Line breaks
-  html = html.replace(/\n/g, '<br />')
+  // Line breaks. CRLF, lone CR and a literal two-character backslash-n are
+  // all line breaks a transport can deliver; see utils/markdown.ts.
+  html = normalizeLineBreaks(html).replace(/\n/g, '<br />')
 
   // Re-insert the inline-code HTML now that emphasis/links are done. A user
   // caption could contain the literal text `<CXC-CODE:N>` (which escapes to a

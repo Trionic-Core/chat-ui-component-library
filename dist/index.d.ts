@@ -1226,15 +1226,6 @@ declare function cn(...inputs: ClassValue[]): string;
 declare function formatRelativeTime(date: Date): string;
 
 /**
- * Lightweight markdown renderer.
- *
- * Converts markdown text to sanitized HTML string for use with dangerouslySetInnerHTML.
- * Supports all common markdown features needed for chat messages.
- *
- * Security: All output is sanitized via an allowlist of safe HTML tags and attributes.
- * Script tags, event handlers, and javascript: URLs are stripped.
- */
-/**
  * Renders markdown text to a sanitized HTML string.
  *
  * Supports: bold, italic, strikethrough, inline code, code blocks,

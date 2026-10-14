@@ -139,10 +139,35 @@ function processInline(text: string): string {
     '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
   )
 
-  // Line breaks (two or more spaces at end of line, or backslash)
-  result = result.replace(/ {2,}\n/g, '<br />')
+  // Line breaks. A Markdown hard break (two trailing spaces or a trailing
+  // backslash) and a bare newline both become <br />. Chat answers are
+  // written one sentence per line and never use the two-space syntax, so a
+  // bare newline inside a paragraph is a line break the author meant, not
+  // soft wrapping to be joined. Trailing spaces before the break are dropped
+  // so they cannot widen the line.
+  result = result.replace(/(?: {2,}|\\)?\n/g, '<br />')
 
   return result
+}
+
+/**
+ * Normalizes the line-break forms a chat transport can deliver so the block
+ * parser sees exactly one: a real LF.
+ *
+ * - CRLF and a lone CR become LF.
+ * - A literal two-character backslash-n becomes LF. Content that was JSON
+ *   encoded twice, stored escaped, or produced by a model writing "\\n" as
+ *   text otherwise renders the two characters as visible text. No markdown
+ *   construct this renderer supports gives a literal backslash-n a meaning,
+ *   so the replacement loses nothing. Fenced code is exempt: its bytes are
+ *   the author's.
+ */
+export function normalizeLineBreaks(markdown: string): string {
+  const unified = markdown.replace(/\r\n?/g, '\n')
+  return unified
+    .split(/(```[\s\S]*?(?:```|$))/)
+    .map((segment, index) => (index % 2 === 1 ? segment : segment.replace(/\\n/g, '\n')))
+    .join('')
 }
 
 /**
@@ -155,7 +180,7 @@ function processInline(text: string): string {
  * Headings are capped: h1 -> h3, h2 -> h4, etc. to prevent layout disruption.
  */
 export function renderMarkdown(markdown: string): string {
-  const lines = markdown.split('\n')
+  const lines = normalizeLineBreaks(markdown).split('\n')
   const output: string[] = []
   let i = 0
   let inList: 'ul' | 'ol' | null = null

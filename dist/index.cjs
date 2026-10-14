@@ -1099,11 +1099,15 @@ function processInline(text) {
     /\[([^\]]+)\]\(([^)]+)\)/g,
     '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
   );
-  result = result.replace(/ {2,}\n/g, "<br />");
+  result = result.replace(/(?: {2,}|\\)?\n/g, "<br />");
   return result;
 }
+function normalizeLineBreaks(markdown) {
+  const unified = markdown.replace(/\r\n?/g, "\n");
+  return unified.split(/(```[\s\S]*?(?:```|$))/).map((segment, index) => index % 2 === 1 ? segment : segment.replace(/\\n/g, "\n")).join("");
+}
 function renderMarkdown(markdown) {
-  const lines = markdown.split("\n");
+  const lines = normalizeLineBreaks(markdown).split("\n");
   const output = [];
   let i = 0;
   let inList = null;
@@ -4697,7 +4701,7 @@ function renderInlineMarkdown(text) {
       return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="cxc-aui-link">${label}</a>`;
     }
   );
-  html = html.replace(/\n/g, "<br />");
+  html = normalizeLineBreaks(html).replace(/\n/g, "<br />");
   html = html.replace(PLACEHOLDER_RE, (match, index) => {
     const span = codeSpans[Number(index)];
     return span ?? match;
@@ -5015,7 +5019,7 @@ function ChatMessage({
                 color: "var(--cxc-user-text)",
                 borderBottomRightRadius: "var(--cxc-radius-sm)"
               },
-              children: /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-[15px] whitespace-pre-wrap break-words leading-[1.55]", children: message.content })
+              children: /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-[15px] whitespace-pre-wrap break-words leading-[1.55]", children: normalizeLineBreaks(message.content) })
             }
           ),
           /* @__PURE__ */ jsxRuntime.jsx(
@@ -5087,7 +5091,7 @@ function ChatMessage({
                           color: "var(--cxc-text-secondary)",
                           borderTop: "1px solid var(--cxc-border-subtle)"
                         },
-                        children: /* @__PURE__ */ jsxRuntime.jsx("p", { className: "whitespace-pre-wrap leading-[1.65] pt-2.5", children: message.reasoning })
+                        children: /* @__PURE__ */ jsxRuntime.jsx("p", { className: "whitespace-pre-wrap leading-[1.65] pt-2.5", children: normalizeLineBreaks(message.reasoning ?? "") })
                       }
                     )
                   }

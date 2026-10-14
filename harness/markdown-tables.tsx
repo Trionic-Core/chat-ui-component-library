@@ -20,12 +20,22 @@ const billing = [
   '| Add/adjust extra charges | **Billing Summary** | Add extra charges from the billing summary. |',
 ].join('\n')
 
+const lineBreaks = {
+  // One sentence per line, the shape every chat answer has.
+  'bare-newline': 'Total sales in the last 30 days were 1,24,560.\nThe top branch is Surat with 42% of revenue.\nThe second branch is Ahmedabad with 31%.',
+  // Escaped once too often somewhere between the model and the browser.
+  'literal-backslash-n': 'Total sales were 1,24,560.\\nThe top branch is Surat.',
+  // Windows line endings from a stored transcript.
+  'crlf': 'Total sales were 1,24,560.\r\nThe top branch is Surat.',
+}
+
 const fixtures = [
   { id: 'billing-mobile', width: 294, content: billing },
   { id: 'billing-desktop', width: 720, content: billing },
   { id: 'single-column', width: 294, content: '| Status |\n| --- |\n| Ready |' },
   { id: 'two-columns', width: 294, content: '| Item | Total |\n| --- | --- |\n| Invoice | 100.00 |' },
   { id: 'six-columns', width: 294, content: '| A | B | C | D | E | F |\n| --- | --- | --- | --- | --- | --- |\n| 1 | 2 | 3 | 4 | 5 | 6 |' },
+  ...Object.entries(lineBreaks).map(([id, content]) => ({ id, width: 294, content })),
   { id: 'long-token', width: 294, content: `| Reference | Link |\n| --- | --- |\n| ${'x'.repeat(180)} | [Help](https://example.com/help) |` },
 ]
 
