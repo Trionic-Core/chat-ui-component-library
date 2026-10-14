@@ -32,6 +32,19 @@ describe('shared SSE transport', () => {
     mockStream('event: token\ndata: {\ndata: "text": "hello"\ndata: }\n\n: keepalive\n\ndata: [DONE]\n\n')
     expect(await collect()).toEqual([{ type: 'token', text: 'hello' }, { type: 'done' }])
   })
+  // A server may close the body right after the last frame, with no blank
+  // line to dispatch it. That frame is still the answer's end.
+  it.each([
+    ['no blank line', 'event: token\ndata: {"text":"hi"}\n\nevent: done\ndata: {"session_id":"abc"}\n'],
+    ['no final newline', 'event: token\ndata: {"text":"hi"}\n\nevent: done\ndata: {"session_id":"abc"}'],
+  ])('dispatches the last frame at EOF with %s', async (_case, text) => {
+    mockStream(text)
+    expect(await collect()).toEqual([{ type: 'token', text: 'hi' }, { type: 'done', sessionId: 'abc', messageId: undefined }])
+  })
+  it('still reports a last frame cut mid-JSON as an incomplete stream', async () => {
+    mockStream('event: token\ndata: {"text":"hi"}\n\nevent: done\ndata: {"session_id":"ab')
+    expect(await collect()).toEqual([{ type: 'token', text: 'hi' }, expect.objectContaining({ type: 'error', code: 'INCOMPLETE_STREAM' })])
+  })
   it('preserves spaces in raw tokens', async () => {
     mockStream('data:  hello \n\ndata: [DONE]\n\n')
     expect((await collect())[0]).toEqual({ type: 'token', text: ' hello ' })

@@ -9,6 +9,17 @@ export function abortable<T>(iterator: AsyncGenerator<T, void, undefined>, contr
   return iterator
 }
 
+/** A frame's data is whole when it is the `[DONE]` marker or valid JSON. */
+function isWholeFrame(data: string): boolean {
+  if (data === '[DONE]') return true
+  try {
+    JSON.parse(data)
+    return true
+  } catch {
+    return false
+  }
+}
+
 export function createSSEClient(getConfig: () => SSEStreamConfig) {
   let active: AbortController | null = null
   const abort = () => active?.abort()
@@ -57,6 +68,15 @@ export function createSSEClient(getConfig: () => SSEStreamConfig) {
           // The parser defers a trailing CR in case the next chunk starts with LF.
           parser.feed(text + (done && trailingCR ? '\n' : ''))
           if (text) trailingCR = text.endsWith('\r')
+          if (done) {
+            // A server may end the body without the last frame's blank line.
+            // The spec drops that frame; keep it only when it is whole, so a
+            // frame cut mid-JSON never renders as text and still reads as an
+            // incomplete stream below.
+            const settled = queue.length
+            parser.feed('\n\n')
+            queue.push(...queue.splice(settled).filter(frame => isWholeFrame(frame.data)))
+          }
           for (const frame of queue.splice(0)) {
             if (controller.signal.aborted) return
             const event = frame.data === '[DONE]' ? { type: 'done' as const } : parseEvent(frame.event ?? 'message', frame.data)
