@@ -45,13 +45,7 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       scrollToBottom('smooth')
     }, [scrollToBottom])
 
-    // Show thinking indicator when streaming with empty assistant message
     const lastMessage = messages[messages.length - 1]
-    const showThinking =
-      isStreaming &&
-      lastMessage?.role === 'assistant' &&
-      lastMessage.content === '' &&
-      !lastMessage.actions?.length
 
     return (
       <div

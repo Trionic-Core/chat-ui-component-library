@@ -83,7 +83,9 @@ export function ChatMessage({
   const hasReasoning = Boolean(message.reasoning)
   const hasFollowups = Boolean(message.followups)
   const hasBlocks = (message.blocks?.length ?? 0) > 0
-  const showThinking = isStreaming && !hasContent && !hasActions
+  // The dots stay until the first text: a status line ("Searched documents") is
+  // not an answer, and some answers arrive whole after a long wait.
+  const showThinking = isStreaming && !hasContent
 
   const enableEdit = isUser && isLast && config.enableRegenerate === true
   const enableRegenButton = isAssistant && isLast && config.enableRegenerate === true && !isStreaming

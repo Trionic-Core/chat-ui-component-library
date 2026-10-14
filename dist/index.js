@@ -5234,7 +5234,7 @@ function ChatMessage({
   const hasReasoning = Boolean(message.reasoning);
   const hasFollowups = Boolean(message.followups);
   const hasBlocks = (message.blocks?.length ?? 0) > 0;
-  const showThinking = isStreaming && !hasContent && !hasActions;
+  const showThinking = isStreaming && !hasContent;
   const enableEdit = isUser && isLast && config.enableRegenerate === true;
   const enableRegenButton = isAssistant && isLast && config.enableRegenerate === true && !isStreaming;
   const feedbackEnabled = isAssistant && Boolean(config.feedback) && Boolean(message.backendMessageId) && !isStreaming;
@@ -5630,7 +5630,6 @@ var MessageList = forwardRef(
       scrollToBottom("smooth");
     }, [scrollToBottom]);
     const lastMessage = messages[messages.length - 1];
-    isStreaming && lastMessage?.role === "assistant" && lastMessage.content === "" && !lastMessage.actions?.length;
     return /* @__PURE__ */ jsxs(
       "div",
       {
