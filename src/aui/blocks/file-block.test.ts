@@ -308,6 +308,108 @@ describe('FileBlockCard — the Download button', () => {
   })
 })
 
+describe('FileBlockCard — a click on the card', () => {
+  /** The file name: a spot on the card away from the button. */
+  function cardBody(): HTMLElement {
+    return container.querySelector('p.truncate') as HTMLElement
+  }
+
+  it('downloads once from a click anywhere on a ready card', async () => {
+    const host = fakeHost()
+    await mount(READY_CSV, host)
+    await act(async () => cardBody().click())
+    expect(host.download).toHaveBeenCalledTimes(1)
+    expect(host.download).toHaveBeenCalledWith(READY_CSV)
+  })
+
+  it('downloads once from a click on the button inside the card', async () => {
+    const host = fakeHost()
+    await mount(READY_CSV, host)
+    await act(async () => button()?.click())
+    expect(host.download).toHaveBeenCalledTimes(1)
+  })
+
+  it('does not start a second download while one runs', async () => {
+    const host = fakeHost()
+    let finish: () => void = () => {}
+    host.download.mockImplementation(() => new Promise<void>((resolve) => (finish = resolve)))
+    await mount(READY_CSV, host)
+    act(() => {
+      cardBody().click()
+      cardBody().click()
+    })
+    await act(async () => cardBody().click())
+    expect(host.download).toHaveBeenCalledTimes(1)
+    await act(async () => finish())
+    await act(async () => cardBody().click())
+    expect(host.download).toHaveBeenCalledTimes(2)
+  })
+
+  it.each<[string, FileBlock, FileStatus]>([
+    ['preparing', CSV, statusOf({ status: 'preparing' })],
+    ['failed', CSV, statusOf({ status: 'failed' })],
+    ['expired', { ...READY_CSV, expires_at: PAST }, statusOf()],
+  ])('%s: a click on the card does nothing', async (_state, block, answer) => {
+    const host = fakeHost([answer])
+    await mount(block, host)
+    await act(async () => cardBody().click())
+    expect(host.download).not.toHaveBeenCalled()
+  })
+
+  it('without the host adapter: a click on the card does nothing', async () => {
+    await mount(READY_CSV)
+    await act(async () => cardBody().click())
+    expect(button()).toBeNull()
+  })
+})
+
+describe('FileBlockCard — a narrow card', () => {
+  let resizeCallbacks: ResizeObserverCallback[] = []
+
+  beforeEach(() => {
+    resizeCallbacks = []
+    vi.stubGlobal(
+      'ResizeObserver',
+      class {
+        constructor(callback: ResizeObserverCallback) {
+          resizeCallbacks.push(callback)
+        }
+        observe() {}
+        unobserve() {}
+        disconnect() {}
+      },
+    )
+  })
+
+  afterEach(() => {
+    vi.unstubAllGlobals()
+  })
+
+  /** Push one card width through every observer the card registered. */
+  function resizeTo(width: number) {
+    const entry = { contentRect: { width, height: 72 } } as unknown as ResizeObserverEntry
+    act(() => {
+      for (const callback of resizeCallbacks) callback([entry], {} as ResizeObserver)
+    })
+  }
+
+  it('shows the icon only, and keeps the accessible name', async () => {
+    await mount(READY_CSV, fakeHost())
+    resizeTo(328)
+    expect(button()?.textContent).toBe('')
+    expect(button()?.getAttribute('aria-label')).toBe(
+      'Download Totals-by-region-20260927-1015.csv',
+    )
+  })
+
+  it('shows the label again when the card grows', async () => {
+    await mount(READY_CSV, fakeHost())
+    resizeTo(328)
+    resizeTo(568)
+    expect(button()?.textContent).toBe('Download')
+  })
+})
+
 describe('FileBlockCard — the status poll', () => {
   it('reads at mount, every 2 s for 30 s, then every 10 s', async () => {
     const host = fakeHost([statusOf({ status: 'preparing' })])

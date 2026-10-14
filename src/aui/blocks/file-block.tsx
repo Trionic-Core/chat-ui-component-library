@@ -11,6 +11,8 @@ import {
 } from 'lucide-react'
 import { Button } from '../ui/button'
 import { Card } from '../ui/card'
+import { cn } from '../../utils/cn'
+import { useElementSize } from '../hooks/use-element-size'
 import { usePrefersReducedMotion } from '../hooks/use-prefers-reduced-motion'
 import type { FileBlock } from '../aui-types'
 import type { FileHandler, FileStatus } from '../file-handler'
@@ -60,6 +62,15 @@ const UNKNOWN_FORMAT: FormatLook = { Icon: File, tint: 'var(--cxc-text-secondary
 /** Every icon on the card: 16 px, stroke 1.2. */
 const ICON = { size: 16, strokeWidth: 1.2, 'aria-hidden': true } as const
 
+/**
+ * Below this content width (a phone, the chat widget) the Download button shows
+ * its icon only, so it stays on the right and the name keeps its room.
+ */
+const NARROW_CARD_PX = 400
+
+/** Until the first measurement, and without a DOM, the card lays out wide. */
+const WIDE_FALLBACK = { width: 600, height: 72 }
+
 const DOWNLOAD_FAILED_TEXT = 'Download failed. Try again.'
 /** The next step under a failed file: the chat can make the file again. */
 const FAILED_HINT_TEXT = 'Ask again in the chat.'
@@ -74,13 +85,19 @@ export function FileBlockCard({ block, files }: FileBlockCardProps) {
   const [busy, setBusy] = useState(false)
   const [downloadFailed, setDownloadFailed] = useState(false)
   const reducedMotion = usePrefersReducedMotion()
+  // Card does not forward a ref, so the row inside it is what the card measures.
+  const row = useRef<HTMLDivElement>(null)
+  const narrow = useElementSize(row, WIDE_FALLBACK).width < NARROW_CARD_PX
 
   const view = fileView(block, status, refusal, Date.now())
   const name = block.title || block.file_name
   const expired = view.state === 'expired'
 
+  // A ref, not `busy`: two clicks in one frame both read the old state.
+  const downloading = useRef(false)
   const handleDownload = useCallback(async () => {
-    if (!files) return
+    if (!files || downloading.current) return
+    downloading.current = true
     setBusy(true)
     setDownloadFailed(false)
     try {
@@ -90,52 +107,75 @@ export function FileBlockCard({ block, files }: FileBlockCardProps) {
       if (code === null) setDownloadFailed(true)
       else setRefusal(code)
     } finally {
+      downloading.current = false
       setBusy(false)
     }
   }, [files, block, setRefusal])
 
-  // The details keep at least 15rem; below that (a phone, the chat widget) the
-  // button wraps under them instead of squeezing the text.
+  const downloadable = Boolean(files) && view.state === 'ready'
+
+  // A ready card downloads from a click anywhere on it. The Button stays the
+  // keyboard and screen reader control, and its click reaches the same handler
+  // by bubbling, so one click is one download.
   return (
-    <Card padding="sm" className="flex flex-wrap items-start gap-3">
-      <div className="flex min-w-0 grow basis-60 items-start gap-3">
-        <FormatTile format={block.format} dimmed={expired} />
-        <div className="min-w-0 flex-1">
-          <p
-            className="truncate text-sm font-medium"
-            title={name}
-            style={{ color: expired ? 'var(--cxc-text-muted)' : 'var(--cxc-text)' }}
-          >
-            {name}
-          </p>
-          <p className="text-xs" style={{ color: 'var(--cxc-text-secondary)' }}>
-            {fileMeta(block.format, view)}
-          </p>
-          <div aria-live="polite" className="text-xs">
-            <StatusLine view={view} />
-            {downloadFailed && <p style={{ color: 'var(--cxc-error)' }}>{DOWNLOAD_FAILED_TEXT}</p>}
+    <motion.div
+      className={cn(downloadable && 'cursor-pointer')}
+      onClick={downloadable ? handleDownload : undefined}
+      whileTap={downloadable && !reducedMotion ? { scale: 0.99 } : undefined}
+    >
+      <Card
+        padding="sm"
+        // The hover color is a class, and Card's inline background would win
+        // over it, so a downloadable card takes its background from classes.
+        className={cn(
+          downloadable &&
+            'bg-[var(--cxc-bg)] transition-colors duration-150 hover:bg-[var(--cxc-bg-subtle)]',
+        )}
+        style={downloadable ? { backgroundColor: undefined } : undefined}
+      >
+        <div ref={row} className="flex items-center gap-3">
+          <div className="flex min-w-0 flex-1 items-start gap-3">
+            <FormatTile format={block.format} dimmed={expired} />
+            <div className="min-w-0 flex-1">
+              <p
+                className="truncate text-sm font-medium"
+                title={name}
+                style={{ color: expired ? 'var(--cxc-text-muted)' : 'var(--cxc-text)' }}
+              >
+                {name}
+              </p>
+              <p className="text-xs" style={{ color: 'var(--cxc-text-secondary)' }}>
+                {fileMeta(block.format, view)}
+              </p>
+              <div aria-live="polite" className="text-xs">
+                <StatusLine view={view} />
+                {downloadFailed && (
+                  <p style={{ color: 'var(--cxc-error)' }}>{DOWNLOAD_FAILED_TEXT}</p>
+                )}
+              </div>
+              {files && keepsPolling(view.state) && (
+                <ProgressLine label={`Preparing ${name}`} still={reducedMotion} />
+              )}
+            </div>
           </div>
-          {files && keepsPolling(view.state) && (
-            <ProgressLine label={`Preparing ${name}`} still={reducedMotion} />
+
+          {downloadable && (
+            <Button
+              type="button"
+              variant="secondary"
+              size="sm"
+              className="shrink-0 rounded-lg"
+              disabled={busy}
+              aria-busy={busy}
+              aria-label={`Download ${block.file_name}`}
+            >
+              {busy ? <Spinner still={reducedMotion} /> : <Download {...ICON} />}
+              {!narrow && 'Download'}
+            </Button>
           )}
         </div>
-      </div>
-
-      {files && view.state === 'ready' && (
-        <Button
-          variant="secondary"
-          size="sm"
-          className="shrink-0 rounded-lg"
-          onClick={handleDownload}
-          disabled={busy}
-          aria-busy={busy}
-          aria-label={`Download ${block.file_name}`}
-        >
-          {busy ? <Spinner still={reducedMotion} /> : <Download {...ICON} />}
-          Download
-        </Button>
-      )}
-    </Card>
+      </Card>
+    </motion.div>
   )
 }
 
