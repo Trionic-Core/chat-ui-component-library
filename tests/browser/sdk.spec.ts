@@ -325,6 +325,30 @@ test('streaming and chart growth follow the bottom until the reader deliberately
   expect(await page.evaluate(() => window.scrollY)).toBe(0)
 })
 
+test('the expanded chart dialog traps Tab and restores focus inside the shadow root', async ({ page }) => {
+  await page.goto('/examples/index.html')
+  await page.evaluate(() => window.chat.send('show the chart'))
+  await expect.poll(() => page.evaluate(() => window.chat.getState().isStreaming)).toBe(false)
+  const expand = page.getByRole('button', { name: 'Expand chart' })
+  await expand.focus()
+  await expand.press('Enter')
+  const dialog = page.getByRole('dialog', { name: 'Revenue by Product' })
+  await expect(dialog).toBeVisible()
+  // The focused element as the shadow tree sees it. document.activeElement is only the host.
+  const focused = () => page.evaluate(() => {
+    const el = document.querySelector('[data-cypherx-chat]')!.shadowRoot!.activeElement as HTMLElement | null
+    return el ? (el.getAttribute('aria-label') ?? el.tagName) : 'NONE'
+  })
+  const focusInsideDialog = () => dialog.evaluate(el => el.contains((el.getRootNode() as ShadowRoot).activeElement))
+  for (const key of [...Array(8).fill('Tab'), ...Array(8).fill('Shift+Tab')]) {
+    await page.keyboard.press(key)
+    expect(await focusInsideDialog(), key).toBe(true)
+  }
+  await page.keyboard.press('Escape')
+  await expect(dialog).toBeHidden()
+  expect(await focused()).toBe('Expand chart')
+})
+
 test('empty and cleared conversations retain scroll observers and unread counts', async ({ page }) => {
   await page.goto('/examples/index.html')
   await page.evaluate(() => { window.chat.destroy(); window.chat = window.CypherXChat.mount('#chat', {

@@ -67,6 +67,18 @@ describe('chat provider lifecycle', () => {
     await act(async () => { context.clearMessages(); a.resolve({ session: session('a'), messages: [] }); await loadA })
     expect(context.state.activeSessionId).toBeNull()
   })
+  it('refuses an over-limit edit without trimming the conversation', async () => {
+    const sent: string[] = []
+    const send = async function* (message: string): AsyncGenerator<ChatEvent, void, undefined> { sent.push(message); yield { type: 'done' } }
+    await mount({ onSend: send, maxInputLength: 5 })
+    await act(async () => context.send('hello'))
+    expect(context.state.messages.map(m => m.role)).toEqual(['user', 'assistant'])
+    await act(async () => context.editAndRegenerate('far too long'))
+    expect(sent).toEqual(['hello'])
+    expect(context.state.messages.map(m => m.role)).toEqual(['user', 'assistant'])
+    await act(async () => context.editAndRegenerate('short'))
+    expect(sent).toEqual(['hello', 'short'])
+  })
   it('enforces message limits at the shared provider boundary', async () => {
     const send = vi.fn(async function* (): AsyncGenerator<ChatEvent, void, undefined> { yield { type: 'done' } })
     await mount({ onSend: send, maxInputLength: 5 })

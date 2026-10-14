@@ -480,11 +480,19 @@ function ChatProvider({
     }),
     [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, enableRegenerate]
   );
+  const acceptForSend = react.useCallback(
+    (message) => {
+      if (isStreamingRef.current) return null;
+      const trimmed = message.trim();
+      if (!trimmed || trimmed.length > maxInputLength) return null;
+      return trimmed;
+    },
+    [maxInputLength]
+  );
   const send = react.useCallback(
     (message, metadata) => {
-      if (isStreamingRef.current) return;
-      const trimmed = message.trim();
-      if (!trimmed || trimmed.length > maxInputLength) return;
+      const trimmed = acceptForSend(message);
+      if (trimmed === null) return;
       sessionLoadRef.current++;
       const userMessage = {
         id: generateId(),
@@ -595,7 +603,7 @@ function ChatProvider({
         }
       })();
     },
-    [onSend, state.activeSessionId, maxInputLength]
+    [onSend, state.activeSessionId, acceptForSend]
   );
   const stop = react.useCallback(() => {
     const generator = generatorRef.current;
@@ -855,19 +863,19 @@ function ChatProvider({
   );
   const editAndRegenerate = react.useCallback(
     (newContent) => {
-      const trimmed = newContent.trim();
-      if (!trimmed) return;
+      const trimmed = acceptForSend(newContent);
+      if (trimmed === null) return;
       dispatch({ type: "TRIM_LAST_PAIR" });
       send(trimmed, { regenerate: true });
     },
-    [send]
+    [acceptForSend, send]
   );
   const regenerateLast = react.useCallback(() => {
     const lastUser = [...state.messages].reverse().find((m) => m.role === "user");
-    if (!lastUser) return;
+    if (!lastUser || acceptForSend(lastUser.content) === null) return;
     dispatch({ type: "TRIM_LAST_PAIR" });
     send(lastUser.content, { regenerate: true });
-  }, [state.messages, send]);
+  }, [state.messages, acceptForSend, send]);
   const contextValue = react.useMemo(
     () => ({
       state,
@@ -2446,6 +2454,10 @@ var BODY_SIZE = {
   // panel past the viewport, where its header would be unreachable.
   lg: "px-5 py-4 max-h-[80vh] overflow-y-auto"
 };
+function activeElementFor(node) {
+  const root = node?.getRootNode();
+  return root instanceof ShadowRoot ? root.activeElement : document.activeElement;
+}
 var FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 function Dialog({ open, onClose, title, children, size = "md" }) {
   const overlayRef = react.useRef(null);
@@ -2469,18 +2481,13 @@ function Dialog({ open, onClose, title, children, size = "md" }) {
         panelRef.current?.focus();
         return;
       }
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      const active = document.activeElement;
-      if (e.shiftKey) {
-        if (active === first || !panelRef.current?.contains(active)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (active === last) {
-        e.preventDefault();
-        first.focus();
-      }
+      e.preventDefault();
+      const active = activeElementFor(panelRef.current);
+      const index = focusables.indexOf(active);
+      const fallback = e.shiftKey ? focusables.length - 1 : 0;
+      const step = e.shiftKey ? -1 : 1;
+      const next = index === -1 ? fallback : (index + step + focusables.length) % focusables.length;
+      focusables[next].focus();
     },
     [onClose, focusableElements]
   );
@@ -2495,7 +2502,7 @@ function Dialog({ open, onClose, title, children, size = "md" }) {
   }, [open, handleKeyDown]);
   react.useEffect(() => {
     if (!open) return;
-    previouslyFocused.current = document.activeElement;
+    previouslyFocused.current = activeElementFor(panelRef.current);
     const focusables = focusableElements();
     (focusables[0] ?? panelRef.current)?.focus();
     return () => {
@@ -8263,6 +8270,7 @@ function createSSEClient(getConfig) {
         const parser = eventsourceParser.createParser({ onEvent: (event) => queue.push(event) });
         const parseEvent = config.parseEvent ?? defaultParseEvent;
         let trailingCR = false;
+        let serverErrorSeen = false;
         while (!controller.signal.aborted) {
           const { done, value } = await reader.read();
           const text = done ? decoder.decode() : decoder.decode(value, { stream: true });
@@ -8273,11 +8281,12 @@ function createSSEClient(getConfig) {
             const event = frame.data === "[DONE]" ? { type: "done" } : parseEvent(frame.event ?? "message", frame.data);
             if (!event) continue;
             yield event;
-            if (event.type === "done" || event.type === "error") return;
+            if (event.type === "done") return;
+            if (event.type === "error") serverErrorSeen = true;
           }
           if (done) break;
         }
-        if (!controller.signal.aborted) {
+        if (!controller.signal.aborted && !serverErrorSeen) {
           yield { type: "error", message: "The connection ended before the answer completed. Please retry.", code: "INCOMPLETE_STREAM" };
         }
       } catch (error) {

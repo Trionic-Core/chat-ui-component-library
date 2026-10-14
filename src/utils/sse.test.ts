@@ -72,6 +72,18 @@ describe('shared SSE transport', () => {
     expect(await pending).toEqual({ done: true, value: undefined })
     await closed
   })
+  it('keeps reading after a recoverable server error so the rest of the answer and done arrive', async () => {
+    mockStream('event: error\ndata: {"message":"Tool failed","code":"tool_error","recoverable":true}\n\nevent: token\ndata: {"text":"still here"}\n\nevent: done\ndata: {"session_id":"s1","message_id":"m1"}\n\n')
+    expect(await collect()).toEqual([
+      { type: 'error', message: 'Tool failed', code: 'tool_error' },
+      { type: 'token', text: 'still here' },
+      { type: 'done', sessionId: 's1', messageId: 'm1' },
+    ])
+  })
+  it('does not add an incomplete-stream error after a server error that ended the stream', async () => {
+    mockStream('event: error\ndata: {"message":"Fatal"}\n\n')
+    expect(await collect()).toEqual([{ type: 'error', message: 'Fatal', code: undefined }])
+  })
   it('cancels the body reader on terminal events', async () => {
     const cancel = vi.fn()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('data: [DONE]\n\n')) }, cancel }), { headers: { 'content-type': 'text/event-stream' } })))

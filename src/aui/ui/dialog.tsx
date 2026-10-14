@@ -40,6 +40,16 @@ const BODY_SIZE: Record<DialogSize, string> = {
   lg: 'px-5 py-4 max-h-[80vh] overflow-y-auto',
 }
 
+/**
+ * The focused element as seen from `node`'s tree. Inside a shadow root,
+ * `document.activeElement` is the shadow HOST, never the inner element, so a
+ * trap that reads it cannot tell first from last and lets Tab escape.
+ */
+function activeElementFor(node: Element | null): Element | null {
+  const root = node?.getRootNode()
+  return root instanceof ShadowRoot ? root.activeElement : document.activeElement
+}
+
 const FOCUSABLE_SELECTOR =
   'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])'
 
@@ -71,19 +81,18 @@ export function Dialog({ open, onClose, title, children, size = 'md' }: DialogPr
         panelRef.current?.focus()
         return
       }
-      const first = focusables[0]
-      const last = focusables[focusables.length - 1]
-      const active = document.activeElement
-
-      if (e.shiftKey) {
-        if (active === first || !panelRef.current?.contains(active)) {
-          e.preventDefault()
-          last.focus()
-        }
-      } else if (active === last) {
-        e.preventDefault()
-        first.focus()
-      }
+      // Move focus ourselves on every Tab. Native sequential navigation is
+      // not trusted here: WebKit skips buttons unless the user enabled full
+      // keyboard access, so a trap that only intercepts the first and last
+      // element lets Shift+Tab from a chart land on the page behind the
+      // overlay. The index walk wraps and never leaves the panel.
+      e.preventDefault()
+      const active = activeElementFor(panelRef.current)
+      const index = focusables.indexOf(active as HTMLElement)
+      const fallback = e.shiftKey ? focusables.length - 1 : 0
+      const step = e.shiftKey ? -1 : 1
+      const next = index === -1 ? fallback : (index + step + focusables.length) % focusables.length
+      focusables[next].focus()
     },
     [onClose, focusableElements],
   )
@@ -102,7 +111,7 @@ export function Dialog({ open, onClose, title, children, size = 'md' }: DialogPr
   // Move focus into the dialog on open; restore it to the trigger on close.
   useEffect(() => {
     if (!open) return
-    previouslyFocused.current = document.activeElement as HTMLElement | null
+    previouslyFocused.current = activeElementFor(panelRef.current) as HTMLElement | null
     // Focus the first focusable child, else the panel container itself.
     const focusables = focusableElements()
     ;(focusables[0] ?? panelRef.current)?.focus()

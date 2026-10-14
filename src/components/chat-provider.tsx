@@ -88,13 +88,26 @@ export function ChatProvider({
     [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, enableRegenerate]
   )
 
+  /**
+   * The one send precondition. Returns the text that will be sent, or null
+   * when nothing may be sent right now: empty, over the limit, or a response
+   * is still streaming. Every path that mutates state before it sends must
+   * ask this first, so a refused send never leaves the conversation changed.
+   */
+  const acceptForSend = useCallback(
+    (message: string): string | null => {
+      if (isStreamingRef.current) return null
+      const trimmed = message.trim()
+      if (!trimmed || trimmed.length > maxInputLength) return null
+      return trimmed
+    },
+    [maxInputLength]
+  )
+
   const send = useCallback(
     (message: string, metadata?: Record<string, unknown>) => {
-      // Prevent double-send while streaming
-      if (isStreamingRef.current) return
-
-      const trimmed = message.trim()
-      if (!trimmed || trimmed.length > maxInputLength) return
+      const trimmed = acceptForSend(message)
+      if (trimmed === null) return
       sessionLoadRef.current++
 
       const userMessage: ChatMessage = {
@@ -225,7 +238,7 @@ export function ChatProvider({
         }
       })()
     },
-    [onSend, state.activeSessionId, maxInputLength]
+    [onSend, state.activeSessionId, acceptForSend]
   )
 
   const stop = useCallback(() => {
@@ -579,23 +592,25 @@ export function ChatProvider({
 
   const editAndRegenerate = useCallback(
     (newContent: string) => {
-      const trimmed = newContent.trim()
-      if (!trimmed) return
+      // Refuse before the trim: a trim followed by a refused send would drop
+      // the last exchange and send nothing, with no error shown.
+      const trimmed = acceptForSend(newContent)
+      if (trimmed === null) return
       // Drop the last user+assistant pair locally to mirror the backend trim
       // that fires when regenerate=true is sent. Then re-issue the send.
       dispatch({ type: 'TRIM_LAST_PAIR' })
       send(trimmed, { regenerate: true })
     },
-    [send]
+    [acceptForSend, send]
   )
 
   const regenerateLast = useCallback(() => {
     // Find the last user message — we resend its exact text with regenerate=true.
     const lastUser = [...state.messages].reverse().find((m) => m.role === 'user')
-    if (!lastUser) return
+    if (!lastUser || acceptForSend(lastUser.content) === null) return
     dispatch({ type: 'TRIM_LAST_PAIR' })
     send(lastUser.content, { regenerate: true })
-  }, [state.messages, send])
+  }, [state.messages, acceptForSend, send])
 
   const contextValue = useMemo<ChatContextValue>(
     () => ({
