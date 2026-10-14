@@ -84,6 +84,20 @@ describe('shared SSE transport', () => {
     mockStream('event: error\ndata: {"message":"Fatal"}\n\n')
     expect(await collect()).toEqual([{ type: 'error', message: 'Fatal', code: undefined }])
   })
+  it('completes after done even when the body cancel never settles', async () => {
+    // A stalled socket teardown must not hold the generator open: the provider
+    // clears its streaming state only after the generator finishes.
+    const body = new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(new TextEncoder().encode('event: token\ndata: {"text":"hi"}\n\nevent: done\ndata: {}\n\n')) },
+      cancel() { return new Promise(() => {}) },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })))
+    const types: string[] = []
+    const run = (async () => { for await (const event of createSSEClient(() => ({ url: '/chat' })).send('m', null)) types.push(event.type) })()
+    const outcome = await Promise.race([run.then(() => 'completed'), new Promise<string>(resolve => setTimeout(() => resolve('hung'), 1000))])
+    expect(types).toEqual(['token', 'done'])
+    expect(outcome).toBe('completed')
+  })
   it('cancels the body reader on terminal events', async () => {
     const cancel = vi.fn()
     vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('data: [DONE]\n\n')) }, cancel }), { headers: { 'content-type': 'text/event-stream' } })))

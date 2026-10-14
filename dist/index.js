@@ -8290,10 +8290,9 @@ function createSSEClient(getConfig) {
       } catch (error) {
         if (!controller.signal.aborted) yield { type: "error", message: error instanceof Error ? error.message : "Chat connection failed" };
       } finally {
-        await reader?.cancel().catch(() => {
-        });
-        reader?.releaseLock();
         controller.abort();
+        void reader?.cancel().catch(() => {
+        });
         if (active === controller) active = null;
       }
     }

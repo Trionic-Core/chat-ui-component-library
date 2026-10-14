@@ -73,9 +73,12 @@ export function createSSEClient(getConfig: () => SSEStreamConfig) {
       } catch (error) {
         if (!controller.signal.aborted) yield { type: 'error', message: error instanceof Error ? error.message : 'Chat connection failed' }
       } finally {
-        await reader?.cancel().catch(() => {})
-        reader?.releaseLock()
+        // Abort first: it is what closes the socket. Do not await cancel();
+        // on WebKit for Linux the cancel promise of an open event-stream body
+        // never settles, and a generator held open here keeps the provider in
+        // its streaming state after done.
         controller.abort()
+        void reader?.cancel().catch(() => {})
         if (active === controller) active = null
       }
     }
