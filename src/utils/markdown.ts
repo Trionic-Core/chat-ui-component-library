@@ -151,23 +151,14 @@ function processInline(text: string): string {
 }
 
 /**
- * Normalizes the line-break forms a chat transport can deliver so the block
- * parser sees exactly one: a real LF.
- *
- * - CRLF and a lone CR become LF.
- * - A literal two-character backslash-n becomes LF. Content that was JSON
- *   encoded twice, stored escaped, or produced by a model writing "\\n" as
- *   text otherwise renders the two characters as visible text. No markdown
- *   construct this renderer supports gives a literal backslash-n a meaning,
- *   so the replacement loses nothing. Fenced code is exempt: its bytes are
- *   the author's.
+ * Normalizes line endings so the block parser sees exactly one form: LF.
+ * CRLF and a lone CR become LF. A backslash followed by the letter n is
+ * ordinary text (a Windows path, an escape inside inline code) and stays
+ * exactly as written; content that arrives double-encoded is a producer
+ * defect and is not repaired here.
  */
 export function normalizeLineBreaks(markdown: string): string {
-  const unified = markdown.replace(/\r\n?/g, '\n')
-  return unified
-    .split(/(```[\s\S]*?(?:```|$))/)
-    .map((segment, index) => (index % 2 === 1 ? segment : segment.replace(/\\n/g, '\n')))
-    .join('')
+  return markdown.replace(/\r\n?/g, '\n')
 }
 
 /**

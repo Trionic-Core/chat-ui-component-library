@@ -12,17 +12,8 @@ describe('normalizeLineBreaks', () => {
     expect(normalizeLineBreaks('a\r\nb\rc')).toBe('a\nb\nc')
   })
 
-  it('turns a literal two-character backslash-n into LF', () => {
-    expect(normalizeLineBreaks('Total 1,200.\\nTop branch Surat.')).toBe('Total 1,200.\nTop branch Surat.')
-  })
-
-  it('leaves fenced code untouched', () => {
-    const code = 'before\\n\n```js\nconst s = "a\\nb"\n```\nafter\\n'
-    expect(normalizeLineBreaks(code)).toBe('before\n\n```js\nconst s = "a\\nb"\n```\nafter\n')
-  })
-
-  it('leaves an unterminated fence untouched to its end', () => {
-    expect(normalizeLineBreaks('x\\n\n```\nraw\\n')).toBe('x\n\n```\nraw\\n')
+  it('keeps a backslash followed by n as text: a Windows path is not a line break', () => {
+    expect(normalizeLineBreaks('C:\\new\\notes.txt')).toBe('C:\\new\\notes.txt')
   })
 })
 
@@ -44,17 +35,17 @@ describe('renderMarkdown line breaks', () => {
     expect(renderMarkdown('Line one.\\\nLine two.')).toBe('<p>Line one.<br />Line two.</p>')
   })
 
-  it('renders a literal backslash-n as a line break, not as text', () => {
-    const html = renderMarkdown('Total 1,200.\\nTop branch Surat.')
-    expect(html).toBe('<p>Total 1,200.<br />Top branch Surat.</p>')
-    expect(html).not.toContain('\\n')
+  it('preserves literal backslashes in prose, inline code and table cells', () => {
+    expect(renderMarkdown('C:\\new\\notes.txt')).toBe('<p>C:\\new\\notes.txt</p>')
+    expect(renderMarkdown('Use `\\n` as the delimiter.')).toBe('<p>Use <code>\\n</code> as the delimiter.</p>')
+    expect(renderMarkdown('| Path | Total |\n| --- | --- |\n| C:\\new\\notes | 42 |')).toContain('<td>C:\\new\\notes</td><td>42</td>')
   })
 
   it('renders CRLF content the same as LF content', () => {
     expect(renderMarkdown('a\r\nb\r\n\r\nc')).toBe(renderMarkdown('a\nb\n\nc'))
   })
 
-  it('keeps the bytes of fenced code, including a literal backslash-n', () => {
+  it('keeps the bytes of fenced code', () => {
     const html = renderMarkdown('```js\nconst s = "a\\nb"\n```')
     expect(html).toContain('const s = &quot;a\\nb&quot;')
     expect(html).not.toContain('<br />')

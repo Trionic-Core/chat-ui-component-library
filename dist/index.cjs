@@ -1111,8 +1111,7 @@ function processInline(text) {
   return result;
 }
 function normalizeLineBreaks(markdown) {
-  const unified = markdown.replace(/\r\n?/g, "\n");
-  return unified.split(/(```[\s\S]*?(?:```|$))/).map((segment, index) => index % 2 === 1 ? segment : segment.replace(/\\n/g, "\n")).join("");
+  return markdown.replace(/\r\n?/g, "\n");
 }
 function renderMarkdown(markdown) {
   const lines = normalizeLineBreaks(markdown).split("\n");

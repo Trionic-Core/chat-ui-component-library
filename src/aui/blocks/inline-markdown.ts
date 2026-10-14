@@ -71,8 +71,7 @@ export function renderInlineMarkdown(text: string): string {
     },
   )
 
-  // Line breaks. CRLF, lone CR and a literal two-character backslash-n are
-  // all line breaks a transport can deliver; see utils/markdown.ts.
+  // Line breaks. CRLF and a lone CR are normalized first; see utils/markdown.ts.
   html = normalizeLineBreaks(html).replace(/\n/g, '<br />')
 
   // Re-insert the inline-code HTML now that emphasis/links are done. A user

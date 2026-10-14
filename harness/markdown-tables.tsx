@@ -23,8 +23,8 @@ const billing = [
 const lineBreaks = {
   // One sentence per line, the shape every chat answer has.
   'bare-newline': 'Total sales in the last 30 days were 1,24,560.\nThe top branch is Surat with 42% of revenue.\nThe second branch is Ahmedabad with 31%.',
-  // Escaped once too often somewhere between the model and the browser.
-  'literal-backslash-n': 'Total sales were 1,24,560.\\nThe top branch is Surat.',
+  // A backslash followed by n is text, never a line break.
+  'windows-path': '| Path | Total |\n| --- | --- |\n| C:\\new\\notes | 42 |',
   // Windows line endings from a stored transcript.
   'crlf': 'Total sales were 1,24,560.\r\nThe top branch is Surat.',
 }
