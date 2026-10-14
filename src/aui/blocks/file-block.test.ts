@@ -121,7 +121,7 @@ describe('FileBlockCard — each state', () => {
 
   it('ready: the details, the expiry date and a named Download button', async () => {
     await mount(READY_CSV, fakeHost())
-    expect(text()).toContain('CSV · 471 KB · 12,840 rows')
+    expect(text()).toContain('471 KB · 12,840 rows')
     expect(text()).toContain('Available until Oct 27, 2026')
     expect(button()?.getAttribute('aria-label')).toBe(
       'Download Totals-by-region-20260927-1015.csv',
@@ -461,7 +461,7 @@ describe('FileBlockCard — the status poll', () => {
     await mount(CSV, host)
     expect(button()).toBeNull()
     await advance(2_000)
-    expect(text()).toContain('CSV · 471 KB · 12,840 rows')
+    expect(text()).toContain('471 KB · 12,840 rows')
     expect(button()).not.toBeNull()
   })
 

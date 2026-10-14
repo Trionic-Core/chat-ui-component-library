@@ -251,22 +251,22 @@ describe('formatExpiry', () => {
 })
 
 describe('fileMeta', () => {
-  it('joins the format, the size and the CSV row count', () => {
+  it('joins the size and the CSV row count; the format tag shows the format', () => {
     const view = fileView(CSV, statusOf({}), null, BEFORE)
-    expect(fileMeta('csv', view)).toBe('CSV · 471 KB · 12,840 rows')
+    expect(fileMeta('csv', view)).toBe('471 KB · 12,840 rows')
   })
 
   it('shows the truncated row count', () => {
     const view = fileView(CSV, statusOf({ row_count: 100000, truncated: true }), null, BEFORE)
-    expect(fileMeta('csv', view)).toBe('CSV · 471 KB · First 100,000 rows')
+    expect(fileMeta('csv', view)).toBe('471 KB · First 100,000 rows')
   })
 
-  it('shows the format alone while a CSV is preparing', () => {
-    expect(fileMeta('csv', fileView(CSV, null, null, BEFORE))).toBe('CSV')
+  it('is empty while a CSV is preparing', () => {
+    expect(fileMeta('csv', fileView(CSV, null, null, BEFORE))).toBe('')
   })
 
   it('never shows a row count on a report', () => {
     const pdf = { ...CSV, format: 'pdf' as const, status: 'ready' as const, size_bytes: 90112, row_count: 40 }
-    expect(fileMeta('pdf', fileView(pdf, null, null, BEFORE))).toBe('PDF · 88 KB')
+    expect(fileMeta('pdf', fileView(pdf, null, null, BEFORE))).toBe('88 KB')
   })
 })

@@ -4778,15 +4778,19 @@ function formatExpiry(expiresAt) {
 }
 function fileMeta(format, view) {
   return [
-    format.toUpperCase(),
     formatFileSize(view.sizeBytes),
     format === "csv" ? formatRowCount(view.rowCount, view.truncated) : null
   ].filter(Boolean).join(" \xB7 ");
 }
+var FILE_FORMAT_FALLBACKS = {
+  csv: "#2A9D8F",
+  pdf: "#E56C4E",
+  docx: "#2B6CB0"
+};
 var FORMAT_LOOK = {
-  csv: { Icon: lucideReact.FileSpreadsheet, tint: "var(--cxc-chart-2)" },
-  pdf: { Icon: lucideReact.FileText, tint: "var(--cxc-chart-1)" },
-  docx: { Icon: lucideReact.FileType, tint: "var(--cxc-chart-4)" }
+  csv: { Icon: lucideReact.FileSpreadsheet, tint: `var(--cxc-file-csv, ${FILE_FORMAT_FALLBACKS.csv})` },
+  pdf: { Icon: lucideReact.FileText, tint: `var(--cxc-file-pdf, ${FILE_FORMAT_FALLBACKS.pdf})` },
+  docx: { Icon: lucideReact.FileType, tint: `var(--cxc-file-docx, ${FILE_FORMAT_FALLBACKS.docx})` }
 };
 var UNKNOWN_FORMAT = { Icon: lucideReact.File, tint: "var(--cxc-text-secondary)" };
 var ICON = { size: 16, strokeWidth: 1.2, "aria-hidden": true };
@@ -4802,6 +4806,7 @@ function FileBlockCard({ block, files }) {
   const row = react.useRef(null);
   const narrow = useElementSize(row, WIDE_FALLBACK).width < NARROW_CARD_PX;
   const view = fileView(block, status, refusal, Date.now());
+  const meta = fileMeta(block.format, view);
   const name = block.title || block.file_name;
   const expired = view.state === "expired";
   const downloading = react.useRef(false);
@@ -4850,7 +4855,7 @@ function FileBlockCard({ block, files }) {
                     children: name
                   }
                 ),
-                /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-xs", style: { color: "var(--cxc-text-secondary)" }, children: fileMeta(block.format, view) }),
+                meta && /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-xs", style: { color: "var(--cxc-text-secondary)" }, children: meta }),
                 /* @__PURE__ */ jsxRuntime.jsxs("div", { "aria-live": "polite", className: "text-xs", children: [
                   /* @__PURE__ */ jsxRuntime.jsx(StatusLine, { view }),
                   downloadFailed && /* @__PURE__ */ jsxRuntime.jsx("p", { style: { color: "var(--cxc-error)" }, children: DOWNLOAD_FAILED_TEXT })

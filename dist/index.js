@@ -4776,15 +4776,19 @@ function formatExpiry(expiresAt) {
 }
 function fileMeta(format, view) {
   return [
-    format.toUpperCase(),
     formatFileSize(view.sizeBytes),
     format === "csv" ? formatRowCount(view.rowCount, view.truncated) : null
   ].filter(Boolean).join(" \xB7 ");
 }
+var FILE_FORMAT_FALLBACKS = {
+  csv: "#2A9D8F",
+  pdf: "#E56C4E",
+  docx: "#2B6CB0"
+};
 var FORMAT_LOOK = {
-  csv: { Icon: FileSpreadsheet, tint: "var(--cxc-chart-2)" },
-  pdf: { Icon: FileText, tint: "var(--cxc-chart-1)" },
-  docx: { Icon: FileType, tint: "var(--cxc-chart-4)" }
+  csv: { Icon: FileSpreadsheet, tint: `var(--cxc-file-csv, ${FILE_FORMAT_FALLBACKS.csv})` },
+  pdf: { Icon: FileText, tint: `var(--cxc-file-pdf, ${FILE_FORMAT_FALLBACKS.pdf})` },
+  docx: { Icon: FileType, tint: `var(--cxc-file-docx, ${FILE_FORMAT_FALLBACKS.docx})` }
 };
 var UNKNOWN_FORMAT = { Icon: File, tint: "var(--cxc-text-secondary)" };
 var ICON = { size: 16, strokeWidth: 1.2, "aria-hidden": true };
@@ -4800,6 +4804,7 @@ function FileBlockCard({ block, files }) {
   const row = useRef(null);
   const narrow = useElementSize(row, WIDE_FALLBACK).width < NARROW_CARD_PX;
   const view = fileView(block, status, refusal, Date.now());
+  const meta = fileMeta(block.format, view);
   const name = block.title || block.file_name;
   const expired = view.state === "expired";
   const downloading = useRef(false);
@@ -4848,7 +4853,7 @@ function FileBlockCard({ block, files }) {
                     children: name
                   }
                 ),
-                /* @__PURE__ */ jsx("p", { className: "text-xs", style: { color: "var(--cxc-text-secondary)" }, children: fileMeta(block.format, view) }),
+                meta && /* @__PURE__ */ jsx("p", { className: "text-xs", style: { color: "var(--cxc-text-secondary)" }, children: meta }),
                 /* @__PURE__ */ jsxs("div", { "aria-live": "polite", className: "text-xs", children: [
                   /* @__PURE__ */ jsx(StatusLine, { view }),
                   downloadFailed && /* @__PURE__ */ jsx("p", { style: { color: "var(--cxc-error)" }, children: DOWNLOAD_FAILED_TEXT })

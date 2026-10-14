@@ -1399,6 +1399,9 @@
     --cxc-chart-6: #7C3AED;
     --cxc-chart-7: #00825A;
     --cxc-chart-8: #E11D48;
+    --cxc-file-csv: #2A9D8F;
+    --cxc-file-pdf: #E56C4E;
+    --cxc-file-docx: #2B6CB0;
     --cxc-user-bg: #2D2B28;
     --cxc-user-text: #F5F4F0;
     --cxc-assistant-bg: transparent;
@@ -1464,6 +1467,9 @@
     --cxc-chart-6: #8749FB;
     --cxc-chart-7: #00825A;
     --cxc-chart-8: #E11D48;
+    --cxc-file-csv: #2A9D8F;
+    --cxc-file-pdf: #E56C4E;
+    --cxc-file-docx: #2486A8;
     --cxc-user-bg: #2E2B25;
     --cxc-user-text: #E8E5E0;
     --cxc-assistant-bg: transparent;

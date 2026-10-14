@@ -140,10 +140,13 @@ export function formatExpiry(expiresAt: string): string | null {
   return Number.isFinite(at) ? DATE.format(at) : null
 }
 
-/** "CSV · 471 KB · 12,840 rows". The row count is a CSV fact only. */
+/**
+ * "471 KB · 12,840 rows", or "" before the size is known. The format tag on the
+ * square shows the format, so the line does not repeat it. The row count is a
+ * CSV fact only.
+ */
 export function fileMeta(format: string, view: FileView): string {
   return [
-    format.toUpperCase(),
     formatFileSize(view.sizeBytes),
     format === 'csv' ? formatRowCount(view.rowCount, view.truncated) : null,
   ]

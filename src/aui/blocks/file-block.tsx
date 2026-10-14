@@ -45,15 +45,22 @@ import {
 
 interface FormatLook {
   Icon: LucideIcon
-  /** A chart palette slot, so a host's brand colors reach the card too. */
+  /** A `--cxc-file-*` token, so a host can brand the format colors. */
   tint: string
+}
+
+/** The light-theme `--cxc-file-*` values, for a host that loads no library CSS. */
+export const FILE_FORMAT_FALLBACKS: Record<FileBlock['format'], string> = {
+  csv: '#2A9D8F',
+  pdf: '#E56C4E',
+  docx: '#2B6CB0',
 }
 
 /** Each format gets its own quiet color, so CSV, PDF and DOCX differ at a glance. */
 const FORMAT_LOOK: Record<FileBlock['format'], FormatLook> = {
-  csv: { Icon: FileSpreadsheet, tint: 'var(--cxc-chart-2)' },
-  pdf: { Icon: FileText, tint: 'var(--cxc-chart-1)' },
-  docx: { Icon: FileType, tint: 'var(--cxc-chart-4)' },
+  csv: { Icon: FileSpreadsheet, tint: `var(--cxc-file-csv, ${FILE_FORMAT_FALLBACKS.csv})` },
+  pdf: { Icon: FileText, tint: `var(--cxc-file-pdf, ${FILE_FORMAT_FALLBACKS.pdf})` },
+  docx: { Icon: FileType, tint: `var(--cxc-file-docx, ${FILE_FORMAT_FALLBACKS.docx})` },
 }
 
 /** A format this version does not know: a neutral file icon. */
@@ -90,6 +97,7 @@ export function FileBlockCard({ block, files }: FileBlockCardProps) {
   const narrow = useElementSize(row, WIDE_FALLBACK).width < NARROW_CARD_PX
 
   const view = fileView(block, status, refusal, Date.now())
+  const meta = fileMeta(block.format, view)
   const name = block.title || block.file_name
   const expired = view.state === 'expired'
 
@@ -147,9 +155,11 @@ export function FileBlockCard({ block, files }: FileBlockCardProps) {
               >
                 {name}
               </p>
-              <p className="text-xs" style={{ color: 'var(--cxc-text-secondary)' }}>
-                {fileMeta(block.format, view)}
-              </p>
+              {meta && (
+                <p className="text-xs" style={{ color: 'var(--cxc-text-secondary)' }}>
+                  {meta}
+                </p>
+              )}
               <div aria-live="polite" className="text-xs">
                 <StatusLine view={view} />
                 {downloadFailed && (
