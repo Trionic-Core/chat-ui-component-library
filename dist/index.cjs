@@ -4783,23 +4783,31 @@ function fileMeta(format, view) {
     format === "csv" ? formatRowCount(view.rowCount, view.truncated) : null
   ].filter(Boolean).join(" \xB7 ");
 }
-var FORMAT_ICON = {
-  csv: lucideReact.FileSpreadsheet,
-  pdf: lucideReact.FileText,
-  docx: lucideReact.FileType
+var FORMAT_LOOK = {
+  csv: { Icon: lucideReact.FileSpreadsheet, tint: "var(--cxc-chart-2)" },
+  pdf: { Icon: lucideReact.FileText, tint: "var(--cxc-chart-1)" },
+  docx: { Icon: lucideReact.FileType, tint: "var(--cxc-chart-4)" }
 };
+var UNKNOWN_FORMAT = { Icon: lucideReact.File, tint: "var(--cxc-text-secondary)" };
 var ICON = { size: 16, strokeWidth: 1.2, "aria-hidden": true };
+var NARROW_CARD_PX = 400;
+var WIDE_FALLBACK = { width: 600, height: 72 };
 var DOWNLOAD_FAILED_TEXT = "Download failed. Try again.";
+var FAILED_HINT_TEXT = "Ask again in the chat.";
 function FileBlockCard({ block, files }) {
   const { status, refusal, setRefusal } = useFileStatus(block, files);
   const [busy, setBusy] = react.useState(false);
   const [downloadFailed, setDownloadFailed] = react.useState(false);
   const reducedMotion = usePrefersReducedMotion();
+  const row = react.useRef(null);
+  const narrow = useElementSize(row, WIDE_FALLBACK).width < NARROW_CARD_PX;
   const view = fileView(block, status, refusal, Date.now());
   const name = block.title || block.file_name;
   const expired = view.state === "expired";
+  const downloading = react.useRef(false);
   const handleDownload = react.useCallback(async () => {
-    if (!files) return;
+    if (!files || downloading.current) return;
+    downloading.current = true;
     setBusy(true);
     setDownloadFailed(false);
     try {
@@ -4809,53 +4817,67 @@ function FileBlockCard({ block, files }) {
       if (code === null) setDownloadFailed(true);
       else setRefusal(code);
     } finally {
+      downloading.current = false;
       setBusy(false);
     }
   }, [files, block, setRefusal]);
-  return /* @__PURE__ */ jsxRuntime.jsxs(Card, { padding: "sm", className: "flex flex-wrap items-start gap-3", children: [
-    /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-0 grow basis-60 items-start gap-3", children: [
-      /* @__PURE__ */ jsxRuntime.jsx(
-        FormatTile,
+  const downloadable = Boolean(files) && view.state === "ready";
+  return /* @__PURE__ */ jsxRuntime.jsx(
+    react$1.motion.div,
+    {
+      className: cn(downloadable && "cursor-pointer"),
+      onClick: downloadable ? handleDownload : void 0,
+      whileTap: downloadable && !reducedMotion ? { scale: 0.99 } : void 0,
+      children: /* @__PURE__ */ jsxRuntime.jsx(
+        Card,
         {
-          Icon: FORMAT_ICON[block.format] ?? lucideReact.File,
-          pulsing: Boolean(files) && keepsPolling(view.state) && !reducedMotion,
-          dimmed: expired
+          padding: "sm",
+          className: cn(
+            downloadable && "bg-[var(--cxc-bg)] transition-colors duration-150 hover:bg-[var(--cxc-bg-subtle)]"
+          ),
+          style: downloadable ? { backgroundColor: void 0 } : void 0,
+          children: /* @__PURE__ */ jsxRuntime.jsxs("div", { ref: row, className: "flex items-center gap-3", children: [
+            /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "flex min-w-0 flex-1 items-start gap-3", children: [
+              /* @__PURE__ */ jsxRuntime.jsx(FormatTile, { format: block.format, dimmed: expired }),
+              /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "min-w-0 flex-1", children: [
+                /* @__PURE__ */ jsxRuntime.jsx(
+                  "p",
+                  {
+                    className: "truncate text-sm font-medium",
+                    title: name,
+                    style: { color: expired ? "var(--cxc-text-muted)" : "var(--cxc-text)" },
+                    children: name
+                  }
+                ),
+                /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-xs", style: { color: "var(--cxc-text-secondary)" }, children: fileMeta(block.format, view) }),
+                /* @__PURE__ */ jsxRuntime.jsxs("div", { "aria-live": "polite", className: "text-xs", children: [
+                  /* @__PURE__ */ jsxRuntime.jsx(StatusLine, { view }),
+                  downloadFailed && /* @__PURE__ */ jsxRuntime.jsx("p", { style: { color: "var(--cxc-error)" }, children: DOWNLOAD_FAILED_TEXT })
+                ] }),
+                files && keepsPolling(view.state) && /* @__PURE__ */ jsxRuntime.jsx(ProgressLine, { label: `Preparing ${name}`, still: reducedMotion })
+              ] })
+            ] }),
+            downloadable && /* @__PURE__ */ jsxRuntime.jsxs(
+              Button,
+              {
+                type: "button",
+                variant: "secondary",
+                size: "sm",
+                className: "shrink-0 rounded-lg",
+                disabled: busy,
+                "aria-busy": busy,
+                "aria-label": `Download ${block.file_name}`,
+                children: [
+                  busy ? /* @__PURE__ */ jsxRuntime.jsx(Spinner, { still: reducedMotion }) : /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Download, { ...ICON }),
+                  !narrow && "Download"
+                ]
+              }
+            )
+          ] })
         }
-      ),
-      /* @__PURE__ */ jsxRuntime.jsxs("div", { className: "min-w-0 flex-1", children: [
-        /* @__PURE__ */ jsxRuntime.jsx(
-          "p",
-          {
-            className: "truncate text-sm font-medium",
-            title: name,
-            style: { color: expired ? "var(--cxc-text-muted)" : "var(--cxc-text)" },
-            children: name
-          }
-        ),
-        /* @__PURE__ */ jsxRuntime.jsx("p", { className: "text-xs", style: { color: "var(--cxc-text-secondary)" }, children: fileMeta(block.format, view) }),
-        /* @__PURE__ */ jsxRuntime.jsxs("div", { "aria-live": "polite", className: "text-xs", children: [
-          /* @__PURE__ */ jsxRuntime.jsx(StatusLine, { view }),
-          downloadFailed && /* @__PURE__ */ jsxRuntime.jsx("p", { style: { color: "var(--cxc-error)" }, children: DOWNLOAD_FAILED_TEXT })
-        ] })
-      ] })
-    ] }),
-    files && view.state === "ready" && /* @__PURE__ */ jsxRuntime.jsxs(
-      Button,
-      {
-        variant: "secondary",
-        size: "sm",
-        className: "shrink-0 rounded-lg",
-        onClick: handleDownload,
-        disabled: busy,
-        "aria-busy": busy,
-        "aria-label": `Download ${block.file_name}`,
-        children: [
-          busy ? /* @__PURE__ */ jsxRuntime.jsx(Spinner, { still: reducedMotion }) : /* @__PURE__ */ jsxRuntime.jsx(lucideReact.Download, { ...ICON }),
-          "Download"
-        ]
-      }
-    )
-  ] });
+      )
+    }
+  );
 }
 function useFileStatus(block, files) {
   const [status, setStatus] = react.useState(null);
@@ -4913,27 +4935,62 @@ function StatusLine({ view }) {
       ] }) : null;
     }
     case "failed":
-      return /* @__PURE__ */ jsxRuntime.jsx("p", { style: { color: "var(--cxc-error)" }, children: view.error });
+      return /* @__PURE__ */ jsxRuntime.jsxs(jsxRuntime.Fragment, { children: [
+        /* @__PURE__ */ jsxRuntime.jsx("p", { style: { color: "var(--cxc-error)" }, children: view.error }),
+        /* @__PURE__ */ jsxRuntime.jsx("p", { style: { color: "var(--cxc-text-muted)" }, children: FAILED_HINT_TEXT })
+      ] });
     case "expired":
       return /* @__PURE__ */ jsxRuntime.jsx("p", { style: { color: "var(--cxc-text-muted)" }, children: "Expired" });
   }
 }
-function FormatTile({
-  Icon,
-  pulsing,
-  dimmed
-}) {
-  return /* @__PURE__ */ jsxRuntime.jsx(
-    react$1.motion.span,
+function FormatTile({ format, dimmed }) {
+  const { Icon, tint } = FORMAT_LOOK[format] ?? UNKNOWN_FORMAT;
+  const color = dimmed ? "var(--cxc-text-muted)" : tint;
+  return /* @__PURE__ */ jsxRuntime.jsxs(
+    "span",
     {
-      className: "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg",
+      "data-file-format": format,
+      className: "relative flex h-10 w-10 shrink-0 items-center justify-center rounded-lg",
       style: {
-        backgroundColor: "var(--cxc-bg-subtle)",
-        color: dimmed ? "var(--cxc-text-muted)" : "var(--cxc-text-secondary)"
+        color,
+        backgroundColor: dimmed ? "var(--cxc-bg-subtle)" : `color-mix(in srgb, ${tint} 14%, var(--cxc-bg))`
       },
-      animate: { opacity: pulsing ? [1, 0.45, 1] : 1 },
-      transition: pulsing ? { duration: 1.6, repeat: Infinity, ease: "easeInOut" } : { duration: 0.2 },
-      children: /* @__PURE__ */ jsxRuntime.jsx(Icon, { ...ICON })
+      children: [
+        /* @__PURE__ */ jsxRuntime.jsx(Icon, { ...ICON, size: 20 }),
+        /* @__PURE__ */ jsxRuntime.jsx(
+          "span",
+          {
+            "aria-hidden": true,
+            className: "absolute -bottom-1.5 left-1/2 -translate-x-1/2 rounded border px-1 text-[9px] font-medium leading-[13px] tracking-wide",
+            style: {
+              backgroundColor: "var(--cxc-bg)",
+              borderColor: "var(--cxc-border)",
+              color: "var(--cxc-text-secondary)"
+            },
+            children: format.toUpperCase()
+          }
+        )
+      ]
+    }
+  );
+}
+function ProgressLine({ label, still }) {
+  return /* @__PURE__ */ jsxRuntime.jsx(
+    "div",
+    {
+      role: "progressbar",
+      "aria-label": label,
+      className: "relative mt-2 h-0.5 overflow-hidden rounded-full",
+      style: { backgroundColor: "var(--cxc-border)" },
+      children: /* @__PURE__ */ jsxRuntime.jsx(
+        react$1.motion.div,
+        {
+          className: "absolute inset-y-0 left-0 w-1/3 rounded-full",
+          style: { backgroundColor: "var(--cxc-text-secondary)" },
+          animate: still ? void 0 : { x: ["-100%", "300%"] },
+          transition: { duration: 1.4, repeat: Infinity, ease: "easeInOut" }
+        }
+      )
     }
   );
 }
