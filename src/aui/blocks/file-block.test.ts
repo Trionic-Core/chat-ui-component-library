@@ -329,6 +329,12 @@ describe('FileBlockCard — a click on the card', () => {
     expect(host.download).toHaveBeenCalledTimes(1)
   })
 
+  it('keeps the button as the only tab stop on the card', async () => {
+    await mount(READY_CSV, fakeHost())
+    const focusable = container.querySelectorAll('button, [tabindex]:not([tabindex="-1"])')
+    expect([...focusable]).toEqual([button()])
+  })
+
   it('does not start a second download while one runs', async () => {
     const host = fakeHost()
     let finish: () => void = () => {}

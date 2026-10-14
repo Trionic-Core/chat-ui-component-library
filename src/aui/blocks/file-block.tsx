@@ -119,8 +119,11 @@ export function FileBlockCard({ block, files }: FileBlockCardProps) {
   // by bubbling, so one click is one download.
   return (
     <motion.div
-      className={cn(downloadable && 'cursor-pointer')}
+      className={cn('outline-none', downloadable && 'cursor-pointer')}
       onClick={downloadable ? handleDownload : undefined}
+      // whileTap makes Motion set tabIndex 0 on an element that has none. The
+      // button is the one tab stop, so the card opts out.
+      tabIndex={-1}
       whileTap={downloadable && !reducedMotion ? { scale: 0.99 } : undefined}
     >
       <Card

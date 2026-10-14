@@ -4823,8 +4823,9 @@ function FileBlockCard({ block, files }) {
   return /* @__PURE__ */ jsx(
     motion.div,
     {
-      className: cn(downloadable && "cursor-pointer"),
+      className: cn("outline-none", downloadable && "cursor-pointer"),
       onClick: downloadable ? handleDownload : void 0,
+      tabIndex: -1,
       whileTap: downloadable && !reducedMotion ? { scale: 0.99 } : void 0,
       children: /* @__PURE__ */ jsx(
         Card,
