@@ -221,7 +221,7 @@ const sessions: SessionAdapter = {
 
 When a user asks for a file, the agent can export the answer as a CSV, PDF or
 DOCX. The answer then carries a `file` block, and `AuiView` draws a download
-card: the format icon, the title or file name, the size, the row count of a
+card: the format icon and tag (CSV, PDF or DOCX), the title or file name, the size, the row count of a
 CSV ("First N rows" when the export stopped at its row limit) and "Available
 until {date}".
 
@@ -273,9 +273,9 @@ What the card does:
 
 | State | The card shows | Download button |
 |---|---|---|
-| `preparing` | "Preparing…". It reads the status at once, every 2 s for 30 s, then every 10 s. | No |
+| `preparing` | "Preparing…" and a thin moving line with no percent. It reads the status at once, every 2 s for 30 s, then every 10 s. | No |
 | `ready` | The size, the rows and "Available until {date}". | Yes |
-| `failed` | The sentence from the status route, for example "The export queue is busy. Try again in a few minutes." | No |
+| `failed` | The sentence from the status route, for example "The export queue is busy. Try again in a few minutes.", then "Ask again in the chat." | No |
 | `expired` | "Expired" — `expires_at` is past, the status says `expired`, or the download answered 410. | No |
 
 - The card stops the status reads on `ready`, `failed` or `expired`, and when it
@@ -283,11 +283,15 @@ What the card does:
 - A PDF or DOCX arrives `ready`, so the card never reads its status.
 - The history replay keeps the first state of a block, so an old CSV says
   `preparing`. The card reads its status once, sees `ready`, and stops.
+- A click anywhere on a ready card downloads the file, one time. The button
+  stays the keyboard and screen reader control.
+- On a card narrower than 400 px, the button shows its icon only. Its name
+  stays "Download {file name}".
 - While `download` runs, the button is busy. If `download` rejects with another
   code, the card shows "Download failed. Try again." and keeps the button.
 - Without `files`, the card shows the details only: no button and no status
   reads.
-- The install must have chat file exports turned on. Old clients (0.8.0) skip
+- The install must have chat file exports turned on. Old clients (0.9.0 and older) skip
   the `file` block and log one warning.
 
 ---

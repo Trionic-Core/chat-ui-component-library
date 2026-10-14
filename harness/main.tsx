@@ -286,8 +286,8 @@ const FILE_CASES: { id: string; caption: string; block: FileBlock }[] = [
 ]
 
 const FILE_COLUMNS = [
-  { width: 360, label: '360px — phone' },
-  { width: 600, label: '600px — chat message column' },
+  { width: 360, label: '360px: phone' },
+  { width: 600, label: '600px: chat message column' },
 ] as const
 
 function wait(ms: number) {
@@ -392,7 +392,7 @@ function Harness() {
     >
       <header>
         <h1 style={{ fontSize: 18, fontWeight: 600, color: 'var(--cxc-text)' }}>
-          AUI harness — @cypherx/chat-ui 0.9.0
+          AUI harness: @cypherx/chat-ui 0.10.0
         </h1>
         <p style={{ fontSize: 13, color: 'var(--cxc-text-secondary)' }}>
           Each chart case at the three real chart widths. Column widths include the AUI section and
@@ -425,7 +425,7 @@ function Harness() {
       {showFiles() && (
         <section data-harness-case="files">
           <h2 style={{ fontSize: 14, fontWeight: 600, color: 'var(--cxc-text)', marginBottom: 12 }}>
-            File cards — each state, with a fake host adapter
+            File cards: each state, with a fake host adapter
           </h2>
           <div style={{ display: 'flex', gap: 24, alignItems: 'flex-start', flexWrap: 'wrap' }}>
             {selectedFileColumns().map((column) => (

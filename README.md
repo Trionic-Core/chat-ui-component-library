@@ -573,7 +573,7 @@ const {
 `AuiView` renders the `ViewSpec` blocks the agent emits — KPI cards, charts, tables, text,
 actions and file downloads. See **[INTEGRATION.md](./INTEGRATION.md)** for the protocol and the host wiring.
 
-### File downloads (v0.9.0)
+### File downloads (v0.10.0)
 
 A `file` block is a CSV, PDF or DOCX the agent exported. `AuiView` draws a download card for it.
 The library never knows the file URL or your credentials: pass a `FileHandler`
