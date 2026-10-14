@@ -4,7 +4,8 @@ import { AnimatePresence, motion, useReducedMotion } from 'motion/react';
 import { ArrowDown, Sparkles, ChevronDown, ThumbsUp, ThumbsDown, Loader2, Square, Volume2, CheckCircle2, AlertCircle, Lock, Check, X, Circle, Clock, Download, FileType, FileText, FileSpreadsheet, File, Copy, RotateCcw, Pencil, Mic, Globe, Search, Paperclip, Plus, ArrowUp, MessageSquare, Trash2, PanelLeftClose, PanelLeftOpen, MessageCircle, Minimize2, Maximize2 } from 'lucide-react';
 import { clsx } from 'clsx';
 import { twMerge } from 'tailwind-merge';
-import { ResponsiveContainer, ScatterChart as ScatterChart$1, CartesianGrid, XAxis, YAxis, Tooltip, Legend, Scatter, PieChart as PieChart$1, Pie, Cell, AreaChart as AreaChart$1, Area, LineChart, Line, BarChart as BarChart$1, ReferenceLine, Bar, LabelList } from 'recharts';
+import { ResponsiveContainer, ScatterChart as ScatterChart$1, CartesianGrid, XAxis, YAxis, Scatter, PieChart as PieChart$1, Pie, Cell, AreaChart as AreaChart$1, Area, LineChart, Line, BarChart as BarChart$1, ReferenceLine, Bar, LabelList, usePlotArea, Tooltip, Legend } from 'recharts';
+import { createParser } from 'eventsource-parser';
 
 // src/components/chat-provider.tsx
 var ChatContext = createContext(null);
@@ -172,7 +173,8 @@ function chatReducer(state, action) {
     case "SET_STREAMING":
       return {
         ...state,
-        isStreaming: action.isStreaming
+        isStreaming: action.isStreaming,
+        messages: action.isStreaming ? state.messages : state.messages.map((message) => message.isStreaming ? { ...message, isStreaming: false } : message)
       };
     case "SET_SESSION":
       return {
@@ -451,6 +453,15 @@ function ChatProvider({
   });
   const generatorRef = useRef(null);
   const isStreamingRef = useRef(false);
+  const sessionLoadRef = useRef(0);
+  useEffect(() => () => {
+    sessionLoadRef.current++;
+    const generator = generatorRef.current;
+    generatorRef.current = null;
+    isStreamingRef.current = false;
+    void generator?.return(void 0).catch(() => {
+    });
+  }, []);
   const config = useMemo(
     () => ({
       onSend,
@@ -469,11 +480,20 @@ function ChatProvider({
     }),
     [onSend, sessionAdapter, initialMessages, initialSessionId, maxInputLength, placeholder, autoFocus, actionLabels, feedback, voice, voiceStatus, files, enableRegenerate]
   );
+  const acceptForSend = useCallback(
+    (message) => {
+      if (isStreamingRef.current) return null;
+      const trimmed = message.trim();
+      if (!trimmed || trimmed.length > maxInputLength) return null;
+      return trimmed;
+    },
+    [maxInputLength]
+  );
   const send = useCallback(
     (message, metadata) => {
-      if (isStreamingRef.current) return;
-      const trimmed = message.trim();
-      if (!trimmed) return;
+      const trimmed = acceptForSend(message);
+      if (trimmed === null) return;
+      sessionLoadRef.current++;
       const userMessage = {
         id: generateId(),
         role: "user",
@@ -500,6 +520,7 @@ function ChatProvider({
         try {
           dispatch({ type: "SET_CONNECTION_STATUS", status: "streaming" });
           for await (const event of generator) {
+            if (generatorRef.current !== generator) break;
             switch (event.type) {
               case "token":
                 dispatch({
@@ -565,6 +586,7 @@ function ChatProvider({
             }
           }
         } catch (err) {
+          if (generatorRef.current !== generator) return;
           const errorMessage = err instanceof Error ? err.message : "Connection lost";
           dispatch({
             type: "SET_ERROR",
@@ -572,19 +594,25 @@ function ChatProvider({
             error: errorMessage
           });
         } finally {
-          dispatch({ type: "SET_STREAMING", isStreaming: false });
-          dispatch({ type: "SET_CONNECTION_STATUS", status: "idle" });
-          generatorRef.current = null;
-          isStreamingRef.current = false;
+          if (generatorRef.current === generator) {
+            dispatch({ type: "SET_STREAMING", isStreaming: false });
+            dispatch({ type: "SET_CONNECTION_STATUS", status: "idle" });
+            generatorRef.current = null;
+            isStreamingRef.current = false;
+          }
         }
       })();
     },
-    [onSend, state.activeSessionId]
+    [onSend, state.activeSessionId, acceptForSend]
   );
   const stop = useCallback(() => {
-    if (generatorRef.current) {
-      generatorRef.current.return(void 0);
-    }
+    const generator = generatorRef.current;
+    generatorRef.current = null;
+    isStreamingRef.current = false;
+    void generator?.return(void 0).catch(() => {
+    });
+    dispatch({ type: "SET_STREAMING", isStreaming: false });
+    dispatch({ type: "SET_CONNECTION_STATUS", status: "idle" });
   }, []);
   const retry = useCallback(
     (messageId) => {
@@ -606,22 +634,29 @@ function ChatProvider({
     dispatch({ type: "SET_INPUT", value });
   }, []);
   const clearMessages = useCallback(() => {
+    sessionLoadRef.current++;
+    stop();
     dispatch({ type: "RESET" });
-  }, []);
+  }, [stop]);
   const setMessages = useCallback((messages) => {
+    sessionLoadRef.current++;
+    stop();
     dispatch({ type: "SET_MESSAGES", messages });
-  }, []);
+  }, [stop]);
   const loadSession = useCallback(
     async (sessionId) => {
       if (!sessionAdapter?.get) return;
+      stop();
+      const load = ++sessionLoadRef.current;
       try {
         const { session, messages } = await sessionAdapter.get(sessionId);
+        if (load !== sessionLoadRef.current) return;
         dispatch({ type: "SET_MESSAGES", messages });
         dispatch({ type: "SET_SESSION", sessionId: session.id });
       } catch {
       }
     },
-    [sessionAdapter]
+    [sessionAdapter, stop]
   );
   const deleteSession = useCallback(
     async (sessionId) => {
@@ -638,6 +673,7 @@ function ChatProvider({
     [sessionAdapter, state.activeSessionId]
   );
   const newConversation = useCallback(() => {
+    sessionLoadRef.current++;
     if (isStreamingRef.current) {
       stop();
     }
@@ -827,19 +863,19 @@ function ChatProvider({
   );
   const editAndRegenerate = useCallback(
     (newContent) => {
-      const trimmed = newContent.trim();
-      if (!trimmed) return;
+      const trimmed = acceptForSend(newContent);
+      if (trimmed === null) return;
       dispatch({ type: "TRIM_LAST_PAIR" });
       send(trimmed, { regenerate: true });
     },
-    [send]
+    [acceptForSend, send]
   );
   const regenerateLast = useCallback(() => {
     const lastUser = [...state.messages].reverse().find((m) => m.role === "user");
-    if (!lastUser) return;
+    if (!lastUser || acceptForSend(lastUser.content) === null) return;
     dispatch({ type: "TRIM_LAST_PAIR" });
     send(lastUser.content, { regenerate: true });
-  }, [state.messages, send]);
+  }, [state.messages, acceptForSend, send]);
   const contextValue = useMemo(
     () => ({
       state,
@@ -897,67 +933,88 @@ function ChatProvider({
 function cn(...inputs) {
   return twMerge(clsx(inputs));
 }
-function useChatScroll(deps) {
+function useChatScroll(deps, messageCount) {
   const scrollRef = useRef(null);
   const bottomRef = useRef(null);
+  const followRef = useRef(true);
+  const lastTopRef = useRef(0);
+  const frameRef = useRef(null);
+  const countRef = useRef(messageCount);
   const [isAtBottom, setIsAtBottom] = useState(true);
   const [unreadCount, setUnreadCount] = useState(0);
-  const isAtBottomRef = useRef(true);
   const scrollToBottom = useCallback((behavior = "smooth") => {
     const container = scrollRef.current;
     if (container) {
       container.scrollTo({ top: container.scrollHeight, behavior });
+      lastTopRef.current = container.scrollTop;
     }
+    followRef.current = true;
     setUnreadCount(0);
     setIsAtBottom(true);
-    isAtBottomRef.current = true;
   }, []);
+  const cancelScroll = useCallback(() => {
+    if (frameRef.current !== null) cancelAnimationFrame(frameRef.current);
+    frameRef.current = null;
+  }, []);
+  const scheduleScroll = useCallback(() => {
+    if (frameRef.current !== null) return;
+    frameRef.current = requestAnimationFrame(() => {
+      frameRef.current = null;
+      if (followRef.current) scrollToBottom("instant");
+    });
+  }, [scrollToBottom]);
   useEffect(() => {
-    const sentinel = bottomRef.current;
     const container = scrollRef.current;
-    if (!sentinel || !container) return;
-    const observer = new IntersectionObserver(
-      (entries) => {
-        const entry = entries[0];
-        if (entry) {
-          const atBottom = entry.isIntersecting;
-          isAtBottomRef.current = atBottom;
-          setIsAtBottom(atBottom);
-          if (atBottom) {
-            setUnreadCount(0);
-          }
-        }
-      },
-      {
-        root: container,
-        // Threshold of 0 means "any part of the sentinel is visible"
-        threshold: 0,
-        // Small margin at the bottom to trigger slightly before the exact bottom
-        rootMargin: "0px 0px 100px 0px"
+    const sentinel = bottomRef.current;
+    if (!container || !sentinel) return;
+    lastTopRef.current = container.scrollTop;
+    const onScroll = () => {
+      const top = container.scrollTop;
+      const atBottom = container.scrollHeight - container.clientHeight - top <= 100;
+      if (atBottom) {
+        followRef.current = true;
+        setUnreadCount(0);
+      } else if (top < lastTopRef.current) {
+        followRef.current = false;
       }
-    );
-    observer.observe(sentinel);
-    return () => {
-      observer.disconnect();
+      lastTopRef.current = top;
+      setIsAtBottom(atBottom);
     };
-  }, []);
+    container.addEventListener("scroll", onScroll, { passive: true });
+    const observer = new IntersectionObserver(([entry]) => {
+      if (!entry) return;
+      const atBottom = container.scrollHeight - container.clientHeight - container.scrollTop <= 100;
+      setIsAtBottom(atBottom);
+      if (atBottom) setUnreadCount(0);
+    }, { root: container, threshold: 0, rootMargin: "0px 0px 100px 0px" });
+    observer.observe(sentinel);
+    const resize = new ResizeObserver(() => {
+      if (followRef.current) scheduleScroll();
+    });
+    if (sentinel.parentElement) resize.observe(sentinel.parentElement);
+    return () => {
+      container.removeEventListener("scroll", onScroll);
+      observer.disconnect();
+      resize.disconnect();
+      cancelScroll();
+    };
+  }, [cancelScroll, scheduleScroll]);
   useEffect(() => {
-    if (isAtBottomRef.current) {
-      const frame = requestAnimationFrame(() => {
-        scrollToBottom("smooth");
-      });
-      return () => cancelAnimationFrame(frame);
-    } else {
-      setUnreadCount((prev) => prev + 1);
+    const container = scrollRef.current;
+    if (container && container.scrollTop < lastTopRef.current && container.scrollHeight - container.clientHeight - container.scrollTop > 100) {
+      followRef.current = false;
     }
-  }, deps);
-  return {
-    scrollRef,
-    bottomRef,
-    isAtBottom,
-    unreadCount,
-    scrollToBottom
-  };
+    const added = messageCount === void 0 ? 1 : Math.max(0, messageCount - (countRef.current ?? messageCount));
+    countRef.current = messageCount;
+    if (messageCount === 0) {
+      followRef.current = true;
+      setUnreadCount(0);
+    }
+    if (followRef.current) scheduleScroll();
+    else if (added) setUnreadCount((count) => count + added);
+    return cancelScroll;
+  }, [...deps, messageCount]);
+  return { scrollRef, bottomRef, isAtBottom, unreadCount, scrollToBottom };
 }
 
 // src/utils/markdown.ts
@@ -1050,11 +1107,14 @@ function processInline(text) {
     /\[([^\]]+)\]\(([^)]+)\)/g,
     '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>'
   );
-  result = result.replace(/ {2,}\n/g, "<br />");
+  result = result.replace(/(?: {2,}|\\)?\n/g, "<br />");
   return result;
 }
+function normalizeLineBreaks(markdown) {
+  return markdown.replace(/\r\n?/g, "\n");
+}
 function renderMarkdown(markdown) {
-  const lines = markdown.split("\n");
+  const lines = normalizeLineBreaks(markdown).split("\n");
   const output = [];
   let i = 0;
   let inList = null;
@@ -1990,7 +2050,7 @@ function FeedbackPopover({
   }, []);
   useEffect(() => {
     const handler = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      if (containerRef.current && !e.composedPath().includes(containerRef.current)) {
         onDismiss();
       }
     };
@@ -2223,6 +2283,8 @@ var CHART_TOOLTIP_STYLE = {
   borderRadius: 8,
   fontSize: 12,
   color: "var(--cx-text-primary)",
+  whiteSpace: "normal",
+  overflowWrap: "anywhere",
   // Theme-aware depth (flips for light/dark) instead of a fixed light-mode rgba.
   boxShadow: "var(--cxc-shadow-md)"
 };
@@ -2396,6 +2458,10 @@ var BODY_SIZE = {
   // panel past the viewport, where its header would be unreachable.
   lg: "px-5 py-4 max-h-[80vh] overflow-y-auto"
 };
+function activeElementFor(node) {
+  const root = node?.getRootNode();
+  return root instanceof ShadowRoot ? root.activeElement : document.activeElement;
+}
 var FOCUSABLE_SELECTOR = 'a[href], button:not([disabled]), textarea:not([disabled]), input:not([disabled]), select:not([disabled]), [tabindex]:not([tabindex="-1"])';
 function Dialog({ open, onClose, title, children, size = "md" }) {
   const overlayRef = useRef(null);
@@ -2419,18 +2485,13 @@ function Dialog({ open, onClose, title, children, size = "md" }) {
         panelRef.current?.focus();
         return;
       }
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      const active = document.activeElement;
-      if (e.shiftKey) {
-        if (active === first || !panelRef.current?.contains(active)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else if (active === last) {
-        e.preventDefault();
-        first.focus();
-      }
+      e.preventDefault();
+      const active = activeElementFor(panelRef.current);
+      const index = focusables.indexOf(active);
+      const fallback = e.shiftKey ? focusables.length - 1 : 0;
+      const step = e.shiftKey ? -1 : 1;
+      const next = index === -1 ? fallback : (index + step + focusables.length) % focusables.length;
+      focusables[next].focus();
     },
     [onClose, focusableElements]
   );
@@ -2445,7 +2506,7 @@ function Dialog({ open, onClose, title, children, size = "md" }) {
   }, [open, handleKeyDown]);
   useEffect(() => {
     if (!open) return;
-    previouslyFocused.current = document.activeElement;
+    previouslyFocused.current = activeElementFor(panelRef.current);
     const focusables = focusableElements();
     (focusables[0] ?? panelRef.current)?.focus();
     return () => {
@@ -3094,6 +3155,65 @@ function ChartEmpty({ label = "No data", reason }) {
     }
   );
 }
+var LegendPortal = createContext(null);
+function ChartFrame({ children, style }) {
+  const [portal, setPortal] = useState(null);
+  return /* @__PURE__ */ jsxs(LegendPortal.Provider, { value: portal, children: [
+    /* @__PURE__ */ jsx("div", { className: "cxc-chart-plot w-full min-w-0", style, children }),
+    /* @__PURE__ */ jsx("div", { ref: setPortal, className: "cxc-chart-legend" })
+  ] });
+}
+function ChartLegend({ round = false }) {
+  const portal = useContext(LegendPortal);
+  return /* @__PURE__ */ jsx(
+    Legend,
+    {
+      ...chartLegendProps(),
+      portal: portal ?? void 0,
+      verticalAlign: "bottom",
+      content: /* @__PURE__ */ jsx(LegendItems, { round })
+    }
+  );
+}
+function LegendItems({ payload, round }) {
+  return /* @__PURE__ */ jsx(
+    "ul",
+    {
+      className: "cxc-chart-legend-items m-0 flex list-none flex-wrap justify-center gap-x-[14px] gap-y-[6px] p-0 pt-2 text-xs leading-normal",
+      style: { color: "var(--cxc-text-secondary)" },
+      "aria-label": "Chart legend",
+      children: payload?.filter((entry) => entry.type !== "none").map((entry, index) => /* @__PURE__ */ jsxs("li", { className: "cxc-chart-legend-item flex min-w-0 max-w-full items-start gap-1.5", children: [
+        /* @__PURE__ */ jsx(
+          "span",
+          {
+            className: cn("cxc-chart-legend-swatch w-2.5 flex-none", swatchShape(round ? "circle" : entry.type)),
+            style: { backgroundColor: entry.color },
+            "aria-hidden": "true"
+          }
+        ),
+        /* @__PURE__ */ jsx("span", { className: "cxc-chart-legend-label min-w-0 [overflow-wrap:anywhere]", children: entry.value })
+      ] }, `${entry.dataKey ?? entry.value}-${index}`))
+    }
+  );
+}
+function swatchShape(type) {
+  if (type === "circle") return "mt-1 h-2.5 rounded-full";
+  if (type === "line" || type === "plainline") return "mt-2 h-0.5";
+  return "mt-1 h-2.5";
+}
+function ChartTooltip(props) {
+  const plot = usePlotArea();
+  return /* @__PURE__ */ jsx(
+    Tooltip,
+    {
+      ...props,
+      wrapperStyle: {
+        ...props.wrapperStyle,
+        maxWidth: Math.min(280, Math.max(1, plot?.width ?? 280))
+      }
+    }
+  );
+}
 var DEFAULT_MARGIN_PX = 5;
 function BarChart({
   data,
@@ -3225,7 +3345,7 @@ function BarChart({
                   )
                 ] }),
                 /* @__PURE__ */ jsx(
-                  Tooltip,
+                  ChartTooltip,
                   {
                     cursor: false,
                     contentStyle: CHART_TOOLTIP_STYLE,
@@ -3233,7 +3353,7 @@ function BarChart({
                     labelFormatter: verticalTicks.tooltipLabelFormatter
                   }
                 ),
-                showLegend && /* @__PURE__ */ jsx(Legend, { ...chartLegendProps() }),
+                showLegend && /* @__PURE__ */ jsx(ChartLegend, {}),
                 mixedSigns && /* @__PURE__ */ jsx(ReferenceLine, { ...horizontal ? { x: 0 } : { y: 0 }, ...CHART_ZERO_LINE_STYLE }),
                 series.map((s, index) => /* @__PURE__ */ jsx(
                   Bar,
@@ -3343,7 +3463,7 @@ function LineChart2({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX, 
         ),
         /* @__PURE__ */ jsx(YAxis, { ...CHART_Y_AXIS, width: "auto", tickFormatter: formatters.tick }),
         /* @__PURE__ */ jsx(
-          Tooltip,
+          ChartTooltip,
           {
             cursor: false,
             contentStyle: CHART_TOOLTIP_STYLE,
@@ -3351,7 +3471,7 @@ function LineChart2({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX, 
             labelFormatter: ticks.tooltipLabelFormatter
           }
         ),
-        showLegend && /* @__PURE__ */ jsx(Legend, { ...chartLegendProps() }),
+        showLegend && /* @__PURE__ */ jsx(ChartLegend, {}),
         series.map((s, index) => /* @__PURE__ */ jsx(
           Line,
           {
@@ -3423,7 +3543,7 @@ function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX, c
         ),
         /* @__PURE__ */ jsx(YAxis, { ...CHART_Y_AXIS, width: "auto", tickFormatter: formatters.tick }),
         /* @__PURE__ */ jsx(
-          Tooltip,
+          ChartTooltip,
           {
             cursor: false,
             contentStyle: CHART_TOOLTIP_STYLE,
@@ -3431,7 +3551,7 @@ function AreaChart({ data, x, series, options, width = DEFAULT_CHART_WIDTH_PX, c
             labelFormatter: ticks.tooltipLabelFormatter
           }
         ),
-        showLegend && /* @__PURE__ */ jsx(Legend, { ...chartLegendProps() }),
+        showLegend && /* @__PURE__ */ jsx(ChartLegend, {}),
         series.map((s, index) => /* @__PURE__ */ jsx(
           Area,
           {
@@ -3525,21 +3645,8 @@ function PieChart({ data, x, series, options, donut = false }) {
             ))
           }
         ),
-        /* @__PURE__ */ jsx(Tooltip, { contentStyle: CHART_TOOLTIP_STYLE, formatter: formatters.tooltip }),
-        showLegend && // Intentionally diverges from chartLegendProps(): the pie legend is
-        // bottom-aligned with circle swatches, since its slices are otherwise
-        // unlabeled. `labelStyle` matters for the same reason it does there —
-        // recharts paints legend text in the slice color unless told not to.
-        /* @__PURE__ */ jsx(
-          Legend,
-          {
-            wrapperStyle: { fontSize: CHART_LEGEND_STYLE.fontSize },
-            labelStyle: { color: CHART_LEGEND_STYLE.color },
-            verticalAlign: "bottom",
-            iconType: "circle",
-            iconSize: 8
-          }
-        )
+        /* @__PURE__ */ jsx(ChartTooltip, { contentStyle: CHART_TOOLTIP_STYLE, formatter: formatters.tooltip }),
+        showLegend && /* @__PURE__ */ jsx(ChartLegend, { round: true })
       ]
     }
   ) });
@@ -3584,14 +3691,14 @@ function ScatterChart({ data, x, series, options }) {
           }
         ),
         /* @__PURE__ */ jsx(
-          Tooltip,
+          ChartTooltip,
           {
             cursor: { strokeDasharray: "3 3" },
             contentStyle: CHART_TOOLTIP_STYLE,
             formatter: tooltipFormatters.tooltip
           }
         ),
-        showLegend && /* @__PURE__ */ jsx(Legend, { ...chartLegendProps() }),
+        showLegend && /* @__PURE__ */ jsx(ChartLegend, {}),
         series.map((s, index) => /* @__PURE__ */ jsx(
           Scatter,
           {
@@ -4226,9 +4333,9 @@ function ChartBlock({ block }) {
   }, [title, block.data, csvColumns]);
   const openExpand = useCallback(() => setExpanded(true), []);
   const closeExpand = useCallback(() => setExpanded(false), []);
-  return /* @__PURE__ */ jsxs(Card, { padding: "sm", children: [
-    /* @__PURE__ */ jsxs("div", { className: "mb-3 flex items-center justify-between gap-2", children: [
-      /* @__PURE__ */ jsx("h4", { className: "truncate text-sm font-semibold", style: { color: "var(--cx-text-primary)" }, children: title }),
+  return /* @__PURE__ */ jsxs(Card, { padding: "sm", className: "cxc-chart-card min-w-0 max-w-full p-[clamp(12px,4%,16px)]", children: [
+    /* @__PURE__ */ jsxs("div", { className: "cxc-chart-header mb-3 flex items-start gap-2", children: [
+      /* @__PURE__ */ jsx("h4", { className: "min-w-0 flex-1 text-sm font-semibold [overflow-wrap:anywhere]", style: { color: "var(--cx-text-primary)" }, children: title }),
       /* @__PURE__ */ jsxs("div", { className: "flex shrink-0 items-center gap-1", children: [
         /* @__PURE__ */ jsx(IconButton, { label: "Download CSV", onClick: handleExport, children: /* @__PURE__ */ jsx(DownloadIcon, {}) }),
         /* @__PURE__ */ jsx(IconButton, { label: "Expand chart", onClick: openExpand, children: /* @__PURE__ */ jsx(ExpandIcon, {}) })
@@ -4239,10 +4346,9 @@ function ChartBlock({ block }) {
       {
         ref: hostRef,
         className: "w-full min-w-0",
-        style: { height: plan?.horizontal ? plan.layout.hostHeight : VERTICAL_CHART_HEIGHT_PX },
         "data-cxc-shown": shown,
         "data-cxc-total": total,
-        children: /* @__PURE__ */ jsx(
+        children: /* @__PURE__ */ jsx(ChartFrame, { style: { height: plan?.horizontal ? plan.layout.hostHeight : VERTICAL_CHART_HEIGHT_PX }, children: /* @__PURE__ */ jsx(
           ChartDispatch,
           {
             block: inlineBlock,
@@ -4251,7 +4357,7 @@ function ChartBlock({ block }) {
             charPx,
             plan: plan ?? void 0
           }
-        )
+        ) })
       }
     ),
     (steps.length > 0 || hasMoreThanEmbedded) && // Every cut is printed, and every cut is the reader's to undo. The
@@ -4287,21 +4393,26 @@ function ExpandedChart({ block }) {
     {
       ref: hostRef,
       className: "w-full min-w-0",
-      style: plan?.horizontal ? { height: plan.layout.hostHeight } : (
-        // A vertical chart cannot use its rows to earn height, so it takes a
-        // share of the viewport with a floor for short laptop screens.
-        { height: "60vh", minHeight: EXPANDED_VERTICAL_MIN_HEIGHT_PX }
-      ),
       "data-cxc-shown": block.data.length,
       "data-cxc-total": block.data.length,
       children: /* @__PURE__ */ jsx(
-        ChartDispatch,
+        ChartFrame,
         {
-          block,
-          mode: "expanded",
-          width,
-          charPx,
-          plan: plan ?? void 0
+          style: plan?.horizontal ? { height: plan.layout.hostHeight } : (
+            // A vertical chart cannot use its rows to earn height, so it takes a
+            // share of the viewport with a floor for short laptop screens.
+            { height: "60vh", minHeight: EXPANDED_VERTICAL_MIN_HEIGHT_PX }
+          ),
+          children: /* @__PURE__ */ jsx(
+            ChartDispatch,
+            {
+              block,
+              mode: "expanded",
+              width,
+              charPx,
+              plan: plan ?? void 0
+            }
+          )
         }
       )
     }
@@ -4613,7 +4724,7 @@ function renderInlineMarkdown(text) {
       return `<a href="${href}" target="_blank" rel="noopener noreferrer" class="cxc-aui-link">${label}</a>`;
     }
   );
-  html = html.replace(/\n/g, "<br />");
+  html = normalizeLineBreaks(html).replace(/\n/g, "<br />");
   html = html.replace(PLACEHOLDER_RE, (match, index) => {
     const span = codeSpans[Number(index)];
     return span ?? match;
@@ -5065,11 +5176,10 @@ function AuiView({ spec, onSendMessage, files }) {
   return /* @__PURE__ */ jsxs(
     "section",
     {
-      className: "space-y-3 rounded-lg border p-3",
-      style: { borderColor: "var(--cx-border-subtle)", backgroundColor: "var(--cx-canvas-subtle)" },
+      className: "cxc-aui-view w-full min-w-0 max-w-full space-y-3",
       "aria-label": spec.title || "Data view",
       children: [
-        spec.title && /* @__PURE__ */ jsx("h3", { className: "text-sm font-semibold", style: { color: "var(--cx-text-primary)" }, children: spec.title }),
+        spec.title && /* @__PURE__ */ jsx("h3", { className: "min-w-0 text-sm font-semibold [overflow-wrap:anywhere]", style: { color: "var(--cx-text-primary)" }, children: spec.title }),
         blocks.map((block, index) => {
           const Renderer = resolveBlock(block);
           if (!Renderer) return null;
@@ -5243,7 +5353,7 @@ function ChatMessage({
                 color: "var(--cxc-user-text)",
                 borderBottomRightRadius: "var(--cxc-radius-sm)"
               },
-              children: /* @__PURE__ */ jsx("p", { className: "text-[15px] whitespace-pre-wrap break-words leading-[1.55]", children: message.content })
+              children: /* @__PURE__ */ jsx("p", { className: "text-[15px] whitespace-pre-wrap break-words leading-[1.55]", children: normalizeLineBreaks(message.content) })
             }
           ),
           /* @__PURE__ */ jsx(
@@ -5315,7 +5425,7 @@ function ChatMessage({
                           color: "var(--cxc-text-secondary)",
                           borderTop: "1px solid var(--cxc-border-subtle)"
                         },
-                        children: /* @__PURE__ */ jsx("p", { className: "whitespace-pre-wrap leading-[1.65] pt-2.5", children: message.reasoning })
+                        children: /* @__PURE__ */ jsx("p", { className: "whitespace-pre-wrap leading-[1.65] pt-2.5", children: normalizeLineBreaks(message.reasoning ?? "") })
                       }
                     )
                   }
@@ -5512,37 +5622,26 @@ var MessageList = forwardRef(
       isAtBottom,
       unreadCount,
       scrollToBottom
-    } = useChatScroll([messages.length, messages[messages.length - 1]?.content.length]);
+    } = useChatScroll(
+      [messages.length, messages[messages.length - 1]?.content.length],
+      messages.filter((message) => message.role === "assistant").length
+    );
     const handleScrollToBottom = useCallback(() => {
       scrollToBottom("smooth");
     }, [scrollToBottom]);
     const lastMessage = messages[messages.length - 1];
     isStreaming && lastMessage?.role === "assistant" && lastMessage.content === "" && !lastMessage.actions?.length;
-    if (messages.length === 0) {
-      return /* @__PURE__ */ jsx(
-        "div",
-        {
-          ref,
-          className: cn("flex flex-1 overflow-hidden", className),
-          role: "log",
-          "aria-label": "Messages",
-          "aria-live": "polite",
-          "aria-relevant": "additions",
-          children: /* @__PURE__ */ jsx(EmptyState, {})
-        }
-      );
-    }
     return /* @__PURE__ */ jsxs(
       "div",
       {
         ref,
-        className: cn("relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", className),
+        className: cn("cxc-conversation relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden", className),
         children: [
           /* @__PURE__ */ jsx(
             "div",
             {
               ref: scrollRef,
-              className: "flex-1 overflow-y-auto overflow-x-hidden cxc-scrollbar",
+              className: "flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden cxc-scrollbar",
               role: "log",
               "aria-label": "Messages",
               "aria-live": "polite",
@@ -5551,9 +5650,10 @@ var MessageList = forwardRef(
               children: /* @__PURE__ */ jsxs(
                 "div",
                 {
-                  className: "mx-auto w-full px-5 py-6 sm:px-8",
+                  className: cn("cxc-message-content mx-auto w-full shrink-0 py-6", messages.length === 0 && "flex flex-1 flex-col"),
                   style: { maxWidth: "var(--cxc-content-max-width)" },
                   children: [
+                    messages.length === 0 && /* @__PURE__ */ jsx(EmptyState, {}),
                     /* @__PURE__ */ jsx(AnimatePresence, { initial: false, children: messages.map((message, index) => {
                       if (message.role === "assistant" && message.isStreaming && message.content === "" && !message.actions?.length) {
                         return /* @__PURE__ */ jsx("div", { className: "py-3", children: /* @__PURE__ */ jsx(ThinkingIndicator, {}) }, message.id);
@@ -6043,7 +6143,7 @@ function LanguagePicker({ disabled, size = "md", className }) {
   useEffect(() => {
     if (!open) return;
     const handler = (event) => {
-      if (rootRef.current && !rootRef.current.contains(event.target)) close(false);
+      if (rootRef.current && !event.composedPath().includes(rootRef.current)) close(false);
     };
     const timer = setTimeout(() => document.addEventListener("mousedown", handler), 0);
     return () => {
@@ -6324,7 +6424,7 @@ function PromptInput({
   const inputValue = state.inputValue;
   const isDisabled = disabled || false;
   const hasText = inputValue.trim().length > 0;
-  const canSend = hasText && !isStreaming && !isDisabled;
+  const canSend = hasText && inputValue.trim().length <= maxLength && !isStreaming && !isDisabled;
   const showCharCount = inputValue.length > maxLength * 0.9;
   const isOverLimit = inputValue.length > maxLength;
   const isRecorderBusy = recorderStatus !== "idle";
@@ -6443,7 +6543,7 @@ function PromptInput({
     "div",
     {
       className: cn(
-        "cxc-prompt-input-wrap relative mx-auto flex w-full flex-col gap-2 px-5 pb-4 pt-2 sm:px-8",
+        "cxc-prompt-input-wrap relative mx-auto flex w-full flex-col gap-2 pb-4 pt-2",
         className
       ),
       children: [
@@ -6870,7 +6970,7 @@ function SessionList({
       );
       if (!items?.length) return;
       const currentIndex = Array.from(items).findIndex(
-        (item) => item === document.activeElement
+        (item) => item === item.getRootNode().activeElement
       );
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -7008,7 +7108,7 @@ function SessionSelector({ className }) {
   useEffect(() => {
     if (!isOpen) return;
     function handleClickOutside(e) {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      if (containerRef.current && !e.composedPath().includes(containerRef.current)) {
         setIsOpen(false);
       }
     }
@@ -7036,7 +7136,7 @@ function SessionSelector({ className }) {
       );
       if (!items?.length) return;
       const currentIndex = Array.from(items).findIndex(
-        (item) => item === document.activeElement
+        (item) => item === item.getRootNode().activeElement
       );
       if (e.key === "ArrowDown") {
         e.preventDefault();
@@ -7283,7 +7383,7 @@ function ChatContainer({
         x: sessionPosition === "left" ? -20 : 20
       },
       transition: { type: "spring", stiffness: 400, damping: 30 },
-      className: "hidden h-full shrink-0 md:block",
+      className: "cxc-session-sidebar h-full shrink-0",
       style: {
         borderRight: sessionPosition === "left" ? "1px solid var(--cxc-border-subtle)" : void 0,
         borderLeft: sessionPosition === "right" ? "1px solid var(--cxc-border-subtle)" : void 0
@@ -7296,7 +7396,7 @@ function ChatContainer({
     "div",
     {
       className: cn(
-        "cxc-root flex h-full w-full flex-col overflow-hidden",
+        "cxc-root cxc-chat-shell flex h-full w-full flex-col overflow-hidden",
         className
       ),
       style: {
@@ -7320,7 +7420,7 @@ function ChatContainer({
                   type: "button",
                   onClick: toggleSidebar,
                   className: cn(
-                    "hidden md:flex h-8 w-8 items-center justify-center rounded-[var(--cxc-radius-md)]",
+                    "cxc-session-toggle h-8 w-8 items-center justify-center rounded-[var(--cxc-radius-md)]",
                     "transition-colors duration-100",
                     "focus-visible:outline-none focus-visible:ring-2"
                   ),
@@ -7337,7 +7437,7 @@ function ChatContainer({
                   children: sidebarOpen ? /* @__PURE__ */ jsx(PanelLeftClose, { size: 18 }) : /* @__PURE__ */ jsx(PanelLeftOpen, { size: 18 })
                 }
               ),
-              showSessions && /* @__PURE__ */ jsx("div", { className: "md:hidden", children: /* @__PURE__ */ jsx(SessionSelector, {}) }),
+              showSessions && /* @__PURE__ */ jsx("div", { className: "cxc-session-select", children: /* @__PURE__ */ jsx(SessionSelector, {}) }),
               /* @__PURE__ */ jsx("div", { className: "flex-1" }),
               headerSlot && /* @__PURE__ */ jsx("div", { className: "flex items-center gap-2", children: headerSlot })
             ]
@@ -7345,7 +7445,7 @@ function ChatContainer({
         ),
         /* @__PURE__ */ jsxs("div", { className: "flex flex-1 min-h-0 overflow-hidden", children: [
           sessionPosition === "left" && sidebarPanel,
-          /* @__PURE__ */ jsxs("div", { className: "flex flex-1 flex-col min-h-0 min-w-0", children: [
+          /* @__PURE__ */ jsxs("div", { className: "cxc-conversation flex flex-1 flex-col min-h-0 min-w-0", children: [
             hasMessages ? /* @__PURE__ */ jsx(MessageList, {}) : /* @__PURE__ */ jsx("div", { className: "flex flex-1 overflow-hidden", children: emptyState ?? /* @__PURE__ */ jsx(EmptyState, {}) }),
             /* @__PURE__ */ jsxs("div", { className: "shrink-0 relative", style: { backgroundColor: "var(--cxc-bg)" }, children: [
               hasMessages && /* @__PURE__ */ jsx(
@@ -7739,7 +7839,7 @@ function ChatInput({
   const isStreaming = state.isStreaming;
   const inputValue = state.inputValue;
   const isDisabled = disabled || false;
-  const canSend = inputValue.trim().length > 0 && !isStreaming && !isDisabled;
+  const canSend = inputValue.trim().length > 0 && inputValue.trim().length <= maxLength && !isStreaming && !isDisabled;
   const showCharCount = inputValue.length > maxLength * 0.9;
   const isOverLimit = inputValue.length > maxLength;
   const adjustHeight = useCallback(() => {
@@ -8010,6 +8110,8 @@ function CodeBlock({
   );
 }
 function ChatWidget({
+  open,
+  onOpenChange,
   position = "bottom-right",
   defaultOpen = false,
   width = "420px",
@@ -8021,30 +8123,38 @@ function ChatWidget({
   inputAddonSlot,
   headerSlot
 }) {
-  const [isOpen, setIsOpen] = useState(defaultOpen);
+  const [internalOpen, setInternalOpen] = useState(defaultOpen);
+  const isOpen = open ?? internalOpen;
+  const setIsOpen = useCallback((value) => {
+    setInternalOpen(value);
+    onOpenChange?.(value);
+  }, [onOpenChange]);
   const [isExpanded, setIsExpanded] = useState(false);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const { state } = useChatContext();
   const { messages } = state;
   const containerRef = useRef(null);
+  const transitionTimer = useRef(void 0);
+  useEffect(() => () => clearTimeout(transitionTimer.current), []);
   const hasMessages = messages.length > 0;
   const isRight = position === "bottom-right";
   const close = useCallback(() => {
     setIsOpen(false);
     setIsExpanded(false);
-  }, []);
-  const toggle = useCallback(() => setIsOpen((prev) => !prev), []);
+  }, [setIsOpen]);
+  const toggle = useCallback(() => setIsOpen(!isOpen), [isOpen, setIsOpen]);
   const toggleExpand = useCallback(() => {
+    clearTimeout(transitionTimer.current);
     setIsTransitioning(true);
-    setTimeout(() => {
+    transitionTimer.current = setTimeout(() => {
       setIsExpanded((prev) => !prev);
-      setTimeout(() => setIsTransitioning(false), 50);
+      transitionTimer.current = setTimeout(() => setIsTransitioning(false), 50);
     }, 120);
   }, []);
   useEffect(() => {
     if (!isOpen) return;
     const handler = (e) => {
-      if (e.key === "Escape") {
+      if (e.key === "Escape" && containerRef.current && e.composedPath().includes(containerRef.current)) {
         if (isExpanded) {
           setIsExpanded(false);
         } else {
@@ -8054,11 +8164,11 @@ function ChatWidget({
     };
     document.addEventListener("keydown", handler);
     return () => document.removeEventListener("keydown", handler);
-  }, [isOpen, isExpanded]);
+  }, [isOpen, isExpanded, setIsOpen]);
   useEffect(() => {
     if (!isOpen || isExpanded) return;
     const handler = (e) => {
-      if (containerRef.current && !containerRef.current.contains(e.target)) {
+      if (containerRef.current && !e.composedPath().includes(containerRef.current)) {
         setIsOpen(false);
       }
     };
@@ -8069,7 +8179,7 @@ function ChatWidget({
       clearTimeout(timer);
       document.removeEventListener("mousedown", handler);
     };
-  }, [isOpen, isExpanded]);
+  }, [isOpen, isExpanded, setIsOpen]);
   const panelStyle = isExpanded ? {
     bottom: "20px",
     left: "20px",
@@ -8080,8 +8190,8 @@ function ChatWidget({
   } : {
     bottom: "20px",
     [isRight ? "right" : "left"]: "20px",
-    width,
-    height
+    width: `min(${width}, calc(100vw - 40px))`,
+    height: `min(${height}, calc(100dvh - 40px))`
   };
   return /* @__PURE__ */ jsxs(
     "div",
@@ -8352,12 +8462,13 @@ function useChat() {
     newConversation: ctx.newConversation
   };
 }
-function defaultBuildBody(message, sessionId) {
-  return { message, session_id: sessionId };
-}
+
+// src/utils/sse-events.ts
 function defaultParseEvent(eventType, data) {
   try {
-    const parsed = JSON.parse(data);
+    const value = JSON.parse(data);
+    if (!value || typeof value !== "object") return null;
+    const parsed = value;
     switch (eventType) {
       case "token":
         return { type: "token", text: String(parsed.text ?? "") };
@@ -8411,7 +8522,7 @@ function defaultParseEvent(eventType, data) {
       case "error":
         return {
           type: "error",
-          message: String(parsed.message ?? parsed.error ?? "Unknown error"),
+          message: String(parsed.message ?? parsed.detail ?? parsed.error ?? "Unknown error"),
           code: parsed.code != null ? String(parsed.code) : void 0
         };
       default: {
@@ -8441,119 +8552,107 @@ function defaultParseEvent(eventType, data) {
     return null;
   }
 }
-function useSSEStream(config) {
-  const {
-    url,
-    method = "POST",
-    headers = {},
-    buildBody = defaultBuildBody,
-    parseEvent = defaultParseEvent
-  } = config;
-  const abortControllerRef = useRef(null);
-  const sendFn = useCallback(
-    async function* (message, sessionId, metadata) {
-      abortControllerRef.current?.abort();
-      const abortController = new AbortController();
-      abortControllerRef.current = abortController;
+
+// src/utils/sse.ts
+function abortable(iterator, controller) {
+  const originalReturn = iterator.return.bind(iterator);
+  iterator.return = (value) => {
+    controller.abort();
+    return originalReturn(value);
+  };
+  return iterator;
+}
+function isWholeFrame(data) {
+  if (data === "[DONE]") return true;
+  try {
+    JSON.parse(data);
+    return true;
+  } catch {
+    return false;
+  }
+}
+function createSSEClient(getConfig) {
+  let active = null;
+  const abort = () => active?.abort();
+  const send = (message, sessionId, metadata) => {
+    abort();
+    const controller = new AbortController();
+    active = controller;
+    async function* stream() {
+      let reader;
       try {
-        const fetchOptions = {
+        const config = getConfig();
+        const method = config.method ?? "POST";
+        const body = (config.buildBody ?? ((message2, sessionId2) => ({ message: message2, session_id: sessionId2 })))(message, sessionId);
+        const headers = typeof config.headers === "function" ? await config.headers() : config.headers;
+        const response = await fetch(config.url, {
           method,
-          headers: {
-            "Content-Type": "application/json",
-            Accept: "text/event-stream",
-            ...headers
-          },
-          signal: abortController.signal
-        };
-        if (method === "POST") {
-          const body = buildBody(message, sessionId);
-          const bodyWithMeta = metadata && typeof body === "object" && body !== null ? { ...body, ...metadata } : body;
-          fetchOptions.body = JSON.stringify(bodyWithMeta);
-        }
-        const response = await fetch(url, fetchOptions);
+          credentials: config.credentials ?? "same-origin",
+          headers: { "Content-Type": "application/json", Accept: "text/event-stream", ...headers },
+          body: method === "POST" ? JSON.stringify(metadata && body && typeof body === "object" ? { ...body, ...metadata } : body) : void 0,
+          signal: controller.signal
+        });
         if (!response.ok) {
-          const errorText = await response.text().catch(() => "Unknown error");
-          yield {
-            type: "error",
-            message: `HTTP ${response.status}: ${errorText}`,
-            code: String(response.status)
-          };
+          yield { type: "error", message: `Chat request failed (HTTP ${response.status})`, code: String(response.status) };
           return;
         }
-        if (!response.body) {
-          yield { type: "error", message: "Response body is null" };
+        if (!response.headers.get("content-type")?.toLowerCase().includes("text/event-stream")) {
+          yield { type: "error", message: "Expected a text/event-stream response from the chat endpoint", code: "INVALID_CONTENT_TYPE" };
           return;
         }
-        const reader = response.body.getReader();
+        if (!response.body) throw new Error("Chat response has no body");
+        reader = response.body.getReader();
         const decoder = new TextDecoder();
-        let buffer = "";
-        let currentEventType = "message";
-        try {
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-            const lines = buffer.split("\n");
-            buffer = lines.pop() ?? "";
-            for (const line of lines) {
-              const trimmed = line.trim();
-              if (trimmed === "") {
-                currentEventType = "message";
-                continue;
-              }
-              if (trimmed.startsWith(":")) {
-                continue;
-              }
-              if (trimmed.startsWith("event:")) {
-                currentEventType = trimmed.slice(6).trim();
-                continue;
-              }
-              if (trimmed.startsWith("data:")) {
-                const data = trimmed.slice(5).trim();
-                if (data === "[DONE]") {
-                  yield { type: "done" };
-                  return;
-                }
-                const event = parseEvent(currentEventType, data);
-                if (event) {
-                  yield event;
-                  if (event.type === "done") {
-                    return;
-                  }
-                }
-              }
-            }
+        const queue = [];
+        const parser = createParser({ onEvent: (event) => queue.push(event) });
+        const parseEvent = config.parseEvent ?? defaultParseEvent;
+        let trailingCR = false;
+        let serverErrorSeen = false;
+        while (!controller.signal.aborted) {
+          const { done, value } = await reader.read();
+          const text = done ? decoder.decode() : decoder.decode(value, { stream: true });
+          parser.feed(text + (done && trailingCR ? "\n" : ""));
+          if (text) trailingCR = text.endsWith("\r");
+          if (done) {
+            const settled = queue.length;
+            parser.feed("\n\n");
+            queue.push(...queue.splice(settled).filter((frame) => isWholeFrame(frame.data)));
           }
-          if (buffer.trim()) {
-            if (buffer.trim().startsWith("data:")) {
-              const data = buffer.trim().slice(5).trim();
-              if (data && data !== "[DONE]") {
-                const event = parseEvent(currentEventType, data);
-                if (event) {
-                  yield event;
-                }
-              }
-            }
+          for (const frame of queue.splice(0)) {
+            if (controller.signal.aborted) return;
+            const event = frame.data === "[DONE]" ? { type: "done" } : parseEvent(frame.event ?? "message", frame.data);
+            if (!event) continue;
+            yield event;
+            if (event.type === "done") return;
+            if (event.type === "error") serverErrorSeen = true;
           }
-        } finally {
-          reader.cancel().catch(() => {
-          });
+          if (done) break;
         }
-      } catch (err) {
-        if (err instanceof DOMException && err.name === "AbortError") {
-          return;
+        if (!controller.signal.aborted && !serverErrorSeen) {
+          yield { type: "error", message: "The connection ended before the answer completed. Please retry.", code: "INCOMPLETE_STREAM" };
         }
-        const message2 = err instanceof Error ? err.message : "Connection failed";
-        yield { type: "error", message: message2 };
+      } catch (error) {
+        if (!controller.signal.aborted) yield { type: "error", message: error instanceof Error ? error.message : "Chat connection failed" };
       } finally {
-        if (abortControllerRef.current === abortController) {
-          abortControllerRef.current = null;
-        }
+        controller.abort();
+        void reader?.cancel().catch(() => {
+        });
+        if (active === controller) active = null;
       }
-    },
-    [url, method, headers, buildBody, parseEvent]
-  );
-  return sendFn;
+    }
+    return abortable(stream(), controller);
+  };
+  return { send, abort };
+}
+
+// src/hooks/use-sse-stream.ts
+function useSSEStream(config) {
+  const configRef = useRef(config);
+  configRef.current = config;
+  const client = useRef(null);
+  if (!client.current) client.current = createSSEClient(() => configRef.current);
+  useEffect(() => () => client.current?.abort(), []);
+  return client.current.send;
 }
 function useSessionManager(adapter) {
   const [sessions, setSessions] = useState([]);

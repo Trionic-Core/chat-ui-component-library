@@ -27,8 +27,9 @@ jobs:
       - run: npm ci
 
       - run: npm run build
-      - run: npx playwright install --with-deps chromium webkit
+      - run: npx playwright install --with-deps chromium firefox webkit
       - run: npm run test:layout
+      - run: npm run test:browser
 
       # prepublishOnly runs lint, build, tests and the contract guard.
       - run: npm publish --access restricted

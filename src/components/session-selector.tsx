@@ -66,7 +66,7 @@ export function SessionSelector({ className }: SessionSelectorProps) {
     function handleClickOutside(e: MouseEvent) {
       if (
         containerRef.current &&
-        !containerRef.current.contains(e.target as Node)
+        !e.composedPath().includes(containerRef.current)
       ) {
         setIsOpen(false)
       }
@@ -101,7 +101,7 @@ export function SessionSelector({ className }: SessionSelectorProps) {
       if (!items?.length) return
 
       const currentIndex = Array.from(items).findIndex(
-        (item) => item === document.activeElement
+        (item) => item === (item.getRootNode() as Document | ShadowRoot).activeElement
       )
 
       if (e.key === 'ArrowDown') {

@@ -14,7 +14,7 @@ import type { MessageListProps } from '../types'
  *
  * CypherX chat layout:
  * - Content centered at max-width 720px with auto margins
- * - Generous horizontal padding (24px mobile, 32px desktop)
+ * - Horizontal padding follows the available chat width
  * - Generous vertical padding
  * - Near-invisible custom scrollbar
  * - Scroll-to-bottom button: minimal pill floating at bottom center
@@ -36,7 +36,10 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       isAtBottom,
       unreadCount,
       scrollToBottom,
-    } = useChatScroll([messages.length, messages[messages.length - 1]?.content.length])
+    } = useChatScroll(
+      [messages.length, messages[messages.length - 1]?.content.length],
+      messages.filter(message => message.role === 'assistant').length,
+    )
 
     const handleScrollToBottom = useCallback(() => {
       scrollToBottom('smooth')
@@ -50,41 +53,27 @@ export const MessageList = forwardRef<HTMLDivElement, MessageListProps>(
       lastMessage.content === '' &&
       !lastMessage.actions?.length
 
-    if (messages.length === 0) {
-      return (
-        <div
-          ref={ref}
-          className={cn('flex flex-1 overflow-hidden', className)}
-          role="log"
-          aria-label="Messages"
-          aria-live="polite"
-          aria-relevant="additions"
-        >
-          <EmptyState />
-        </div>
-      )
-    }
-
     return (
       <div
         ref={ref}
-        className={cn('relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden', className)}
+        className={cn('cxc-conversation relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden', className)}
       >
         {/* Scrollable message area */}
         <div
           ref={scrollRef}
-          className="flex-1 overflow-y-auto overflow-x-hidden cxc-scrollbar"
+          className="flex min-h-0 flex-1 flex-col overflow-y-auto overflow-x-hidden cxc-scrollbar"
           role="log"
           aria-label="Messages"
           aria-live="polite"
           aria-relevant="additions"
           style={{ scrollBehavior: 'smooth' }}
         >
-          {/* Centered content column */}
+          {/* Keep the observed scroll nodes mounted through empty/reset states. */}
           <div
-            className="mx-auto w-full px-5 py-6 sm:px-8"
+            className={cn('cxc-message-content mx-auto w-full shrink-0 py-6', messages.length === 0 && 'flex flex-1 flex-col')}
             style={{ maxWidth: 'var(--cxc-content-max-width)' }}
           >
+            {messages.length === 0 && <EmptyState />}
             <AnimatePresence initial={false}>
               {messages.map((message, index) => {
                 // Empty streaming assistant messages show thinking indicator

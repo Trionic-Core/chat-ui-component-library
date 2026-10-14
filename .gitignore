@@ -5,4 +5,7 @@ node_modules/
 .npmrc
 coverage/
 playwright-report/
+playwright-browser-report/
 test-results/
+artifacts/
+dist/browser/

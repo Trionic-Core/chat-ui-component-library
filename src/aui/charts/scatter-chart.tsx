@@ -5,8 +5,6 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
-  Legend,
   ResponsiveContainer,
 } from 'recharts'
 import {
@@ -19,15 +17,13 @@ import {
 } from '../chart-theme'
 import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
-import {
-  shouldShowLegend,
-  chartLegendProps,
-
-} from './chart-helpers'
+import { shouldShowLegend } from './chart-helpers'
 import { shouldAnimate } from './chart-layout'
 import { usePrefersReducedMotion } from '../hooks/use-prefers-reduced-motion'
 import { useSeriesFormatters } from './use-series-formatters'
 import { ChartEmpty } from './chart-empty'
+import { ChartLegend } from './chart-frame'
+import { ChartTooltip } from './chart-tooltip'
 
 /**
  * Scatter chart over the emitted ChartBlock shape.
@@ -76,13 +72,13 @@ export function ScatterChart({ data, x, series, options }: ChartProps) {
           tickFormatter={formatters.tick}
         />
 
-        <Tooltip
+        <ChartTooltip
           cursor={{ strokeDasharray: '3 3' }}
           contentStyle={CHART_TOOLTIP_STYLE}
           formatter={tooltipFormatters.tooltip}
         />
 
-        {showLegend && <Legend {...chartLegendProps()} />}
+        {showLegend && <ChartLegend />}
 
         {series.map((s, index) => (
           <Scatter

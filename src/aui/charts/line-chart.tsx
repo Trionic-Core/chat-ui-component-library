@@ -4,8 +4,6 @@ import {
   XAxis,
   YAxis,
   CartesianGrid,
-  Tooltip,
-  Legend,
   ResponsiveContainer,
 } from 'recharts'
 import {
@@ -20,7 +18,6 @@ import { getChartColor } from '../chart-colors'
 import type { ChartProps } from './types'
 import {
   shouldShowLegend,
-  chartLegendProps,
   seriesDotProp,
 } from './chart-helpers'
 import { DEFAULT_CHART_WIDTH_PX, VALUE_AXIS_ESTIMATE_PX, shouldAnimate } from './chart-layout'
@@ -29,6 +26,8 @@ import { usePrefersReducedMotion } from '../hooks/use-prefers-reduced-motion'
 import { useCategoryTicks } from './use-category-ticks'
 import { useSeriesFormatters } from './use-series-formatters'
 import { ChartEmpty } from './chart-empty'
+import { ChartLegend } from './chart-frame'
+import { ChartTooltip } from './chart-tooltip'
 
 /**
  * Line chart over the emitted ChartBlock shape.
@@ -78,14 +77,14 @@ export function LineChart({ data, x, series, options, width = DEFAULT_CHART_WIDT
         />
         <YAxis {...CHART_Y_AXIS} width="auto" tickFormatter={formatters.tick} />
 
-        <Tooltip
+        <ChartTooltip
           cursor={false}
           contentStyle={CHART_TOOLTIP_STYLE}
           formatter={formatters.tooltip}
           labelFormatter={ticks.tooltipLabelFormatter}
         />
 
-        {showLegend && <Legend {...chartLegendProps()} />}
+        {showLegend && <ChartLegend />}
 
         {series.map((s, index) => (
           <Line

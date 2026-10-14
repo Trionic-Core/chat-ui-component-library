@@ -2,7 +2,7 @@ import { useMemo, useState, useCallback, useRef, useEffect } from 'react'
 import { motion } from 'motion/react'
 import { ChevronDown } from 'lucide-react'
 import { cn } from '../utils/cn'
-import { renderMarkdown } from '../utils/markdown'
+import { normalizeLineBreaks, renderMarkdown } from '../utils/markdown'
 import { ChainOfThought } from './chain-of-thought'
 import { ThinkingIndicator } from './thinking-indicator'
 import { MessageActionBar } from './message-action-bar'
@@ -208,7 +208,7 @@ export function ChatMessage({
               }}
             >
               <p className="text-[15px] whitespace-pre-wrap break-words leading-[1.55]">
-                {message.content}
+                {normalizeLineBreaks(message.content)}
               </p>
             </div>
             <MessageActionBar
@@ -268,7 +268,7 @@ export function ChatMessage({
                   }}
                 >
                   <p className="whitespace-pre-wrap leading-[1.65] pt-2.5">
-                    {message.reasoning}
+                    {normalizeLineBreaks(message.reasoning ?? '')}
                   </p>
                 </div>
               </div>

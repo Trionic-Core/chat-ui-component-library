@@ -36,7 +36,7 @@ export function ChatInput({
   const isStreaming = state.isStreaming
   const inputValue = state.inputValue
   const isDisabled = disabled || false
-  const canSend = inputValue.trim().length > 0 && !isStreaming && !isDisabled
+  const canSend = inputValue.trim().length > 0 && inputValue.trim().length <= maxLength && !isStreaming && !isDisabled
 
   // Show character count when within 10% of max length
   const showCharCount = inputValue.length > maxLength * 0.9

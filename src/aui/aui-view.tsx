@@ -36,12 +36,11 @@ export function AuiView({ spec, onSendMessage, files }: AuiViewProps) {
 
   return (
     <section
-      className="space-y-3 rounded-lg border p-3"
-      style={{ borderColor: 'var(--cx-border-subtle)', backgroundColor: 'var(--cx-canvas-subtle)' }}
+      className="cxc-aui-view w-full min-w-0 max-w-full space-y-3"
       aria-label={spec.title || 'Data view'}
     >
       {spec.title && (
-        <h3 className="text-sm font-semibold" style={{ color: 'var(--cx-text-primary)' }}>
+        <h3 className="min-w-0 text-sm font-semibold [overflow-wrap:anywhere]" style={{ color: 'var(--cx-text-primary)' }}>
           {spec.title}
         </h3>
       )}

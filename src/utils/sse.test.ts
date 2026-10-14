@@ -1,0 +1,124 @@
+import { afterEach, describe, expect, it, vi } from 'vitest'
+import { createSSEClient } from './sse'
+import type { ChatEvent, SSEStreamConfig } from '../types'
+
+afterEach(() => vi.unstubAllGlobals())
+
+function mockStream(text: string, chunkSize = 7) {
+  const bytes = new TextEncoder().encode(text)
+  const cancel = vi.fn()
+  const body = new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (let i = 0; i < bytes.length; i += chunkSize) controller.enqueue(bytes.slice(i, i + chunkSize))
+      controller.close()
+    }, cancel,
+  })
+  const fetch = vi.fn().mockResolvedValue(new Response(body, { headers: { 'Content-Type': 'text/event-stream; charset=utf-8' } }))
+  vi.stubGlobal('fetch', fetch)
+  return { fetch, cancel }
+}
+async function collect(config: Partial<SSEStreamConfig> = {}) {
+  const events: ChatEvent[] = []
+  for await (const event of createSSEClient(() => ({ url: '/chat', ...config })).send('hello', 'session')) events.push(event)
+  return events
+}
+
+describe('shared SSE transport', () => {
+  it.each(['\n', '\r\n', '\r'])('parses frames separated by %j across individual UTF-8 bytes', async newline => {
+    mockStream([': heartbeat', 'event: token', 'data: {"text":"नमस्ते 🌍"}', '', 'event: done', 'data: {"session_id":"abc"}', '', ''].join(newline), 1)
+    expect(await collect()).toEqual([{ type: 'token', text: 'नमस्ते 🌍' }, { type: 'done', sessionId: 'abc', messageId: undefined }])
+  })
+  it('combines multiple data lines before parsing JSON and ignores comments', async () => {
+    mockStream('event: token\ndata: {\ndata: "text": "hello"\ndata: }\n\n: keepalive\n\ndata: [DONE]\n\n')
+    expect(await collect()).toEqual([{ type: 'token', text: 'hello' }, { type: 'done' }])
+  })
+  // A server may close the body right after the last frame, with no blank
+  // line to dispatch it. That frame is still the answer's end.
+  it.each([
+    ['no blank line', 'event: token\ndata: {"text":"hi"}\n\nevent: done\ndata: {"session_id":"abc"}\n'],
+    ['no final newline', 'event: token\ndata: {"text":"hi"}\n\nevent: done\ndata: {"session_id":"abc"}'],
+  ])('dispatches the last frame at EOF with %s', async (_case, text) => {
+    mockStream(text)
+    expect(await collect()).toEqual([{ type: 'token', text: 'hi' }, { type: 'done', sessionId: 'abc', messageId: undefined }])
+  })
+  it('still reports a last frame cut mid-JSON as an incomplete stream', async () => {
+    mockStream('event: token\ndata: {"text":"hi"}\n\nevent: done\ndata: {"session_id":"ab')
+    expect(await collect()).toEqual([{ type: 'token', text: 'hi' }, expect.objectContaining({ type: 'error', code: 'INCOMPLETE_STREAM' })])
+  })
+  it('preserves spaces in raw tokens', async () => {
+    mockStream('data:  hello \n\ndata: [DONE]\n\n')
+    expect((await collect())[0]).toEqual({ type: 'token', text: ' hello ' })
+  })
+  it('passes custom adapters, session, headers, credentials and metadata', async () => {
+    const { fetch } = mockStream('event: custom\ndata: example\n\ndata: [DONE]\n\n')
+    const client = createSSEClient(() => ({ url: '/custom', credentials: 'include', headers: async () => ({ 'X-CSRF': 'test' }),
+      buildBody: (message, sessionId) => ({ prompt: message, sessionId }),
+      parseEvent: (event, data) => ({ type: 'token', text: `${event}:${data}` }),
+    }))
+    const events = []
+    for await (const event of client.send('question', 's1', { regenerate: true })) events.push(event)
+    expect(events[0]).toEqual({ type: 'token', text: 'custom:example' })
+    expect(fetch).toHaveBeenCalledWith('/custom', expect.objectContaining({ credentials: 'include', body: JSON.stringify({ prompt: 'question', sessionId: 's1', regenerate: true }), headers: expect.objectContaining({ 'X-CSRF': 'test' }) }))
+  })
+  it('reports early EOF and never silently accepts a truncated answer', async () => {
+    mockStream('event: token\ndata: {"text":"partial"}\n\n')
+    expect(await collect()).toEqual([{ type: 'token', text: 'partial' }, expect.objectContaining({ type: 'error', code: 'INCOMPLETE_STREAM' })])
+  })
+  it('rejects HTML login responses', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('<html>login</html>')))
+    expect(await collect()).toEqual([expect.objectContaining({ type: 'error', code: 'INVALID_CONTENT_TYPE' })])
+  })
+  it('does not expose an HTTP error response body', async () => {
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response('private stack trace', { status: 403 })))
+    expect(await collect()).toEqual([{ type: 'error', code: '403', message: 'Chat request failed (HTTP 403)' }])
+  })
+  it('aborts a waiting request immediately when return is called', async () => {
+    let signal: AbortSignal
+    vi.stubGlobal('fetch', vi.fn((_url, init: RequestInit) => {
+      signal = init.signal as AbortSignal
+      return new Promise((_resolve, reject) => signal.addEventListener('abort', () => reject(new DOMException('Aborted', 'AbortError'))))
+    }))
+    const iterator = createSSEClient(() => ({ url: '/chat' })).send('hi', null)
+    const pending = iterator.next()
+    const closed = iterator.return(undefined)
+    expect(signal!.aborted).toBe(true)
+    expect(await pending).toEqual({ done: true, value: undefined })
+    await closed
+  })
+  it('keeps reading after a recoverable server error so the rest of the answer and done arrive', async () => {
+    mockStream('event: error\ndata: {"message":"Tool failed","code":"tool_error","recoverable":true}\n\nevent: token\ndata: {"text":"still here"}\n\nevent: done\ndata: {"session_id":"s1","message_id":"m1"}\n\n')
+    expect(await collect()).toEqual([
+      { type: 'error', message: 'Tool failed', code: 'tool_error' },
+      { type: 'token', text: 'still here' },
+      { type: 'done', sessionId: 's1', messageId: 'm1' },
+    ])
+  })
+  it('does not add an incomplete-stream error after a server error that ended the stream', async () => {
+    mockStream('event: error\ndata: {"message":"Fatal"}\n\n')
+    expect(await collect()).toEqual([{ type: 'error', message: 'Fatal', code: undefined }])
+  })
+  it('completes after done even when the body cancel never settles', async () => {
+    // A stalled socket teardown must not hold the generator open: the provider
+    // clears its streaming state only after the generator finishes.
+    const body = new ReadableStream<Uint8Array>({
+      start(c) { c.enqueue(new TextEncoder().encode('event: token\ndata: {"text":"hi"}\n\nevent: done\ndata: {}\n\n')) },
+      cancel() { return new Promise(() => {}) },
+    })
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(body, { headers: { 'Content-Type': 'text/event-stream' } })))
+    const types: string[] = []
+    const run = (async () => { for await (const event of createSSEClient(() => ({ url: '/chat' })).send('m', null)) types.push(event.type) })()
+    const outcome = await Promise.race([run.then(() => 'completed'), new Promise<string>(resolve => setTimeout(() => resolve('hung'), 1000))])
+    expect(types).toEqual(['token', 'done'])
+    expect(outcome).toBe('completed')
+  })
+  it('cancels the body reader on terminal events', async () => {
+    const cancel = vi.fn()
+    vi.stubGlobal('fetch', vi.fn().mockResolvedValue(new Response(new ReadableStream({ start(c) { c.enqueue(new TextEncoder().encode('data: [DONE]\n\n')) }, cancel }), { headers: { 'content-type': 'text/event-stream' } })))
+    await collect()
+    expect(cancel).toHaveBeenCalledOnce()
+  })
+  it('skips malformed structured surfaces without crashing', async () => {
+    mockStream('event: ui_block\ndata: {"bad":true}\n\nevent: token\ndata: null\n\ndata: [DONE]\n\n')
+    expect(await collect()).toEqual([{ type: 'done' }])
+  })
+})

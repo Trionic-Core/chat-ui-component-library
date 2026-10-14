@@ -198,6 +198,8 @@ export function chatReducer(state: ChatState, action: ChatReducerAction): ChatSt
       return {
         ...state,
         isStreaming: action.isStreaming,
+        messages: action.isStreaming ? state.messages : state.messages.map(message =>
+          message.isStreaming ? { ...message, isStreaming: false } : message),
       }
 
     case 'SET_SESSION':
